@@ -30,13 +30,13 @@ async def on_message(message):
     # Trigger → list of 3 custom emoji IDs
     triggers = {
         "appbcbash": [
-            1414188725163790336,  # replace with your 1st emoji ID
-            1414192630165667872,  # replace with your 2nd emoji ID
-            1414192628010061824   # replace with your 3rd emoji ID
+            1414192630165667872,
+            1414188725163790336,
+            1414192628010061824
         ],
-        "appbce": [1414188725163790336],
+        "appbceq": [1414188725163790336],
         "appbaa": [1414192630165667872],
-        "appsher": [1414192628010061824]
+        "appsheriff": [1414192628010061824]
     }
 
     content = message.content.lower()
