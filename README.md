@@ -1,1 +1,4 @@
-MY discord bot
+OLIT
+Features 
+!hello
+and approvals
