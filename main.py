@@ -60,6 +60,9 @@ async def on_message(message):
 
 @bot.command()
 async def hello(ctx):
-    await ctx.send(f"!hello")
+    await ctx.send(f"Hello I am Launch Tower")\
+@bot.command()
+async def catch(ctx):
+    await ctx.send(f"You who didn't get any catch without any issues its Booster 16 ")
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
