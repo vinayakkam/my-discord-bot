@@ -20,17 +20,7 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
-    await member.send(f"Welcome to the BumbleRat Burocracy Simulator {member.name}")
-
-
-@bot.event
-async def on_message(message):
-    nwords = ['nword1', 'nword2', 'nword3', 'nword4', 'No', 'no']
-
-    for nwords in message.content:
-        await message.channel.send(f'{message.author.mention} just said the N-word!')
-
-    await bot.process_commands(message)
+    await member.channel.send(f"Welcome to the BumbleRat Burocracy Simulator {member.name}")
 
 @bot.event
 async def on_message(message):
