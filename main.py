@@ -3,7 +3,7 @@ from discord.ext import commands
 import logging
 from dotenv import load_dotenv
 import os
-import yt_dlp
+
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
