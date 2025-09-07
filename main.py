@@ -18,9 +18,11 @@ bot=commands.Bot(command_prefix='!',intents=intents)
 async def on_ready():
     print(f"We have logged in as {bot.user.name}")
 
-@bot.event
 async def on_member_join(member):
-    await member.channel.send(f"Welcome to the BumbleRat Burocracy Simulator {member.name}")
+    # Replace CHANNEL_ID with the ID of the channel where you want to send welcome messages
+    channel = bot.get_channel(1210475350765604876)
+    if channel:  # Make sure the channel exists
+        await channel.send(f"Welcome to the BumbleRat Bureaucracy Simulator, {member.name}!")
 
 @bot.event
 async def on_message(message):
