@@ -56,6 +56,6 @@ async def on_message(message):
 
 @bot.command()
 async def hello(ctx):
-    await ctx.send(f"{ctx.author.mention} Hello I am Launch Tower !")
+    await ctx.send(f"!hello")
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
