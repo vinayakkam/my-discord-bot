@@ -30,9 +30,9 @@ async def on_ready():
 @bot.event
 async def on_member_join(member):
     # Replace CHANNEL_ID with the ID of the channel where you want to send welcome messages
-    channel = bot.get_channel(1210475350765604876)
+    channel = bot.get_channel(1411426415450263585)
     if channel:  # Make sure the channel exists
-        await channel.send(f"Welcome to the BumbleRat Bureaucracy Simulator, {member.name}!")
+        await channel.send(f"Welcome to the BumbleRat Burocrazy Simulator, {member.name}!")
 
 
 @bot.event
