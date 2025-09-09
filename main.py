@@ -59,16 +59,6 @@ async def on_message(message):
                         print(f"Could not react with emoji ID {emoji_id}")
 
     await bot.process_commands(message)
-@bot.event()
-async def on_message(message):
-    if message.author == bot.user:
-        return
-    if "scrub" in message.content.lower():
-        await message.delete()
-        await message.channel.send(f"{message.author.mention} - dont use that word!")
-
-    await bot.process_commands(message)
-
 
 @bot.command()
 async def hello(ctx):
@@ -76,12 +66,5 @@ async def hello(ctx):
 @bot.command()
 async def catch(ctx):
     await ctx.send(f"You know who didn't get any catch without any issues its Booster 16 ")
-@bot.command()
-async def reload(ctx):
-    await ctx.send("Reloading...")
-@bot.command()
-async def ping(ctx):
-    await ctx.send("Pong!")
-bot.run(TOKEN)
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
