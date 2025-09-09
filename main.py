@@ -22,7 +22,10 @@ bot=commands.Bot(command_prefix='!',intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"We have logged in as {bot.user.name}")
+    await bot.tree.sync(guild=GUILD)  # instant for this server
+    print(f"✅ Synced slash commands to {GUILD_ID}")
+    print(f"Logged in as {bot.user}")
+
 @bot.event
 async def on_member_join(member):
     # Replace CHANNEL_ID with the ID of the channel where you want to send welcome messages
