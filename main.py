@@ -39,7 +39,7 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    if "shit" in message.content.lower():
+    if "scrub" in message.content.lower():
         await message.delete()
 
     await bot.process_commands(message)
