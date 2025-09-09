@@ -34,6 +34,16 @@ async def on_member_join(member):
     if channel:  # Make sure the channel exists
         await channel.send(f"Welcome to the BumbleRat Burocrazy Simulator, {member.name}!")
 
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    if "shit" in message.content.lower():
+        await message.delete()
+
+    await bot.process_commands(message)
+
 
 @bot.event
 async def on_message(message):
