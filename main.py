@@ -67,4 +67,9 @@ async def hello(ctx):
 async def catch(ctx):
     await ctx.send(f"You know who didn't get any catch without any issues its Booster 16 ")
 
+@bot.tree.command(name="ping", description="Check the bot's latency")
+async def ping(interaction: discord.Interaction):
+    latency_ms = round(bot.latency * 1000)  # convert to ms
+    await interaction.response.send_message(f"🏓 Pong! Latency: {latency_ms}ms")
+
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
