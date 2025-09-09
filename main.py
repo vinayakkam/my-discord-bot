@@ -5,6 +5,7 @@ from discord.ext import commands
 import logging
 from dotenv import load_dotenv
 import os
+import time
 
 
 load_dotenv()
@@ -65,7 +66,6 @@ async def on_message(message):
                         print(f"Could not react with emoji ID {emoji_id}")
 
     await bot.process_commands(message)
-
 @bot.command()
 async def hello(ctx):
     await ctx.send(f"Hello I am Launch Tower")
@@ -75,7 +75,30 @@ async def catch(ctx):
 
 @bot.tree.command(name="ping", description="Check the bot's latency", guild=GUILD)
 async def ping(interaction: discord.Interaction):
-    latency_ms = round(bot.latency * 1000)
-    await interaction.response.send_message(f"🏓 Pong! Latency: {latency_ms}ms")
+    start = time.perf_counter()
+
+    # Send initial response
+    await interaction.response.send_message("🏓 Pong...", ephemeral=True)
+
+    end = time.perf_counter()
+    response_time = (end - start) * 1000  # ms
+    ws_latency = bot.latency * 1000       # WebSocket latency (ms)
+    micro_latency = (end - start) * 1000  # Processing latency (same as response_time here)
+
+    # Create embed
+    embed = discord.Embed(
+        title="pong! 🏓",
+        color=discord.Color.red()
+    )
+
+    embed.add_field(name="⏳ Time", value=f"{int(response_time)} ms", inline=False)
+    embed.add_field(name="✨ Micro", value=f"{int(micro_latency)} ms", inline=False)
+    embed.add_field(name="📡 WS", value=f"{int(ws_latency)} ms", inline=False)
+
+    embed.set_footer(text=f"{interaction.user} • {time.strftime('%I:%M %p')}")
+
+    # Edit original response to show embed
+    await interaction.edit_original_response(content=None, embed=embed)
+
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
