@@ -9,6 +9,9 @@ import os
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+GUILD_ID = os.getenv("GUILD_ID")
+
+GUILD = discord.Object(id=int(GUILD_ID)) if GUILD_ID else None
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
@@ -67,9 +70,9 @@ async def hello(ctx):
 async def catch(ctx):
     await ctx.send(f"You know who didn't get any catch without any issues its Booster 16 ")
 
-@bot.tree.command(name="ping", description="Check the bot's latency")
+@bot.tree.command(name="ping", description="Check the bot's latency", guild=GUILD)
 async def ping(interaction: discord.Interaction):
-    latency_ms = round(bot.latency * 1000)  # convert to ms
+    latency_ms = round(bot.latency * 1000)
     await interaction.response.send_message(f"🏓 Pong! Latency: {latency_ms}ms")
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
