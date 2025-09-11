@@ -300,5 +300,151 @@ async def leaderboard(ctx):
     )
     await ctx.send(embed=embed)
 
+# -----------------------------------
+# 6️⃣ Trivia Game
+# -----------------------------------
+trivia_questions = [
+    {
+        "question": "What is the capital of France?",
+        "options": ["A) Paris", "B) Berlin", "C) Rome"],
+        "answer": "A"
+    },
+    {
+        "question": "Which planet is known as the Red Planet?",
+        "options": ["A) Venus", "B) Mars", "C) Jupiter"],
+        "answer": "B"
+    },
+    {
+        "question": "Who wrote the play 'Romeo and Juliet'?",
+        "options": ["A) Shakespeare", "B) Dickens", "C) Tolkien"],
+        "answer": "A"
+    }
+]
+
+@bot.command(name="trivia")
+async def trivia(ctx):
+    q = random.choice(trivia_questions)
+
+    embed = discord.Embed(
+        title="🎓 Trivia Time!",
+        description=f"{q['question']}\n\n" + "\n".join(q['options']) + "\n\nType A, B, or C in chat (15s timeout).",
+        color=discord.Color.teal()
+    )
+    await ctx.send(embed=embed)
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.upper() in ["A", "B", "C"]
+
+    try:
+        msg = await bot.wait_for("message", timeout=15.0, check=check)
+        if msg.content.upper() == q["answer"]:
+            result_embed = discord.Embed(
+                title="✅ Correct!",
+                description="You got it right! (+1 point)",
+                color=discord.Color.green()
+            )
+            add_score(ctx.author.id, 1)
+        else:
+            result_embed = discord.Embed(
+                title="❌ Wrong",
+                description=f"The correct answer was {q['answer']}.",
+                color=discord.Color.red()
+            )
+        await ctx.send(embed=result_embed)
+    except:
+        timeout_embed = discord.Embed(
+            title="⏳ Timeout",
+            description="You took too long to respond.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=timeout_embed)
+
+# -----------------------------------
+# 7️⃣ Math Quiz
+# -----------------------------------
+@bot.command(name="mathquiz")
+async def mathquiz(ctx):
+    a, b = random.randint(1, 10), random.randint(1, 10)
+    op = random.choice(["+", "-", "*"])
+    question = f"{a} {op} {b}"
+    answer = eval(question)
+
+    embed = discord.Embed(
+        title="🧮 Math Quiz",
+        description=f"Solve: **{question}** (15s timeout)",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed)
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.isdigit()
+
+    try:
+        msg = await bot.wait_for("message", timeout=15.0, check=check)
+        if int(msg.content) == answer:
+            result_embed = discord.Embed(
+                title="✅ Correct!",
+                description=f"You solved it! (+1 point)",
+                color=discord.Color.green()
+            )
+            add_score(ctx.author.id, 1)
+        else:
+            result_embed = discord.Embed(
+                title="❌ Wrong",
+                description=f"The correct answer was **{answer}**.",
+                color=discord.Color.red()
+            )
+        await ctx.send(embed=result_embed)
+    except:
+        timeout_embed = discord.Embed(
+            title="⏳ Timeout",
+            description="You took too long to answer.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=timeout_embed)
+
+# -----------------------------------
+# 8️⃣ Word Unscramble
+# -----------------------------------
+words = ["python", "discord", "bot", "game", "rocket", "planet", "leaderboard"]
+
+@bot.command(name="unscramble")
+async def unscramble(ctx):
+    word = random.choice(words)
+    scrambled = ''.join(random.sample(word, len(word)))
+
+    embed = discord.Embed(
+        title="🔤 Word Unscramble",
+        description=f"Unscramble this word: **{scrambled}** (15s timeout)",
+        color=discord.Color.purple()
+    )
+    await ctx.send(embed=embed)
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    try:
+        msg = await bot.wait_for("message", timeout=15.0, check=check)
+        if msg.content.lower() == word:
+            result_embed = discord.Embed(
+                title="✅ Correct!",
+                description="You unscrambled it! (+1 point)",
+                color=discord.Color.green()
+            )
+            add_score(ctx.author.id, 1)
+        else:
+            result_embed = discord.Embed(
+                title="❌ Wrong",
+                description=f"The word was **{word}**.",
+                color=discord.Color.red()
+            )
+        await ctx.send(embed=result_embed)
+    except:
+        timeout_embed = discord.Embed(
+            title="⏳ Timeout",
+            description="You took too long to answer.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=timeout_embed)
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
