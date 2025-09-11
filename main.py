@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import os
 import time
 import random
+import json
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -446,5 +447,26 @@ async def unscramble(ctx):
             color=discord.Color.red()
         )
         await ctx.send(embed=timeout_embed)
+
+SCORES_FILE = "scores.json"
+
+def load_scores():
+    """Load scores from a JSON file if it exists, otherwise return empty dict."""
+    if os.path.exists(SCORES_FILE):
+        with open(SCORES_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_scores():
+    """Save current scores dict to JSON file."""
+    with open(SCORES_FILE, "w") as f:
+        json.dump(scores, f)
+
+scores = load_scores()
+
+def add_score(user_id, points=1):
+    """Add points to a user and persist to JSON."""
+    scores[str(user_id)] = scores.get(str(user_id), 0) + points
+    save_scores()
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
