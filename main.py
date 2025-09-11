@@ -277,29 +277,38 @@ async def score(ctx, member: discord.Member = None):
 
 @bot.command(name="leaderboard")
 async def leaderboard(ctx):
-    """Show the top players."""
     if not scores:
-        embed = discord.Embed(
-            title="🏆 Leaderboard",
-            description="No scores yet. Play some games!",
-            color=discord.Color.orange()
-        )
-        await ctx.send(embed=embed)
+        await ctx.send(embed=make_basic_embed("🏆 Leaderboard", "No scores yet. Play some games!", discord.Color.orange()))
         return
 
-    # Sort scores descending
+    # Sort highest to lowest
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    description = ""
-    for i, (user_id, score_value) in enumerate(sorted_scores[:10], start=1):
-        member = ctx.guild.get_member(user_id)
-        name = member.display_name if member else f"User {user_id}"
-        description += f"**{i}. {name}** — {score_value} points\n"
+    desc = ""
 
-    embed = discord.Embed(
-        title="🏆 Leaderboard",
-        description=description,
-        color=discord.Color.orange()
-    )
+    for i, (user_id, score_val) in enumerate(sorted_scores[:10], start=1):
+        # Prevent negative scores (just in case)
+        if score_val < 0:
+            score_val = 0
+
+        # Try to get a member from the guild first
+        member = ctx.guild.get_member(int(user_id))
+        if member is None:
+            # Try to fetch user globally
+            try:
+                member = await bot.fetch_user(int(user_id))
+            except discord.NotFound:
+                member = None
+
+        if member:
+            name = member.display_name
+        else:
+            name = f"User {user_id}"
+
+        # Add crown emoji to #1
+        crown = "👑 " if i == 1 else ""
+        desc += f"**{i}. {crown}{name}** — {score_val} points\n"
+
+    embed = discord.Embed(title="🏆 Leaderboard", description=desc, color=discord.Color.orange())
     await ctx.send(embed=embed)
 
 # -----------------------------------
