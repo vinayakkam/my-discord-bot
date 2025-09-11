@@ -22,66 +22,6 @@ intents.members=True
 
 bot=commands.Bot(command_prefix='!',intents=intents)
 
-@bot.command()
-async def games(ctx):
-    embed = discord.Embed(
-        title="🎮 Mini-Game Bot — Games List",
-        description="All the mini-games you can play:",
-        color=discord.Color.blurple()
-    )
-
-    embed.add_field(
-        name="🪨📄✂️ Rock Paper Scissors",
-        value="`!rps <rock|paper|scissors>` — Play with the bot.",
-        inline=False
-    )
-    embed.add_field(
-        name="🪙 Coin Flip",
-        value="`!coinflip <heads|tails>` — Guess a coin flip.",
-        inline=False
-    )
-    embed.add_field(
-        name="🎲 Dice Roll",
-        value="`!dice <guess> <sides>` — Roll dice (optional guess & sides).",
-        inline=False
-    )
-    embed.add_field(
-        name="🔢 Number Guess",
-        value="`!guess` — Guess a number between 1 and 10 in 15s.",
-        inline=False
-    )
-    embed.add_field(
-        name="🎓 Trivia Quiz",
-        value="`!trivia` — Answer a multiple-choice question (A/B/C).",
-        inline=False
-    )
-    embed.add_field(
-        name="🧮 Math Quiz",
-        value="`!mathquiz` — Solve a random math question.",
-        inline=False
-    )
-    embed.add_field(
-        name="🔤 Word Unscramble",
-        value="`!unscramble` — Unscramble a word in 15s.",
-        inline=False
-    )
-    embed.add_field(
-        name="🏆 Score",
-        value="`!score [@user]` — View your or another user’s score.",
-        inline=False
-    )
-    embed.add_field(
-        name="🏆 Leaderboard",
-        value="`!leaderboard` — View the top 10 players.",
-        inline=False
-    )
-
-    embed.set_footer(
-        text="All correct answers or wins add +1 point to your score (stored in scores.json)."
-    )
-
-    await ctx.send(embed=embed)
-
 
 @bot.event
 async def on_ready():
