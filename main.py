@@ -470,7 +470,7 @@ def add_score(user_id, points=1):
     save_scores()
 
 @bot.command(name="games")
-async def games_command(ctx):
+async def games(ctx):
     embed = discord.Embed(
         title="🎮 Mini-Game Bot — Game List",
         description="Here’s every game you can play and how to start it:",
