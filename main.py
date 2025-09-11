@@ -469,4 +469,71 @@ def add_score(user_id, points=1):
     scores[str(user_id)] = scores.get(str(user_id), 0) + points
     save_scores()
 
+@bot.command(name="games")
+async def games_command(ctx):
+    embed = discord.Embed(
+        title="🎮 Mini-Game Bot — Game List",
+        description="Here’s every game you can play and how to start it:",
+        color=discord.Color.blurple()
+    )
+
+    embed.add_field(
+        name="🪨📄✂️ Rock Paper Scissors",
+        value="`!rps <rock|paper|scissors>` — Play rock-paper-scissors with the bot.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🪙 Coin Flip",
+        value="`!coinflip <heads|tails>` — Guess a coin flip (or just flip without guessing).",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎲 Dice Roll",
+        value="`!dice <guess> <sides>` — Roll dice. Optional guess and number of sides.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔢 Number Guess",
+        value="`!guess` — Bot picks a number between 1–10. You guess within 15 seconds.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎓 Trivia Quiz",
+        value="`!trivia` — Bot asks a multiple-choice question. Reply A/B/C in 15 seconds.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🧮 Math Quiz",
+        value="`!mathquiz` — Solve a random math problem in 15 seconds.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔤 Word Unscramble",
+        value="`!unscramble` — Unscramble a scrambled word within 15 seconds.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏆 Score",
+        value="`!score [@user]` — View your score or another user’s score.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏆 Leaderboard",
+        value="`!leaderboard` — View the top 10 players in the server.",
+        inline=False
+    )
+
+    embed.set_footer(text="All correct answers or wins add +1 point to your score (saved in scores.json)")
+
+    await ctx.send(embed=embed)
+
+
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
