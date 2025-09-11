@@ -82,6 +82,9 @@ async def hello(ctx):
 @bot.command()
 async def catch(ctx):
     await ctx.send(f"You know who didn't get any catch without any issues its Booster 16 ")
+@bot.command()
+async def vent(ctx):
+    await ctx.send(f"I am venting whieeeeee 💨💨💨")
 
 @bot.tree.command(name="ping", description="Check the bot's latency", guild=GUILD)
 async def ping(interaction: discord.Interaction):
