@@ -492,5 +492,40 @@ def add_score(user_id, points=1):
     scores[str(user_id)] = scores.get(str(user_id), 0) + points
     save_scores()
 
+@bot.command(name="games")
+async def games(ctx):
+    """List all available mini-games and how to play them."""
+    embed = discord.Embed(
+        title="🎮 Mini Games",
+        description="Here’s the list of all mini-games and how to play them!",
+        color=discord.Color.blue()
+    )
+
+    embed.add_field(
+        name="🪨 Rock Paper Scissors",
+        value="Play against the bot!\nUse: `!rps <rock|paper|scissors>`",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎯 Guess the Number",
+        value="Bot thinks of a number between 1 and 100. Guess until you’re right!\nUse: `!guess <number>`",
+        inline=False
+    )
+
+    embed.add_field(
+        name="📝 Trivia",
+        value="Answer trivia questions and earn points!\nUse: `!trivia`",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🪙 Coin Flip",
+        value="Flip a coin.\nUse: `!coin`",
+        inline=False
+    )
+
+    embed.set_footer(text="More games coming soon! Earn points and climb the leaderboard.")
+    await ctx.send(embed=embed)
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
