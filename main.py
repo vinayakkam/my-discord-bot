@@ -494,38 +494,62 @@ def add_score(user_id, points=1):
 
 @bot.command(name="games")
 async def games(ctx):
-    """List all available mini-games and how to play them."""
     embed = discord.Embed(
-        title="🎮 Mini Games",
-        description="Here’s the list of all mini-games and how to play them!",
-        color=discord.Color.blue()
+        title="🎮 Mini-Game Bot — Games List",
+        description="All the mini-games you can play:",
+        color=discord.Color.blurple()
     )
 
     embed.add_field(
-        name="🪨 Rock Paper Scissors",
-        value="Play against the bot!\nUse: `!rps <rock|paper|scissors>`",
+        name="🪨📄✂️ Rock Paper Scissors",
+        value="`!rps <rock|paper|scissors>` — Play with the bot.",
         inline=False
     )
-
-    embed.add_field(
-        name="🎯 Guess the Number",
-        value="Bot thinks of a number between 1 and 100. Guess until you’re right!\nUse: `!guess <number>`",
-        inline=False
-    )
-
-    embed.add_field(
-        name="📝 Trivia",
-        value="Answer trivia questions and earn points!\nUse: `!trivia`",
-        inline=False
-    )
-
     embed.add_field(
         name="🪙 Coin Flip",
-        value="Flip a coin.\nUse: `!coin`",
+        value="`!coinflip <heads|tails>` — Guess a coin flip.",
+        inline=False
+    )
+    embed.add_field(
+        name="🎲 Dice Roll",
+        value="`!dice <guess> <sides>` — Roll dice (optional guess & sides).",
+        inline=False
+    )
+    embed.add_field(
+        name="🔢 Number Guess",
+        value="`!guess` — Guess a number between 1 and 10 in 15s.",
+        inline=False
+    )
+    embed.add_field(
+        name="🎓 Trivia Quiz",
+        value="`!trivia` — Answer a multiple-choice question (A/B/C).",
+        inline=False
+    )
+    embed.add_field(
+        name="🧮 Math Quiz",
+        value="`!mathquiz` — Solve a random math question.",
+        inline=False
+    )
+    embed.add_field(
+        name="🔤 Word Unscramble",
+        value="`!unscramble` — Unscramble a word in 15s.",
+        inline=False
+    )
+    embed.add_field(
+        name="🏆 Score",
+        value="`!score [@user]` — View your or another user’s score.",
+        inline=False
+    )
+    embed.add_field(
+        name="🏆 Leaderboard",
+        value="`!leaderboard` — View the top 10 players.",
         inline=False
     )
 
-    embed.set_footer(text="More games coming soon! Earn points and climb the leaderboard.")
+    embed.set_footer(
+        text="All correct answers or wins add +1 point to your score (stored in scores.json)."
+    )
+
     await ctx.send(embed=embed)
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
