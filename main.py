@@ -556,6 +556,128 @@ async def unscramble(ctx):
         )
         await ctx.send(embed=timeout_embed)
 
+@bot.command(name="starship")
+async def starship(ctx):
+    """
+    Interactive Starship success predictor.
+    Asks a few questions and returns a simulated success probability.
+    Awards +1 participation point via add_score() if available.
+    """
+    try:
+        # Questions and options
+        questions = [
+            {
+                "prompt": "1) Weather at launch: Choose one\nA) Excellent (clear, low wind)\nB) Moderate (some wind/clouds)\nC) Poor (high wind/storm)",
+                "options": {"A": "excellent", "B": "moderate", "C": "poor"},
+                "weights": {"excellent": 0.20, "moderate": 0.0, "poor": -0.20}
+            },
+            {
+                "prompt": "2) Vehicle condition: Choose one\nA) Freshly inspected & nominal\nB) Refurb / marginal\nC) Unknown / rushed",
+                "options": {"A": "fresh", "B": "refurb", "C": "unknown"},
+                "weights": {"fresh": 0.15, "refurb": 0.0, "unknown": -0.15}
+            },
+            {
+                "prompt": "3) Payload mass relative to planned:\nA) Light (< planned)\nB) Nominal (as-planned)\nC) Heavy (> planned)",
+                "options": {"A": "light", "B": "nominal", "C": "heavy"},
+                "weights": {"light": 0.10, "nominal": 0.0, "heavy": -0.10}
+            },
+            {
+                "prompt": "4) Recent test experience:\nA) Many successful recent tests\nB) Some tests, mixed results\nC) Few/no tests recently",
+                "options": {"A": "many", "B": "some", "C": "few"},
+                "weights": {"many": 0.15, "some": 0.0, "few": -0.15}
+            }
+        ]
+
+        answers = {}
+        total_weight = 0.0
+
+        # Helper check for replies
+        def check(m):
+            return m.author == ctx.author and m.channel == ctx.channel and m.content.strip().upper() in ["A","B","C"]
+
+        # Ask each question
+        for q in questions:
+            await ctx.send(embed=discord.Embed(
+                title="Starship Launch Predictor",
+                description=q["prompt"] + "\n\nReply with A, B or C (15s).",
+                color=discord.Color.dark_teal()
+            ))
+
+            try:
+                msg = await bot.wait_for("message", timeout=15.0, check=check)
+            except Exception:
+                await ctx.send(embed=discord.Embed(
+                    title="⏳ Timeout",
+                    description="You took too long to answer. Run `!starship` again when ready.",
+                    color=discord.Color.red()
+                ))
+                return
+
+            choice = msg.content.strip().upper()
+            selected_key = q["options"][choice]
+            answers[q["prompt"].split("\n")[0]] = selected_key  # store short key
+            total_weight += q["weights"].get(selected_key, 0.0)
+
+        # Base probability (a plausible mid value), then apply weights
+        base = 0.55  # 55% baseline for a complex heavy rocket — arbitrary for game
+        prob = base + total_weight
+
+        # Add a small random noise to simulate uncertainty
+        noise = random.uniform(-0.08, 0.08)
+        prob += noise
+
+        # Clamp 0..1
+        prob = max(0.01, min(0.99, prob))
+        percent = int(round(prob * 100))
+
+        # Build explanation lines
+        lines = []
+        for i, q in enumerate(questions, start=1):
+            key = list(q["options"].values())[list(q["options"].keys()).index(list(q["options"].keys())[0])]  # placeholder (we'll use answers)
+        # Better explanation using answers and weights:
+        explanation = []
+        for q in questions:
+            # find prompt title
+            title = q["prompt"].split("\n")[0]
+            # find the user's choice key (we stored earlier)
+            user_choice = answers.get(title)
+            weight = q["weights"].get(user_choice, 0.0)
+            sign = "+" if weight > 0 else ""
+            explanation.append(f"**{title}** — {user_choice.capitalize()} ({sign}{weight:+.2f})")
+
+        # Format a final embed
+        embed = discord.Embed(
+            title="🚀 Starship Success Predictor",
+            description=f"Predicted chance of a successful flight: **{percent}%**",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Quick breakdown", value="\n".join(explanation), inline=False)
+        embed.add_field(name="Notes", value=(
+            "This is a playful simulation — not a real forecast. "
+            "Factors are simplified into categories and a bit of randomness."
+        ), inline=False)
+        embed.set_footer(text=f"Random variance: {int(round(noise*100))}% | Base {int(base*100)}%")
+
+        await ctx.send(embed=embed)
+
+        # Give a participation point if add_score exists
+        try:
+            if 'add_score' in globals():
+                add_score(ctx.author.id, 1)
+        except Exception:
+            # ignore score errors, but don't crash
+            pass
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await ctx.send(embed=discord.Embed(
+            title="⚠️ Error",
+            description="Something went wrong running the predictor. Check the bot logs.",
+            color=discord.Color.dark_red()
+        ))
+
+
 SCORES_FILE = "scores.json"
 
 def load_scores():
@@ -618,6 +740,11 @@ async def games(ctx):
     embed.add_field(
         name="🔤 Word Unscramble",
         value="`!unscramble` — Unscramble a word in 15s.",
+        inline=False
+    )
+    embed.add_field(
+        name="🚀 Starship Predictor",
+        value="`!starship` — Answer 4 quick questions to simulate a SpaceX Starship launch success chance. (+1 point for participating!)",
         inline=False
     )
     embed.add_field(
