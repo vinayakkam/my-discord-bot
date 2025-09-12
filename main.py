@@ -524,7 +524,7 @@ async def unscramble(ctx):
 
     embed = discord.Embed(
         title="🔤 Word Unscramble",
-        description=f"Unscramble this word: **{scrambled}** (15s timeout)",
+        description=f"Unscramble this word: **{scrambled}** (60s timeout)",
         color=discord.Color.purple()
     )
     await ctx.send(embed=embed)
@@ -533,7 +533,7 @@ async def unscramble(ctx):
         return m.author == ctx.author and m.channel == ctx.channel
 
     try:
-        msg = await bot.wait_for("message", timeout=15.0, check=check)
+        msg = await bot.wait_for("message", timeout=60.0, check=check)
         if msg.content.lower() == word:
             result_embed = discord.Embed(
                 title="✅ Correct!",
