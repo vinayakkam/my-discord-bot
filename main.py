@@ -275,9 +275,11 @@ async def score(ctx, member: discord.Member = None):
     )
     await ctx.send(embed=embed)
 
+LEADER_ROLE_ID = 1415720279631593573  # 🔹 paste your role ID here
+
 @bot.command(name="leaderboard")
 async def leaderboard(ctx):
-    """Show the top players."""
+    """Show the top players and assign role to #1 (by role ID)."""
     if not scores:
         embed = discord.Embed(
             title="🏆 Leaderboard",
@@ -291,31 +293,11 @@ async def leaderboard(ctx):
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     description = ""
 
+    # Build leaderboard text
     for i, (user_id, score_value) in enumerate(sorted_scores[:10], start=1):
-        # clamp negatives
-        if score_value < 0:
-            score_value = 0
-
-        # ensure user_id is int
-        user_id = int(user_id)
-
-        # Try to get member from current guild
-        member = ctx.guild.get_member(user_id)
-        if member is None:
-            # Try to fetch globally if not found in guild
-            try:
-                member = await bot.fetch_user(user_id)
-            except discord.NotFound:
-                member = None
-
-        if member:
-            # display_name if in guild, name if global user
-            name = getattr(member, "display_name", member.name)
-        else:
-            name = f"User {user_id}"
-
-        crown = "👑 " if i == 1 else ""
-        description += f"**{i}. {crown}{name}** — {score_value} points\n"
+        member = ctx.guild.get_member(int(user_id))
+        name = member.display_name if member else f"User {user_id}"
+        description += f"**{i}. {name}** — {score_value} points\n"
 
     embed = discord.Embed(
         title="🏆 Leaderboard",
@@ -323,6 +305,33 @@ async def leaderboard(ctx):
         color=discord.Color.orange()
     )
     await ctx.send(embed=embed)
+
+    # 🔹 Assign / remove roles by ID
+    top_user_id = int(sorted_scores[0][0])
+    top_member = ctx.guild.get_member(top_user_id)
+
+    # Get the role by ID
+    role = ctx.guild.get_role(LEADER_ROLE_ID)
+    if role is None:
+        await ctx.send(f"⚠️ Role with ID `{LEADER_ROLE_ID}` not found. Please check the ID.")
+        return
+
+    # Remove role from everyone else
+    for member in ctx.guild.members:
+        if role in member.roles and member.id != top_user_id:
+            try:
+                await member.remove_roles(role)
+            except discord.Forbidden:
+                await ctx.send("⚠️ I lack permission to remove roles.")
+                return
+
+    # Add role to the top player if not already
+    if top_member and role not in top_member.roles:
+        try:
+            await top_member.add_roles(role)
+            await ctx.send(f"🏅 {top_member.mention} is now the **Leaderboard Leader**!")
+        except discord.Forbidden:
+            await ctx.send("⚠️ I lack permission to add roles.")
 
 # -----------------------------------
 # 6️⃣ Trivia Game
