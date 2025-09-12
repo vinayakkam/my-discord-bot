@@ -387,7 +387,7 @@ async def trivia(ctx):
 
     # Build embed question
     question_text = q["question"] + "\n\n" + "\n".join(
-        [f"{L}) {O}" for L, O in letter_to_option.items()]) + "\n\nType A, B, or C in chat (15s)."
+        [f"{L}) {O}" for L, O in letter_to_option.items()]) + "\n\nType A, B, or C in chat (30s)."
     embed = discord.Embed(title="🎓 Trivia Time!",
                           description=question_text,
                           color=discord.Color.teal())
@@ -399,7 +399,7 @@ async def trivia(ctx):
                 m.content.upper() in letter_to_option.keys())
 
     try:
-        reply = await bot.wait_for("message", timeout=15.0, check=check)
+        reply = await bot.wait_for("message", timeout=30.0, check=check)
     except Exception:
         timeout_embed = discord.Embed(
             title="⏳ Timeout",
