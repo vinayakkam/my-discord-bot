@@ -327,61 +327,97 @@ async def leaderboard(ctx):
 # -----------------------------------
 # 6️⃣ Trivia Game
 # -----------------------------------
-trivia_questions = [
-    {
-        "question": "What is the capital of France?",
-        "options": ["A) Paris", "B) Berlin", "C) Rome"],
-        "answer": "A"
-    },
-    {
-        "question": "Which planet is known as the Red Planet?",
-        "options": ["A) Venus", "B) Mars", "C) Jupiter"],
-        "answer": "B"
-    },
-    {
-        "question": "Who wrote the play 'Romeo and Juliet'?",
-        "options": ["A) Shakespeare", "B) Dickens", "C) Tolkien"],
-        "answer": "A"
-    }
+TRIVIA_QUESTIONS = [
+    {"question": "What is the capital of France?",
+     "options": ["Paris", "Berlin", "Rome"], "answer": "Paris"},
+    {"question": "Which planet is known as the Red Planet?",
+     "options": ["Mars", "Venus", "Jupiter"], "answer": "Mars"},
+    {"question": "Who wrote 'Romeo and Juliet'?",
+     "options": ["Shakespeare", "Dickens", "Tolkien"], "answer": "Shakespeare"},
+    {"question": "Which ocean is the largest?",
+     "options": ["Pacific", "Atlantic", "Indian"], "answer": "Pacific"},
+    {"question": "Which is the smallest prime number?",
+     "options": ["2", "3", "1"], "answer": "2"},
+
+    # Space related
+    {"question": "Which planet has the most moons?",
+     "options": ["Saturn", "Jupiter", "Neptune"], "answer": "Saturn"},
+    {"question": "What is the hottest planet in our Solar System?",
+     "options": ["Venus", "Mercury", "Mars"], "answer": "Venus"},
+    {"question": "Which planet is known for its Great Red Spot?",
+     "options": ["Jupiter", "Mars", "Saturn"], "answer": "Jupiter"},
+    {"question": "What galaxy is Earth located in?",
+     "options": ["Milky Way", "Andromeda", "Triangulum"], "answer": "Milky Way"},
+    {"question": "Who was the first person in space?",
+     "options": ["Yuri Gagarin", "Neil Armstrong", "Buzz Aldrin"], "answer": "Yuri Gagarin"},
+    {"question": "What is the name of the first artificial Earth satellite?",
+     "options": ["Sputnik 1", "Explorer 1", "Vostok 1"], "answer": "Sputnik 1"},
+    {"question": "Which planet rotates on its side?",
+     "options": ["Uranus", "Neptune", "Venus"], "answer": "Uranus"},
+    {"question": "What is the largest planet in our Solar System?",
+     "options": ["Jupiter", "Saturn", "Neptune"], "answer": "Jupiter"},
+    {"question": "Which planet has the fastest winds?",
+     "options": ["Neptune", "Saturn", "Mars"], "answer": "Neptune"},
+    {"question": "Which planet has a day longer than its year?",
+     "options": ["Venus", "Mercury", "Mars"], "answer": "Venus"},
 ]
+
+LETTERS = ["A", "B", "C"]
 
 @bot.command(name="trivia")
 async def trivia(ctx):
-    q = random.choice(trivia_questions)
+    """Ask a random trivia question. Awards +1 point if correct."""
+    q = random.choice(TRIVIA_QUESTIONS)
 
-    embed = discord.Embed(
-        title="🎓 Trivia Time!",
-        description=f"{q['question']}\n\n" + "\n".join(q['options']) + "\n\nType A, B, or C in chat (15s timeout).",
-        color=discord.Color.teal()
-    )
+    # Shuffle answers & assign A/B/C dynamically
+    options = q["options"][:3]
+    random.shuffle(options)
+    letter_to_option = {LETTERS[i]: options[i] for i in range(len(options))}
+    correct_letter = next((L for L, O in letter_to_option.items()
+                           if O.lower() == q["answer"].lower()), None)
+
+    # Build embed question
+    question_text = q["question"] + "\n\n" + "\n".join(
+        [f"{L}) {O}" for L, O in letter_to_option.items()]) + "\n\nType A, B, or C in chat (15s)."
+    embed = discord.Embed(title="🎓 Trivia Time!",
+                          description=question_text,
+                          color=discord.Color.teal())
     await ctx.send(embed=embed)
 
     def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.upper() in ["A", "B", "C"]
+        return (m.author == ctx.author and
+                m.channel == ctx.channel and
+                m.content.upper() in letter_to_option.keys())
 
     try:
-        msg = await bot.wait_for("message", timeout=15.0, check=check)
-        if msg.content.upper() == q["answer"]:
-            result_embed = discord.Embed(
-                title="✅ Correct!",
-                description="You got it right! (+1 point)",
-                color=discord.Color.green()
-            )
-            add_score(ctx.author.id, 1)
-        else:
-            result_embed = discord.Embed(
-                title="❌ Wrong",
-                description=f"The correct answer was {q['answer']}.",
-                color=discord.Color.red()
-            )
-        await ctx.send(embed=result_embed)
-    except:
+        reply = await bot.wait_for("message", timeout=15.0, check=check)
+    except Exception:
         timeout_embed = discord.Embed(
             title="⏳ Timeout",
-            description="You took too long to respond.",
-            color=discord.Color.red()
-        )
+            description="You took too long to answer.",
+            color=discord.Color.red())
         await ctx.send(embed=timeout_embed)
+        return
+
+    chosen = reply.content.upper()
+    chosen_answer = letter_to_option[chosen]
+
+    if chosen == correct_letter:
+        # use your existing add_score
+        add_score(ctx.author.id, 1)
+        total = scores.get(str(ctx.author.id), 0)
+        success_embed = discord.Embed(
+            title="✅ Correct!",
+            description=f"You answered **{chosen}) {chosen_answer}** — +1 point!\nTotal points: **{total}**",
+            color=discord.Color.green())
+        await ctx.send(embed=success_embed)
+    else:
+        fail_embed = discord.Embed(
+            title="❌ Wrong",
+            description=f"You answered **{chosen}) {chosen_answer}**.\nCorrect answer: **{correct_letter}) {q['answer']}**.",
+            color=discord.Color.red())
+        await ctx.send(embed=fail_embed)
+
 
 # -----------------------------------
 # 7️⃣ Math Quiz
