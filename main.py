@@ -466,7 +466,27 @@ async def mathquiz(ctx):
 # -----------------------------------
 # 8️⃣ Word Unscramble
 # -----------------------------------
-words = ["python", "discord", "bot", "game", "rocket", "planet", "leaderboard"]
+words = ["astronaut", "satellite", "microphone", "laboratory", "imagination",
+         "volcano", "chocolate", "adventure", "whispering", "kaleidoscope",
+         "transmission", "encyclopedia", "revolution", "phenomenon", "synchronous",
+         "cryptography", "electricity", "mathematics", "biodiversity", "holographic",
+         "python", "planet", "stream", "silent", "forest",
+         "school", "castle", "camera", "driver", "orange",
+         "guitar", "rabbit", "coffee", "bridge", "engine",
+         "flight", "anchor", "circle", "silver", "window",
+         "apple", "table", "house", "water", "train",
+         "light", "music", "chair", "stone", "river",
+         "green", "mouse", "bread", "heart", "dance",
+         "sleep", "dream", "cloud", "plant", "happy",
+         "planet", "galaxy", "nebula", "asteroid", "comet",
+         "meteor", "rocket", "launch", "orbiter", "cosmos",
+         "spacesuit", "gravity", "satellite", "telescope", "universe",
+         "asterism", "supernova", "blackhole", "quasar", "pulsar"
+
+
+
+
+    ]
 
 @bot.command(name="unscramble")
 async def unscramble(ctx):
