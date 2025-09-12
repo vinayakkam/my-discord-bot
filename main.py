@@ -677,6 +677,113 @@ async def starship(ctx):
             color=discord.Color.dark_red()
         ))
 
+@bot.command(name="starship_ship")
+async def starship_ship(ctx):
+    """
+    Simulate Starship ship-only launch success chance based on test outcomes.
+    Asks for the ship name first.
+    """
+
+    # 1️⃣ Ask for ship name first
+    ask_name = discord.Embed(
+        title="🚀 Starship Ship Simulation",
+        description="Please enter the **Ship Name** (e.g. `S38`) within 15s:",
+        color=discord.Color.dark_blue()
+    )
+    await ctx.send(embed=ask_name)
+
+    def name_check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    try:
+        name_msg = await bot.wait_for("message", timeout=15.0, check=name_check)
+        ship_name = name_msg.content.strip()
+    except:
+        await ctx.send(embed=discord.Embed(
+            title="⏳ Timeout",
+            description="You didn’t provide a ship name in time. Cancelling simulation.",
+            color=discord.Color.red()
+        ))
+        return
+
+    # 2️⃣ Define the tests
+    tests = [
+        "Heat shield tile test",
+        "Propellant tank pressure test",
+        "RCS thruster test",
+        "Vacuum engine static fire",
+        "Flight control surfaces test"
+    ]
+
+    # Store answers as 'success', 'partial', 'failure'
+    user_answers = {}
+
+    # 3️⃣ Ask the test questions one by one
+    for test_name in tests:
+        embed = discord.Embed(
+            title=f"🚀 Testing {ship_name}",
+            description=(
+                f"**{test_name}**\n"
+                f"Reply with `success`, `partial`, or `failure` (15s timeout)."
+            ),
+            color=discord.Color.dark_blue()
+        )
+        await ctx.send(embed=embed)
+
+        def check(m):
+            return (
+                m.author == ctx.author
+                and m.channel == ctx.channel
+                and m.content.lower() in ["success", "partial", "failure"]
+            )
+
+        try:
+            msg = await bot.wait_for("message", timeout=15.0, check=check)
+            user_answers[test_name] = msg.content.lower()
+        except:
+            await ctx.send(embed=discord.Embed(
+                title="⏳ Timeout",
+                description=f"No answer for **{test_name}**, counting as failure.",
+                color=discord.Color.red()
+            ))
+            user_answers[test_name] = "failure"
+
+    # 4️⃣ Compute chance of success based on answers
+    score = 0
+    for ans in user_answers.values():
+        if ans == "success":
+            score += 3
+        elif ans == "partial":
+            score += 1
+        # failure = 0
+
+    # Max possible = 5 tests × 3 points = 15
+    chance = int((score / 15) * 100)
+
+    # Add random ±5% variability to simulate unknown factors
+    chance += random.randint(-5, 5)
+    chance = max(0, min(chance, 100))
+
+    # 5️⃣ Create result embed
+    result = discord.Embed(
+        title=f"🚀 Starship {ship_name} Ship-Only Launch Simulation",
+        description=(
+            f"Based on your test results for **{ship_name}**:\n\n"
+            f"🟩 **{list(user_answers.values()).count('success')} successes**\n"
+            f"🟨 **{list(user_answers.values()).count('partial')} partials**\n"
+            f"🟥 **{list(user_answers.values()).count('failure')} failures**\n\n"
+            f"🔮 **Predicted Launch Success Chance: {chance}%**"
+        ),
+        color=discord.Color.green() if chance >= 50 else discord.Color.red()
+    )
+
+    await ctx.send(embed=result)
+
+    # ✅ Award +1 point for participating (if you have add_score)
+    try:
+        add_score(ctx.author.id, 1)
+    except Exception as e:
+        print("add_score error:", e)
 
 SCORES_FILE = "scores.json"
 
@@ -743,8 +850,13 @@ async def games(ctx):
         inline=False
     )
     embed.add_field(
-        name="🚀 Starship Predictor",
-        value="`!starship` — Answer 4 quick questions to simulate a SpaceX Starship launch success chance. (+1 point for participating!)",
+        name="🚀 Starship Predictor (Booster+Ship)",
+        value="`!starship` — Answer quick questions to simulate SpaceX Starship full launch success chance.",
+        inline=False
+    )
+    embed.add_field(
+        name="🚀 Starship Ship Simulation (Ship only)",
+        value="`!starship_ship` — Predict launch success chance for a specific Starship **ship only** (asks for ship name).",
         inline=False
     )
     embed.add_field(
@@ -763,5 +875,6 @@ async def games(ctx):
     )
 
     await ctx.send(embed=embed)
+
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
