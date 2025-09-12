@@ -424,30 +424,49 @@ async def trivia(ctx):
 # -----------------------------------
 @bot.command(name="mathquiz")
 async def mathquiz(ctx):
-    a, b = random.randint(1, 10), random.randint(1, 10)
-    op = random.choice(["+", "-", "*"])
+    """Ask a random math question — handles negatives and harder problems."""
+    # Random numbers: allow negative numbers sometimes
+    a = random.randint(-20, 20)
+    b = random.randint(-20, 20)
+
+    # Make sure we don’t divide by zero
+    op = random.choice(["+", "-", "*", "//"])
+    if op == "//":
+        while b == 0:  # re-pick if zero
+            b = random.randint(-20, 20)
+
     question = f"{a} {op} {b}"
     answer = eval(question)
 
+    # Pretty operator name for embed
+    op_name = {"//": "÷ (integer division)", "+": "+", "-": "-", "*": "×"}[op]
+
     embed = discord.Embed(
         title="🧮 Math Quiz",
-        description=f"Solve: **{question}** (15s timeout)",
+        description=f"Solve: **{a} {op_name} {b}** (15s timeout)",
         color=discord.Color.gold()
     )
     await ctx.send(embed=embed)
 
     def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.isdigit()
+        # Accept negative numbers with a leading '-' sign
+        content = m.content.strip()
+        if content.startswith("-"):
+            return content[1:].isdigit() and m.author == ctx.author and m.channel == ctx.channel
+        return content.isdigit() and m.author == ctx.author and m.channel == ctx.channel
 
     try:
         msg = await bot.wait_for("message", timeout=15.0, check=check)
         if int(msg.content) == answer:
+            # Add point to your existing scoreboard system
+            add_score(ctx.author.id, 1)
+            total_points = scores.get(str(ctx.author.id), 0)
+
             result_embed = discord.Embed(
                 title="✅ Correct!",
-                description=f"You solved it! (+1 point)",
+                description=f"You solved it! (+1 point)\nTotal points: **{total_points}**",
                 color=discord.Color.green()
             )
-            add_score(ctx.author.id, 1)
         else:
             result_embed = discord.Embed(
                 title="❌ Wrong",
@@ -455,6 +474,7 @@ async def mathquiz(ctx):
                 color=discord.Color.red()
             )
         await ctx.send(embed=result_embed)
+
     except:
         timeout_embed = discord.Embed(
             title="⏳ Timeout",
