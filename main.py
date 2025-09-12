@@ -452,7 +452,7 @@ async def mathquiz(ctx):
 
     embed = discord.Embed(
         title="🧮 Math Quiz",
-        description=f"Solve: **{a} {op_name} {b}** (15s timeout)",
+        description=f"Solve: **{a} {op_name} {b}** (60s timeout)",
         color=discord.Color.gold()
     )
     await ctx.send(embed=embed)
@@ -465,7 +465,7 @@ async def mathquiz(ctx):
         return content.isdigit() and m.author == ctx.author and m.channel == ctx.channel
 
     try:
-        msg = await bot.wait_for("message", timeout=15.0, check=check)
+        msg = await bot.wait_for("message", timeout=60.0, check=check)
         if int(msg.content) == answer:
             # Add point to your existing scoreboard system
             add_score(ctx.author.id, 1)
