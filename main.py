@@ -677,8 +677,8 @@ async def starship(ctx):
             color=discord.Color.dark_red()
         ))
 
-@bot.command(name="starship_ship")
-async def starship_ship(ctx):
+@bot.command(name="predict")
+async def predict(ctx):
     """
     Simulate Starship ship-only launch success chance based on test outcomes.
     Asks for the ship name first.
@@ -856,7 +856,7 @@ async def games(ctx):
     )
     embed.add_field(
         name="🚀 Starship Ship Simulation (Ship only)",
-        value="`!starship_ship` — Predict launch success chance for a specific Starship **ship only** (asks for ship name).",
+        value="`!predict` — Predict launch success chance for a specific Starship **ship only** (asks for ship name).",
         inline=False
     )
     embed.add_field(
