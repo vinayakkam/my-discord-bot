@@ -1143,48 +1143,99 @@ async def rocketdesign(ctx):
     rocket_design_states.pop(ctx.author.id, None)
 
 
+# Booster Catch Game
 @bot.command(name="catchbooster")
 async def catchbooster(ctx):
-    """Try to catch the booster at the right moment like Mechazilla."""
-    await ctx.send(embed=discord.Embed(
-        title="🛑 Booster Catch Game",
-        description="The booster is descending… wait for the signal! (Get ready to type `catch`!)",
+    """Complex booster catching game like Mechazilla.io."""
+    # Generate random conditions
+    drift = random.choice(["left", "right", "center"])
+    speed = random.randint(150, 400)  # m/s
+    altitude = random.randint(50, 150)  # meters at start
+
+    embed = discord.Embed(
+        title="🚀 Booster Catch Simulation",
+        description=(
+            f"Booster incoming!\n"
+            f"Altitude: **{altitude} m**\n"
+            f"Speed: **{speed} m/s**\n"
+            f"Wind Drift: **{drift.upper()}**\n\n"
+            "Type one of: `left`, `right`, or `center` to position the arms!"
+        ),
         color=discord.Color.orange()
-    ))
+    )
+    await ctx.send(embed=embed)
 
-    # Random delay before "NOW"
-    delay = random.uniform(2, 5)
+    def position_check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and \
+               m.content.lower() in ["left", "right", "center"]
+
+    try:
+        msg = await bot.wait_for("message", timeout=5.0, check=position_check)
+        chosen_position = msg.content.lower()
+    except asyncio.TimeoutError:
+        await ctx.send(f"❌ {ctx.author.mention} took too long to position the arms. Booster crashed!")
+        return
+
+    # Determine if positioned correctly
+    correct_position = (chosen_position == drift)
+    await ctx.send(
+        f"🛑 Arms positioned **{chosen_position.upper()}**. "
+        f"Waiting for booster lock signal..."
+    )
+
+    # Random delay before catch
+    delay = random.uniform(1.5, 4.0)
     await asyncio.sleep(delay)
-
     await ctx.send(embed=discord.Embed(
-        title="✅ CATCH NOW!",
-        description="Type **catch** as fast as you can!",
+        title="✅ LOCK NOW!",
+        description="Type **catch** quickly to lock the arms!",
         color=discord.Color.green()
     ))
 
-    def check(m):
-        return m.channel == ctx.channel and m.content.lower() == "catch"
+    def catch_check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "catch"
 
     try:
-        msg = await bot.wait_for("message", timeout=3.0, check=check)  # 3s window
-        # Award points
-        points = 2
-        add_score(msg.author.id, points)
-        total = scores.get(str(msg.author.id), 0)
+        start_time = asyncio.get_event_loop().time()
+        catch_msg = await bot.wait_for("message", timeout=3.0, check=catch_check)
+        reaction_time = asyncio.get_event_loop().time() - start_time
+    except asyncio.TimeoutError:
+        await ctx.send(f"💥 {ctx.author.mention} missed the timing. Booster splashed down 🌊")
+        return
+
+    # Scoring based on positioning + reaction time
+    if correct_position:
+        # Faster reaction = more points
+        if reaction_time < 0.8:
+            points = 5
+            quality = "Perfect Catch!"
+        elif reaction_time < 1.5:
+            points = 3
+            quality = "Good Catch!"
+        else:
+            points = 1
+            quality = "Late Catch!"
+    else:
+        points = 0
+        quality = "Arms misaligned — booster missed!"
+
+    if points > 0:
+        add_score(ctx.author.id, points)
+        total = scores.get(str(ctx.author.id), 0)
         embed = discord.Embed(
-            title="🎯 Booster Caught!",
-            description=f"{msg.author.mention} caught the booster first!\nYou earned **{points} points**.\nTotal points: **{total}**",
+            title=f"🎯 {quality}",
+            description=f"{ctx.author.mention} caught the booster!\nEarned **{points} points**.\nTotal points: **{total}**",
             color=discord.Color.blue()
         )
-        await ctx.send(embed=embed)
-
-    except asyncio.TimeoutError:
+    else:
         embed = discord.Embed(
-            title="💥 Booster Missed!",
-            description="Nobody caught the booster in time. It crashed into the ocean 🌊",
+            title="💥 Booster Missed",
+            description=f"{ctx.author.mention} misaligned the arms or was too slow.\nNo points awarded.",
             color=discord.Color.red()
         )
-        await ctx.send(embed=embed)
+
+    await ctx.send(embed=embed)
+
 
 
 
@@ -1287,8 +1338,8 @@ async def games(ctx):
         inline=False
     )
     embed.add_field(
-        name="🪝 Booster Catch Game",
-        value="`!catchbooster` — Time your reaction to catch the falling booster (like Mechazilla.io).",
+        name="🪝 Booster Catch Game (Complex)",
+        value="`!catchbooster` — Multi-stage booster catching simulation. Position the arms and time your catch like Mechazilla.io!",
         inline=False
     )
     embed.add_field(
