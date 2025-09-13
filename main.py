@@ -8,6 +8,7 @@ import os
 import time
 import random
 import json
+import asyncio
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -1142,6 +1143,50 @@ async def rocketdesign(ctx):
     rocket_design_states.pop(ctx.author.id, None)
 
 
+@bot.command(name="catchbooster")
+async def catchbooster(ctx):
+    """Try to catch the booster at the right moment like Mechazilla."""
+    await ctx.send(embed=discord.Embed(
+        title="🛑 Booster Catch Game",
+        description="The booster is descending… wait for the signal! (Get ready to type `catch`!)",
+        color=discord.Color.orange()
+    ))
+
+    # Random delay before "NOW"
+    delay = random.uniform(2, 5)
+    await asyncio.sleep(delay)
+
+    await ctx.send(embed=discord.Embed(
+        title="✅ CATCH NOW!",
+        description="Type **catch** as fast as you can!",
+        color=discord.Color.green()
+    ))
+
+    def check(m):
+        return m.channel == ctx.channel and m.content.lower() == "catch"
+
+    try:
+        msg = await bot.wait_for("message", timeout=3.0, check=check)  # 3s window
+        # Award points
+        points = 2
+        add_score(msg.author.id, points)
+        total = scores.get(str(msg.author.id), 0)
+        embed = discord.Embed(
+            title="🎯 Booster Caught!",
+            description=f"{msg.author.mention} caught the booster first!\nYou earned **{points} points**.\nTotal points: **{total}**",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
+
+    except asyncio.TimeoutError:
+        embed = discord.Embed(
+            title="💥 Booster Missed!",
+            description="Nobody caught the booster in time. It crashed into the ocean 🌊",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+
 
 SCORES_FILE = "scores.json"
 
@@ -1239,6 +1284,11 @@ async def games(ctx):
     embed.add_field(
         name="🚀 Starship Ship Simulation (Ship only)",
         value="`!predict` — Predict launch success chance for a specific Starship **ship only** (asks for ship name).",
+        inline=False
+    )
+    embed.add_field(
+        name="🪝 Booster Catch Game",
+        value="`!catchbooster` — Time your reaction to catch the falling booster (like Mechazilla.io).",
         inline=False
     )
     embed.add_field(
