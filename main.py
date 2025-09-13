@@ -1,7 +1,7 @@
 from keep_alive import keep_alive
 keep_alive()
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import logging
 from dotenv import load_dotenv
 import os
@@ -306,77 +306,127 @@ async def leaderboard(ctx):
     )
     await ctx.send(embed=embed)
 
-    # 🔹 Assign / remove roles by ID
-    top_user_id = int(sorted_scores[0][0])
-    top_member = ctx.guild.get_member(top_user_id)
 
-    # Get the role by ID
-    role = ctx.guild.get_role(LEADER_ROLE_ID)
-    if role is None:
-        await ctx.send(f"⚠️ Role with ID `{LEADER_ROLE_ID}` not found. Please check the ID.")
-        return
-
-    # Remove role from everyone else
-    for member in ctx.guild.members:
-        if role in member.roles and member.id != top_user_id:
+    # 🔹 This will update the role automatically
+    @tasks.loop(minutes=5)
+    async def update_leader_role():
+        for guild in bot.guilds:  # 🔹 Run for all servers the bot is in
             try:
-                await member.remove_roles(role)
-            except discord.Forbidden:
-                await ctx.send("⚠️ I lack permission to remove roles.")
-                return
+                scores = load_scores()
+                if not scores:
+                    continue  # Skip if no scores exist
 
-    # Add role to the top player if not already
-    if top_member and role not in top_member.roles:
-        try:
-            await top_member.add_roles(role)
-            await ctx.send(f"🏅 {top_member.mention} is now the **Leaderboard Leader**!")
-        except discord.Forbidden:
-            await ctx.send("⚠️ I lack permission to add roles.")
+                # Sort scores descending
+                sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+                top_user_id = int(sorted_scores[0][0])
+                top_member = guild.get_member(top_user_id)
+                role = guild.get_role(LEADER_ROLE_ID)
 
-# -----------------------------------
-# 6️⃣ Trivia Game
-# -----------------------------------
-TRIVIA_QUESTIONS = [
-    {"question": "What is the capital of France?",
-     "options": ["Paris", "Berlin", "Rome"], "answer": "Paris"},
-    {"question": "Which planet is known as the Red Planet?",
-     "options": ["Mars", "Venus", "Jupiter"], "answer": "Mars"},
-    {"question": "Who wrote 'Romeo and Juliet'?",
-     "options": ["Shakespeare", "Dickens", "Tolkien"], "answer": "Shakespeare"},
-    {"question": "Which ocean is the largest?",
-     "options": ["Pacific", "Atlantic", "Indian"], "answer": "Pacific"},
-    {"question": "Which is the smallest prime number?",
-     "options": ["2", "3", "1"], "answer": "2"},
+                if role is None:
+                    print(f"⚠️ Role with ID {LEADER_ROLE_ID} not found in {guild.name}")
+                    continue
 
-    # Space related
-    {"question": "Which planet has the most moons?",
-     "options": ["Saturn", "Jupiter", "Neptune"], "answer": "Saturn"},
-    {"question": "What is the hottest planet in our Solar System?",
-     "options": ["Venus", "Mercury", "Mars"], "answer": "Venus"},
-    {"question": "Which planet is known for its Great Red Spot?",
-     "options": ["Jupiter", "Mars", "Saturn"], "answer": "Jupiter"},
-    {"question": "What galaxy is Earth located in?",
-     "options": ["Milky Way", "Andromeda", "Triangulum"], "answer": "Milky Way"},
-    {"question": "Who was the first person in space?",
-     "options": ["Yuri Gagarin", "Neil Armstrong", "Buzz Aldrin"], "answer": "Yuri Gagarin"},
-    {"question": "What is the name of the first artificial Earth satellite?",
-     "options": ["Sputnik 1", "Explorer 1", "Vostok 1"], "answer": "Sputnik 1"},
-    {"question": "Which planet rotates on its side?",
-     "options": ["Uranus", "Neptune", "Venus"], "answer": "Uranus"},
-    {"question": "What is the largest planet in our Solar System?",
-     "options": ["Jupiter", "Saturn", "Neptune"], "answer": "Jupiter"},
-    {"question": "Which planet has the fastest winds?",
-     "options": ["Neptune", "Saturn", "Mars"], "answer": "Neptune"},
-    {"question": "Which planet has a day longer than its year?",
-     "options": ["Venus", "Mercury", "Mars"], "answer": "Venus"},
-]
+                # Remove the role from everyone else
+                for member in guild.members:
+                    if role in member.roles and member.id != top_user_id:
+                        try:
+                            await member.remove_roles(role)
+                        except discord.Forbidden:
+                            print("⚠️ Missing permission to remove roles.")
+                            continue
+
+                # Add the role to the top player
+                if top_member and role not in top_member.roles:
+                    try:
+                        await top_member.add_roles(role)
+                        print(f"🏅 {top_member} is now the Leaderboard Leader in {guild.name}")
+                    except discord.Forbidden:
+                        print("⚠️ Missing permission to add roles.")
+
+            except Exception as e:
+                print(f"Error in update_leader_role: {e}")
+
+# 60 Space Trivia Questions (20 each difficulty)
+TRIVIA_QUESTIONS = {
+    "easy": [
+        {"question": "Which planet is closest to the Sun?", "options": ["Mercury", "Venus", "Earth"], "answer": "Mercury"},
+        {"question": "Which planet is known as the Red Planet?", "options": ["Mars", "Venus", "Jupiter"], "answer": "Mars"},
+        {"question": "What galaxy is Earth located in?", "options": ["Milky Way", "Andromeda", "Triangulum"], "answer": "Milky Way"},
+        {"question": "Which planet has rings visible from Earth?", "options": ["Saturn", "Jupiter", "Neptune"], "answer": "Saturn"},
+        {"question": "Which planet has the Great Red Spot?", "options": ["Jupiter", "Mars", "Saturn"], "answer": "Jupiter"},
+        {"question": "What is the smallest planet in our solar system?", "options": ["Mercury", "Mars", "Venus"], "answer": "Mercury"},
+        {"question": "What is the Sun mostly made of?", "options": ["Hydrogen", "Oxygen", "Helium"], "answer": "Hydrogen"},
+        {"question": "Which planet is famous for its rings?", "options": ["Saturn", "Uranus", "Neptune"], "answer": "Saturn"},
+        {"question": "Which is the third planet from the Sun?", "options": ["Earth", "Venus", "Mars"], "answer": "Earth"},
+        {"question": "Which is the hottest planet?", "options": ["Venus", "Mercury", "Mars"], "answer": "Venus"},
+        {"question": "What is the Moon’s gravitational pull compared to Earth?", "options": ["1/6th", "1/2", "1/10th"], "answer": "1/6th"},
+        {"question": "Which planet rotates on its side?", "options": ["Uranus", "Neptune", "Venus"], "answer": "Uranus"},
+        {"question": "Which planet has the fastest rotation?", "options": ["Jupiter", "Saturn", "Earth"], "answer": "Jupiter"},
+        {"question": "What’s the name of Earth’s only natural satellite?", "options": ["Moon", "Phobos", "Europa"], "answer": "Moon"},
+        {"question": "Which planet has Olympus Mons?", "options": ["Mars", "Earth", "Venus"], "answer": "Mars"},
+        {"question": "How many planets are in the Solar System?", "options": ["8", "9", "7"], "answer": "8"},
+        {"question": "Which planet has a day longer than its year?", "options": ["Venus", "Mercury", "Mars"], "answer": "Venus"},
+        {"question": "Who was the first human in space?", "options": ["Yuri Gagarin", "Neil Armstrong", "Buzz Aldrin"], "answer": "Yuri Gagarin"},
+        {"question": "What is the name of our star?", "options": ["Sun", "Sirius", "Proxima"], "answer": "Sun"},
+        {"question": "What do we call a large rock in space?", "options": ["Asteroid", "Comet", "Meteor"], "answer": "Asteroid"},
+    ],
+    "medium": [
+        {"question": "Which planet has the most moons?", "options": ["Saturn", "Jupiter", "Neptune"], "answer": "Saturn"},
+        {"question": "What’s the name of the first artificial satellite?", "options": ["Sputnik 1", "Explorer 1", "Vostok 1"], "answer": "Sputnik 1"},
+        {"question": "Which planet is tilted at 98 degrees?", "options": ["Uranus", "Neptune", "Saturn"], "answer": "Uranus"},
+        {"question": "How many planets have rings?", "options": ["4", "2", "1"], "answer": "4"},
+        {"question": "Which dwarf planet is in the asteroid belt?", "options": ["Ceres", "Pluto", "Eris"], "answer": "Ceres"},
+        {"question": "Which planet has the fastest winds?", "options": ["Neptune", "Saturn", "Mars"], "answer": "Neptune"},
+        {"question": "Which space telescope launched in 1990?", "options": ["Hubble", "Kepler", "Chandra"], "answer": "Hubble"},
+        {"question": "What’s the largest planet?", "options": ["Jupiter", "Saturn", "Neptune"], "answer": "Jupiter"},
+        {"question": "What’s the coldest planet?", "options": ["Neptune", "Uranus", "Pluto"], "answer": "Neptune"},
+        {"question": "Which mission first landed humans on the Moon?", "options": ["Apollo 11", "Apollo 12", "Apollo 10"], "answer": "Apollo 11"},
+        {"question": "Which planet has methane lakes?", "options": ["Titan (moon)", "Mars", "Venus"], "answer": "Titan (moon)"},
+        {"question": "What’s the name of Mars’ largest moon?", "options": ["Phobos", "Deimos", "Europa"], "answer": "Phobos"},
+        {"question": "What does NASA stand for?", "options": ["National Aeronautics and Space Administration", "National Aerospace and Space Association", "New Aeronautics Space Agency"], "answer": "National Aeronautics and Space Administration"},
+        {"question": "Which probe left the solar system first?", "options": ["Voyager 1", "Voyager 2", "Pioneer 10"], "answer": "Voyager 1"},
+        {"question": "What’s the densest planet?", "options": ["Earth", "Jupiter", "Venus"], "answer": "Earth"},
+        {"question": "Which planet has the tallest known mountain?", "options": ["Mars", "Venus", "Mercury"], "answer": "Mars"},
+        {"question": "What’s the most common type of star?", "options": ["Red Dwarf", "White Dwarf", "Blue Giant"], "answer": "Red Dwarf"},
+        {"question": "What’s the boundary of a black hole called?", "options": ["Event Horizon", "Singularity", "Accretion Disk"], "answer": "Event Horizon"},
+        {"question": "What is the main gas of Neptune?", "options": ["Hydrogen", "Methane", "Oxygen"], "answer": "Methane"},
+        {"question": "Which planet’s day is about 10 hours long?", "options": ["Jupiter", "Mars", "Saturn"], "answer": "Jupiter"},
+    ],
+    "hard": [
+        {"question": "Which moon has the highest albedo (reflectivity)?", "options": ["Enceladus", "Europa", "Ganymede"], "answer": "Enceladus"},
+        {"question": "What’s the average distance from Earth to the Sun?", "options": ["1 AU", "93 million miles", "Both"], "answer": "Both"},
+        {"question": "Which planet has a hexagon-shaped storm?", "options": ["Saturn", "Jupiter", "Neptune"], "answer": "Saturn"},
+        {"question": "What’s the densest moon?", "options": ["Io", "Europa", "Titan"], "answer": "Io"},
+        {"question": "Which spacecraft carried the Golden Record?", "options": ["Voyager", "Pioneer", "New Horizons"], "answer": "Voyager"},
+        {"question": "What’s the most volcanically active body?", "options": ["Io", "Earth", "Venus"], "answer": "Io"},
+        {"question": "How long does sunlight take to reach Earth?", "options": ["8 minutes", "5 minutes", "10 minutes"], "answer": "8 minutes"},
+        {"question": "Which exoplanet was the first discovered?", "options": ["51 Pegasi b", "Kepler-22b", "Proxima b"], "answer": "51 Pegasi b"},
+        {"question": "What’s the approximate age of the Universe?", "options": ["13.8 billion years", "10 billion years", "15 billion years"], "answer": "13.8 billion years"},
+        {"question": "What’s the smallest exoplanet discovered (as of now)?", "options": ["Kepler-37b", "Proxima b", "TRAPPIST-1d"], "answer": "Kepler-37b"},
+        {"question": "Which star is closest to our Solar System?", "options": ["Proxima Centauri", "Alpha Centauri A", "Barnard’s Star"], "answer": "Proxima Centauri"},
+        {"question": "What’s at the center of the Milky Way?", "options": ["Black Hole", "Neutron Star", "Dark Matter Cloud"], "answer": "Black Hole"},
+        {"question": "What element powers the Sun?", "options": ["Hydrogen fusion", "Helium fusion", "Oxygen burning"], "answer": "Hydrogen fusion"},
+        {"question": "Which mission landed on Titan?", "options": ["Huygens", "Viking", "New Horizons"], "answer": "Huygens"},
+        {"question": "Which planet has a moon called Triton?", "options": ["Neptune", "Uranus", "Saturn"], "answer": "Neptune"},
+        {"question": "Which galaxy is colliding with the Milky Way?", "options": ["Andromeda", "Triangulum", "Whirlpool"], "answer": "Andromeda"},
+        {"question": "Which type of star explodes as a supernova?", "options": ["Massive Star", "Brown Dwarf", "Red Dwarf"], "answer": "Massive Star"},
+        {"question": "What’s the approximate escape velocity from Earth?", "options": ["11.2 km/s", "7.9 km/s", "15 km/s"], "answer": "11.2 km/s"},
+        {"question": "Which moon has a subsurface ocean beneath its ice crust?", "options": ["Europa", "Enceladus", "Callisto"], "answer": "Europa"},
+        {"question": "What’s the name of the region of icy bodies beyond Neptune?", "options": ["Kuiper Belt", "Oort Cloud", "Asteroid Belt"], "answer": "Kuiper Belt"},
+    ],
+}
 
 LETTERS = ["A", "B", "C"]
 
 @bot.command(name="trivia")
-async def trivia(ctx):
-    """Ask a random trivia question. Awards +1 point if correct."""
-    q = random.choice(TRIVIA_QUESTIONS)
+async def trivia(ctx, difficulty: str = None):
+    """Ask a random trivia question. Difficulty: easy/medium/hard."""
+    difficulty = (difficulty or "easy").lower()
+    if difficulty not in TRIVIA_QUESTIONS:
+        await ctx.send("⚠️ Please choose a difficulty: `easy`, `medium`, or `hard`.\nExample: `!trivia medium`")
+        return
+
+    q = random.choice(TRIVIA_QUESTIONS[difficulty])
 
     # Shuffle answers & assign A/B/C dynamically
     options = q["options"][:3]
@@ -385,10 +435,11 @@ async def trivia(ctx):
     correct_letter = next((L for L, O in letter_to_option.items()
                            if O.lower() == q["answer"].lower()), None)
 
-    # Build embed question
-    question_text = q["question"] + "\n\n" + "\n".join(
-        [f"{L}) {O}" for L, O in letter_to_option.items()]) + "\n\nType A, B, or C in chat (30s)."
-    embed = discord.Embed(title="🎓 Trivia Time!",
+    points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
+
+    question_text = f"**[{difficulty.upper()} — {points} point(s)]**\n\n{q['question']}\n\n" + "\n".join(
+        [f"{L}) {O}" for L, O in letter_to_option.items()]) + "\n\nType A, B, or C in chat (90s)."
+    embed = discord.Embed(title="🎓 Space Trivia Time!",
                           description=question_text,
                           color=discord.Color.teal())
     await ctx.send(embed=embed)
@@ -399,7 +450,7 @@ async def trivia(ctx):
                 m.content.upper() in letter_to_option.keys())
 
     try:
-        reply = await bot.wait_for("message", timeout=30.0, check=check)
+        reply = await bot.wait_for("message", timeout=90.0, check=check)
     except Exception:
         timeout_embed = discord.Embed(
             title="⏳ Timeout",
@@ -412,12 +463,11 @@ async def trivia(ctx):
     chosen_answer = letter_to_option[chosen]
 
     if chosen == correct_letter:
-        # use your existing add_score
-        add_score(ctx.author.id, 1)
+        add_score(ctx.author.id, points)
         total = scores.get(str(ctx.author.id), 0)
         success_embed = discord.Embed(
             title="✅ Correct!",
-            description=f"You answered **{chosen}) {chosen_answer}** — +1 point!\nTotal points: **{total}**",
+            description=f"You answered **{chosen}) {chosen_answer}** — +{points} point(s)!\nTotal points: **{total}**",
             color=discord.Color.green())
         await ctx.send(embed=success_embed)
     else:
@@ -426,6 +476,7 @@ async def trivia(ctx):
             description=f"You answered **{chosen}) {chosen_answer}**.\nCorrect answer: **{correct_letter}) {q['answer']}**.",
             color=discord.Color.red())
         await ctx.send(embed=fail_embed)
+
 
 
 # -----------------------------------
@@ -495,36 +546,65 @@ async def mathquiz(ctx):
 # -----------------------------------
 # 8️⃣ Word Unscramble
 # -----------------------------------
-words = ["astronaut", "satellite", "microphone", "laboratory", "imagination",
-         "volcano", "chocolate", "adventure", "whispering", "kaleidoscope",
-         "transmission", "encyclopedia", "revolution", "phenomenon", "synchronous",
-         "cryptography", "electricity", "mathematics", "biodiversity", "holographic",
-         "python", "planet", "stream", "silent", "forest",
-         "school", "castle", "camera", "driver", "orange",
-         "guitar", "rabbit", "coffee", "bridge", "engine",
-         "flight", "anchor", "circle", "silver", "window",
-         "apple", "table", "house", "water", "train",
-         "light", "music", "chair", "stone", "river",
-         "green", "mouse", "bread", "heart", "dance",
-         "sleep", "dream", "cloud", "plant", "happy",
-         "planet", "galaxy", "nebula", "asteroid", "comet",
-         "meteor", "rocket", "launch", "orbiter", "cosmos",
-         "spacesuit", "gravity", "satellite", "telescope", "universe",
-         "asterism", "supernova", "blackhole", "quasar", "pulsar"
-
-
-
-
+UNSCRAMBLE_WORDS = {
+    "easy": [
+        # Basic / short
+        "apple", "table", "house", "water", "train",
+        "light", "music", "chair", "stone", "river",
+        "green", "mouse", "bread", "heart", "dance",
+        "sleep", "dream", "cloud", "plant", "happy",
+        "book", "tree", "fish", "dog", "cat",
+        "rain", "wind", "snow", "milk", "sand",
+        "moon", "sun", "star", "ship", "car",
+        "road", "lamp", "door", "pen", "map",
+        "king", "queen", "town", "hill", "farm"
+    ],
+    "medium": [
+        # Slightly longer / common
+        "guitar", "rabbit", "coffee", "bridge", "engine",
+        "flight", "anchor", "circle", "silver", "window",
+        "school", "castle", "camera", "driver", "orange",
+        "forest", "planet", "stream", "silent", "volcano",
+        "desert", "rocket", "garden", "market", "purple",
+        "pirate", "jungle", "island", "winter", "spring",
+        "autumn", "summer", "mirror", "ladder", "artist",
+        "doctor", "hunter", "wizard", "pencil", "dragon",
+        "castle", "shield", "bridge", "farmer", "butter"
+    ],
+    "hard": [
+        # Long / technical / space
+        "astronaut", "satellite", "microphone", "laboratory", "imagination",
+        "kaleidoscope", "transmission", "encyclopedia", "revolution", "phenomenon",
+        "synchronous", "cryptography", "electricity", "mathematics", "biodiversity",
+        "holographic", "spacesuit", "gravity", "telescope", "universe",
+        "asterism", "supernova", "blackhole", "quasar", "pulsar",
+        "constellation", "interstellar", "photosynthesis", "thermodynamics", "nanotechnology",
+        "spectroscopy", "electromagnetic", "astrobiology", "cybersecurity", "hyperspace",
+        "geosynchronous", "planetarium", "cosmology", "observatory", "radiotelescope",
+        "neuroscience", "biotechnology", "computational", "relativity", "astrophysics"
     ]
+}
 
 @bot.command(name="unscramble")
-async def unscramble(ctx):
-    word = random.choice(words)
+async def unscramble(ctx, difficulty: str = None):
+    """
+    Unscramble game with difficulty.
+    Usage: !unscramble easy / medium / hard
+    """
+    difficulty = (difficulty or "easy").lower()
+    if difficulty not in UNSCRAMBLE_WORDS:
+        await ctx.send("⚠️ Please choose a difficulty: `easy`, `medium`, or `hard`.\nExample: `!unscramble medium`")
+        return
+
+    word = random.choice(UNSCRAMBLE_WORDS[difficulty])
     scrambled = ''.join(random.sample(word, len(word)))
+
+    # Point system by difficulty
+    points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
 
     embed = discord.Embed(
         title="🔤 Word Unscramble",
-        description=f"Unscramble this word: **{scrambled}** (60s timeout)",
+        description=f"**[{difficulty.upper()} — {points} point(s)]**\n\nUnscramble this word: **{scrambled}** (60s timeout)",
         color=discord.Color.purple()
     )
     await ctx.send(embed=embed)
@@ -534,13 +614,14 @@ async def unscramble(ctx):
 
     try:
         msg = await bot.wait_for("message", timeout=60.0, check=check)
-        if msg.content.lower() == word:
+        if msg.content.lower() == word.lower():
+            add_score(ctx.author.id, points)
+            total = scores.get(str(ctx.author.id), 0)
             result_embed = discord.Embed(
                 title="✅ Correct!",
-                description="You unscrambled it! (+1 point)",
+                description=f"You unscrambled it! +{points} point(s)\nTotal points: **{total}**",
                 color=discord.Color.green()
             )
-            add_score(ctx.author.id, 1)
         else:
             result_embed = discord.Embed(
                 title="❌ Wrong",
@@ -810,43 +891,51 @@ def add_score(user_id, points=1):
 async def games(ctx):
     embed = discord.Embed(
         title="🎮 Mini-Game Bot — Games List",
-        description="All the mini-games you can play:",
+        description="All the mini-games you can play (points vary by difficulty):",
         color=discord.Color.blurple()
     )
 
     embed.add_field(
         name="🪨📄✂️ Rock Paper Scissors",
-        value="`!rps <rock|paper|scissors>` — Play with the bot.",
+        value="`!rps <rock|paper|scissors>` — Play with the bot (+1 point if you win).",
         inline=False
     )
     embed.add_field(
         name="🪙 Coin Flip",
-        value="`!coinflip <heads|tails>` — Guess a coin flip.",
+        value="`!coinflip <heads|tails>` — Guess a coin flip (+1 point if correct).",
         inline=False
     )
     embed.add_field(
         name="🎲 Dice Roll",
-        value="`!dice <guess> <sides>` — Roll dice (optional guess & sides).",
+        value="`!dice <guess> <sides>` — Roll dice (optional guess & sides) (+1 point if guess matches).",
         inline=False
     )
     embed.add_field(
         name="🔢 Number Guess",
-        value="`!guess` — Guess a number between 1 and 10 in 15s.",
+        value="`!guess` — Guess a number between 1 and 10 in 15s (+1 point if correct).",
         inline=False
     )
     embed.add_field(
-        name="🎓 Trivia Quiz",
-        value="`!trivia` — Answer a multiple-choice question (A/B/C).",
+        name="🎓 Trivia Quiz (now with difficulty)",
+        value=(
+            "`!trivia easy` — Easier space questions (+1 point)\n"
+            "`!trivia medium` — Moderate space questions (+2 points)\n"
+            "`!trivia hard` — Hard space/technical questions (+3 points)"
+        ),
         inline=False
     )
     embed.add_field(
         name="🧮 Math Quiz",
-        value="`!mathquiz` — Solve a random math question.",
+        value="`!mathquiz` — Solve a random math question (+1 point if correct).",
         inline=False
     )
     embed.add_field(
-        name="🔤 Word Unscramble",
-        value="`!unscramble` — Unscramble a word in 15s.",
+        name="🔤 Word Unscramble (now with difficulty)",
+        value=(
+            "`!unscramble easy` — Easier words (+1 point)\n"
+            "`!unscramble medium` — Moderate words (+2 points)\n"
+            "`!unscramble hard` — Space/technical words (+3 points)"
+        ),
         inline=False
     )
     embed.add_field(
@@ -860,18 +949,13 @@ async def games(ctx):
         inline=False
     )
     embed.add_field(
-        name="🏆 Score",
-        value="`!score [@user]` — View your or another user’s score.",
-        inline=False
-    )
-    embed.add_field(
         name="🏆 Leaderboard",
         value="`!leaderboard` — View the top 10 players.",
         inline=False
     )
 
     embed.set_footer(
-        text="All correct answers or wins add +1 point to your score (stored in scores.json)."
+        text="✅ Points: Easy +1 • Medium +2 • Hard +3 — stored in scores.json"
     )
 
     await ctx.send(embed=embed)
