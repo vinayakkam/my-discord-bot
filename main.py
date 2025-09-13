@@ -1263,24 +1263,25 @@ def add_score(user_id, points=1):
 @bot.command(name="games")
 async def games(ctx):
     embed = discord.Embed(
-        title="🎮 Mini-Game Bot — Games List",
-        description="All the mini-games you can play (points vary by difficulty):",
+        title="🎮 Mini-Game Bot — Full Games List",
+        description="Choose from fun mini-games below (points vary by difficulty):",
         color=discord.Color.blurple()
     )
 
+    # Quick play mini-games
     embed.add_field(
         name="🪨📄✂️ Rock Paper Scissors",
-        value="`!rps <rock|paper|scissors>` — Play with the bot (+1 point if you win).",
+        value="`!rps <rock|paper|scissors>` — Play with the bot. (+1 point if you win)",
         inline=False
     )
     embed.add_field(
         name="🪙 Coin Flip",
-        value="`!coinflip <heads|tails>` — Guess a coin flip (+1 point if correct).",
+        value="`!coinflip <heads|tails>` — Guess a coin flip. (+1 point if correct)",
         inline=False
     )
     embed.add_field(
         name="🎲 Dice Roll",
-        value="`!dice <guess> <sides>` — Roll dice (optional guess & sides) (+1 point if guess matches).",
+        value="`!dice <guess> <sides>` — Roll dice (optional guess & sides). (+1 point if guess matches)",
         inline=False
     )
     embed.add_field(
@@ -1288,12 +1289,13 @@ async def games(ctx):
         value="`!guess` — Guess a number between 1 and 10 in 15s (+1 point if correct).",
         inline=False
     )
+
+    # Trivia / quiz games
     embed.add_field(
-        name="🎓 Trivia Quiz (now with difficulty)",
+        name="🎓 Trivia Quiz",
         value=(
-            "`!trivia easy` — Easier space questions (+1 point)\n"
-            "`!trivia medium` — Moderate space questions (+2 points)\n"
-            "`!trivia hard` — Hard space/technical questions (+3 points)"
+            "Answer space-themed questions:\n"
+            "`!trivia easy` (+1 pt) • `!trivia medium` (+2 pt) • `!trivia hard` (+3 pt)"
         ),
         inline=False
     )
@@ -1303,30 +1305,42 @@ async def games(ctx):
         inline=False
     )
     embed.add_field(
-        name="🔤 Word Unscramble (now with difficulty)",
+        name="🔤 Word Unscramble",
         value=(
-            "`!unscramble easy` — Easier words (+1 point)\n"
-            "`!unscramble medium` — Moderate words (+2 points)\n"
-            "`!unscramble hard` — Space/technical words (+3 points)"
+            "`!unscramble easy` — Easy words (+1 pt)\n"
+            "`!unscramble medium` — Moderate words (+2 pt)\n"
+            "`!unscramble hard` — Space/technical words (+3 pt)"
         ),
         inline=False
     )
+
+    # Resource Management / Mission game
     embed.add_field(
-        name="🛰️ Rocket Design Quiz",
-        value="`!rocketdesign` — Pick engine, tank, and payload to build a rocket. Earn points if it launches successfully!",
-        inline=False
-    )
-    embed.add_field(
-        name="🚀 Starship Mission",
+        name="🛰️ Starship Mission (Resource Management)",
         value=(
-            "`!mission` — Start your Starship mission\n"
-            "`!mission status` — View current status\n"
-            "`!mission launch` — Travel forward (uses resources)\n"
-            "`!mission refuel` — Refuel and resupply\n"
-            "`!mission research` — Research for points"
+            "`!mission` — Start your mission and manage Fuel, Food, and Research.\n"
+            "`!mission launch` — Travel forward\n"
+            "`!mission refuel` — Gather supplies\n"
+            "`!mission research` — Earn research points\n"
+            "`!mission status` — View your stats\n"
+            "Survive as many turns as possible to earn points!"
         ),
         inline=False
     )
+
+    # Booster catching + Rocket building
+    embed.add_field(
+        name="🪝 Booster Catch Game (Complex)",
+        value="`!catchbooster` — Position the arms and time your catch like Mechazilla.io! Points scale with accuracy and reaction time.",
+        inline=False
+    )
+    embed.add_field(
+        name="7️⃣ Rocket Design Quiz",
+        value="(Coming Soon) Pick engines, tank size, and stage design to create your own rocket. Success chance based on your choices!",
+        inline=False
+    )
+
+    # Starship predictors
     embed.add_field(
         name="🚀 Starship Predictor (Booster+Ship)",
         value="`!starship` — Answer quick questions to simulate SpaceX Starship full launch success chance.",
@@ -1337,19 +1351,16 @@ async def games(ctx):
         value="`!predict` — Predict launch success chance for a specific Starship **ship only** (asks for ship name).",
         inline=False
     )
-    embed.add_field(
-        name="🪝 Booster Catch Game (Complex)",
-        value="`!catchbooster` — Multi-stage booster catching simulation. Position the arms and time your catch like Mechazilla.io!",
-        inline=False
-    )
+
+    # Leaderboard
     embed.add_field(
         name="🏆 Leaderboard",
-        value="`!leaderboard` — View the top 10 players.",
+        value="`!leaderboard` — View the top 10 players and their total points.",
         inline=False
     )
 
     embed.set_footer(
-        text="✅ Points: Easy +1 • Medium +2 • Hard +3 — stored in scores.json"
+        text="✅ Points: Easy +1 • Medium +2 • Hard +3 — stored in scores.json. Some games scale points based on performance!"
     )
 
     await ctx.send(embed=embed)
