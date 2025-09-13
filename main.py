@@ -1012,6 +1012,137 @@ async def mission_research(ctx):
     )
     await ctx.send(embed=embed)
 
+rocket_design_states = {}
+
+@bot.command(name="rocketdesign")
+async def rocketdesign(ctx):
+    """Start the Rocket Design Quiz."""
+    rocket_design_states[ctx.author.id] = {
+        "step": 1,
+        "engine": None,
+        "tank": None,
+        "payload": None
+    }
+
+    embed = discord.Embed(
+        title="🚀 Rocket Design Quiz",
+        description="Welcome! First choose your **engine**:\n\n1️⃣ Raptor (high thrust)\n2️⃣ Merlin (balanced)\n3️⃣ Ion Drive (low thrust, efficient)\n\nReply with 1, 2, or 3.",
+        color=discord.Color.orange()
+    )
+    await ctx.send(embed=embed)
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content in ["1", "2", "3"]
+
+    try:
+        msg = await bot.wait_for("message", timeout=30.0, check=check)
+    except:
+        await ctx.send("⏳ Timeout — game cancelled.")
+        rocket_design_states.pop(ctx.author.id, None)
+        return
+
+    choice = msg.content
+    if choice == "1":
+        rocket_design_states[ctx.author.id]["engine"] = "Raptor"
+    elif choice == "2":
+        rocket_design_states[ctx.author.id]["engine"] = "Merlin"
+    else:
+        rocket_design_states[ctx.author.id]["engine"] = "Ion Drive"
+
+    # Ask tank size
+    embed = discord.Embed(
+        title="⛽ Tank Size",
+        description="Now choose your **tank size**:\n\n1️⃣ Large Tank (more fuel)\n2️⃣ Medium Tank\n3️⃣ Small Tank (lighter)",
+        color=discord.Color.orange()
+    )
+    await ctx.send(embed=embed)
+
+    try:
+        msg = await bot.wait_for("message", timeout=30.0, check=check)
+    except:
+        await ctx.send("⏳ Timeout — game cancelled.")
+        rocket_design_states.pop(ctx.author.id, None)
+        return
+
+    choice = msg.content
+    if choice == "1":
+        rocket_design_states[ctx.author.id]["tank"] = "Large"
+    elif choice == "2":
+        rocket_design_states[ctx.author.id]["tank"] = "Medium"
+    else:
+        rocket_design_states[ctx.author.id]["tank"] = "Small"
+
+    # Ask payload
+    embed = discord.Embed(
+        title="📦 Payload",
+        description="Finally choose your **payload**:\n\n1️⃣ Satellite\n2️⃣ Crew Capsule\n3️⃣ Heavy Cargo",
+        color=discord.Color.orange()
+    )
+    await ctx.send(embed=embed)
+
+    try:
+        msg = await bot.wait_for("message", timeout=30.0, check=check)
+    except:
+        await ctx.send("⏳ Timeout — game cancelled.")
+        rocket_design_states.pop(ctx.author.id, None)
+        return
+
+    choice = msg.content
+    if choice == "1":
+        rocket_design_states[ctx.author.id]["payload"] = "Satellite"
+    elif choice == "2":
+        rocket_design_states[ctx.author.id]["payload"] = "Crew Capsule"
+    else:
+        rocket_design_states[ctx.author.id]["payload"] = "Heavy Cargo"
+
+    # Now compute success chance
+    engine = rocket_design_states[ctx.author.id]["engine"]
+    tank = rocket_design_states[ctx.author.id]["tank"]
+    payload = rocket_design_states[ctx.author.id]["payload"]
+
+    # Base chance
+    success_chance = 50
+
+    # Adjust based on engine
+    if engine == "Raptor":
+        success_chance += 15
+    elif engine == "Ion Drive":
+        success_chance -= 10
+
+    # Adjust based on tank
+    if tank == "Large":
+        success_chance += 10
+    elif tank == "Small":
+        success_chance -= 5
+
+    # Adjust based on payload
+    if payload == "Heavy Cargo":
+        success_chance -= 15
+    elif payload == "Satellite":
+        success_chance += 5
+
+    result = random.randint(1, 100)
+    if result <= success_chance:
+        points = 2  # Award points on success
+        add_score(ctx.author.id, points)
+        total = scores.get(str(ctx.author.id), 0)
+        embed = discord.Embed(
+            title="✅ Launch Successful!",
+            description=f"Your rocket launched successfully!\nEngine: **{engine}**\nTank: **{tank}**\nPayload: **{payload}**\n\nYou earned **{points} points**.\nTotal points: **{total}**",
+            color=discord.Color.green()
+        )
+    else:
+        embed = discord.Embed(
+            title="💥 Launch Failed",
+            description=f"Your rocket failed to launch.\nEngine: **{engine}**\nTank: **{tank}**\nPayload: **{payload}**\n\nBetter luck next time!",
+            color=discord.Color.red()
+        )
+
+    await ctx.send(embed=embed)
+    rocket_design_states.pop(ctx.author.id, None)
+
+
+
 SCORES_FILE = "scores.json"
 
 def load_scores():
@@ -1082,6 +1213,11 @@ async def games(ctx):
             "`!unscramble medium` — Moderate words (+2 points)\n"
             "`!unscramble hard` — Space/technical words (+3 points)"
         ),
+        inline=False
+    )
+    embed.add_field(
+        name="🛰️ Rocket Design Quiz",
+        value="`!rocketdesign` — Pick engine, tank, and payload to build a rocket. Earn points if it launches successfully!",
         inline=False
     )
     embed.add_field(
