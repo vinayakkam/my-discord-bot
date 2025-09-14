@@ -280,72 +280,60 @@ LEADER_ROLE_ID = 1415720279631593573  # 🔹 paste your role ID here
 
 @bot.command(name="leaderboard")
 async def leaderboard(ctx):
-    """Show the top players and assign role to #1 (by role ID)."""
-    if not scores:
-        embed = discord.Embed(
-            title="🏆 Leaderboard",
-            description="No scores yet. Play some games!",
-            color=discord.Color.orange()
-        )
-        await ctx.send(embed=embed)
+    """Show the leaderboard and auto-assign Leader role."""
+    if not scores:  # scores should be your loaded dict
+        await ctx.send("⚠️ No scores available yet.")
         return
 
-    # Sort scores descending
+    # Sort scores (highest first)
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    description = ""
+    top_10 = sorted_scores[:10]
 
-    # Build leaderboard text
-    for i, (user_id, score_value) in enumerate(sorted_scores[:10], start=1):
+    # 🟩 Build leaderboard text
+    leaderboard_text = ""
+    for i, (user_id, score) in enumerate(top_10, start=1):
         member = ctx.guild.get_member(int(user_id))
         name = member.display_name if member else f"User {user_id}"
-        description += f"**{i}. {name}** — {score_value} points\n"
+        leaderboard_text += f"**{i}.** {name} — {score} points\n"
 
+    # 🟩 Send embed
     embed = discord.Embed(
         title="🏆 Leaderboard",
-        description=description,
-        color=discord.Color.orange()
+        description=leaderboard_text,
+        color=discord.Color.gold()
     )
     await ctx.send(embed=embed)
 
+    # 🟩 Now handle Leader role assignment automatically
+    try:
+        # Get top user ID
+        top_user_id = int(sorted_scores[0][0])
+        top_member = ctx.guild.get_member(top_user_id)
 
-    # 🔹 This will update the role automatically
-    @tasks.loop(minutes=5)
-    async def update_leader_role():
-        for guild in bot.guilds:  # 🔹 Run for all servers the bot is in
+        # Get the role
+        role = ctx.guild.get_role(LEADER_ROLE_ID)
+        if role is None:
+            await ctx.send(f"⚠️ Role with ID `{LEADER_ROLE_ID}` not found. Please check the ID.")
+            return
+
+        # Remove role from everyone else
+        for member in ctx.guild.members:
+            if role in member.roles and member.id != top_user_id:
+                try:
+                    await member.remove_roles(role)
+                except discord.Forbidden:
+                    await ctx.send("⚠️ I lack permission to remove roles.")
+                    return
+
+        # Add role to the top player if not already
+        if top_member and role not in top_member.roles:
             try:
-                scores = load_scores()
-                if not scores:
-                    continue  # Skip if no scores exist
-
-                # Sort scores descending
-                sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-                top_user_id = int(sorted_scores[0][0])
-                top_member = guild.get_member(top_user_id)
-                role = guild.get_role(LEADER_ROLE_ID)
-
-                if role is None:
-                    print(f"⚠️ Role with ID {LEADER_ROLE_ID} not found in {guild.name}")
-                    continue
-
-                # Remove the role from everyone else
-                for member in guild.members:
-                    if role in member.roles and member.id != top_user_id:
-                        try:
-                            await member.remove_roles(role)
-                        except discord.Forbidden:
-                            print("⚠️ Missing permission to remove roles.")
-                            continue
-
-                # Add the role to the top player
-                if top_member and role not in top_member.roles:
-                    try:
-                        await top_member.add_roles(role)
-                        print(f"🏅 {top_member} is now the Leaderboard Leader in {guild.name}")
-                    except discord.Forbidden:
-                        print("⚠️ Missing permission to add roles.")
-
-            except Exception as e:
-                print(f"Error in update_leader_role: {e}")
+                await top_member.add_roles(role)
+                await ctx.send(f"🏅 {top_member.mention} is now the **Leaderboard Leader**!")
+            except discord.Forbidden:
+                await ctx.send("⚠️ I lack permission to add roles.")
+    except Exception as e:
+        await ctx.send(f"⚠️ Error assigning Leader role: `{e}`")
 
 # 60 Space Trivia Questions (20 each difficulty)
 TRIVIA_QUESTIONS = {
@@ -1146,91 +1134,157 @@ async def rocketdesign(ctx):
 # Booster Catch Game
 @bot.command(name="catchbooster")
 async def catchbooster(ctx):
-    """Complex booster catching game like Mechazilla.io."""
-    # Generate random conditions
+    """Ultra-hard booster catching simulation."""
+    # Generate conditions
     drift = random.choice(["left", "right", "center"])
-    speed = random.randint(150, 400)  # m/s
-    altitude = random.randint(50, 150)  # meters at start
+    speed = random.randint(180, 420)
+    altitude = random.randint(40, 140)
+    tilt = random.choice(["stable", "tilted-left", "tilted-right"])
+    gust = random.choice(["low", "medium", "high"])
 
     embed = discord.Embed(
-        title="🚀 Booster Catch Simulation",
+        title="🚀 Booster Catch Simulation — Expert Mode",
         description=(
             f"Booster incoming!\n"
             f"Altitude: **{altitude} m**\n"
             f"Speed: **{speed} m/s**\n"
-            f"Wind Drift: **{drift.upper()}**\n\n"
-            "Type one of: `left`, `right`, or `center` to position the arms!"
+            f"Wind Drift: **{drift.upper()}**\n"
+            f"Tilt: **{tilt.upper()}**\n"
+            f"Wind Gusts: **{gust.upper()}**\n\n"
+            "PHASE 1: Type `left`, `right` or `center` to position the arms."
         ),
         color=discord.Color.orange()
     )
     await ctx.send(embed=embed)
 
+    # Phase 1 — Position arms
     def position_check(m):
         return m.author == ctx.author and m.channel == ctx.channel and \
                m.content.lower() in ["left", "right", "center"]
-
     try:
-        msg = await bot.wait_for("message", timeout=5.0, check=position_check)
+        msg = await bot.wait_for("message", timeout=4.0, check=position_check)
         chosen_position = msg.content.lower()
     except asyncio.TimeoutError:
-        await ctx.send(f"❌ {ctx.author.mention} took too long to position the arms. Booster crashed!")
+        await ctx.send("❌ Too slow. Booster crashed.")
         return
-
-    # Determine if positioned correctly
     correct_position = (chosen_position == drift)
-    await ctx.send(
-        f"🛑 Arms positioned **{chosen_position.upper()}**. "
-        f"Waiting for booster lock signal..."
-    )
 
-    # Random delay before catch
-    delay = random.uniform(1.5, 4.0)
-    await asyncio.sleep(delay)
+    # Phase 2 — Arm Power
+    await ctx.send("⚙️ PHASE 2: Set arm power: `low`, `normal`, or `boost`.")
+    def power_check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and \
+               m.content.lower() in ["low", "normal", "boost"]
+    try:
+        power_msg = await bot.wait_for("message", timeout=3.5, check=power_check)
+        chosen_power = power_msg.content.lower()
+    except asyncio.TimeoutError:
+        await ctx.send("⚠️ Too slow. Booster missed.")
+        return
+    ideal_power = "normal"
+    if gust == "high":
+        ideal_power = "boost"
+    elif gust == "low":
+        ideal_power = "low"
+    correct_power = (chosen_power == ideal_power)
+
+    # Phase 3 — Correct tilt
+    await ctx.send("🛠️ PHASE 3: Booster tilt correction — type `thruster-left`, `thruster-right` or `none`.")
+    def tilt_check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and \
+               m.content.lower() in ["thruster-left", "thruster-right", "none"]
+    try:
+        tilt_msg = await bot.wait_for("message", timeout=3.0, check=tilt_check)
+        chosen_thruster = tilt_msg.content.lower()
+    except asyncio.TimeoutError:
+        await ctx.send("⚠️ Too slow. Booster tipped over.")
+        return
+    if tilt == "stable":
+        correct_thruster = "none"
+    elif tilt == "tilted-left":
+        correct_thruster = "thruster-left"
+    else:
+        correct_thruster = "thruster-right"
+    correct_thruster_choice = (chosen_thruster == correct_thruster)
+
+    # Random emergency event before catch
+    if random.random() < 0.3:
+        emergency = random.choice(["abort", "hold"])
+        await ctx.send(f"⚠️ EMERGENCY: Type **{emergency}** immediately to respond!")
+        def emergency_check(m):
+            return m.author == ctx.author and m.channel == ctx.channel and \
+                   m.content.lower() == emergency
+        try:
+            await bot.wait_for("message", timeout=2.0, check=emergency_check)
+            emergency_ok = True
+        except asyncio.TimeoutError:
+            await ctx.send(f"💥 You failed the emergency command. Booster exploded.")
+            return
+    else:
+        emergency_ok = True
+
+    # Phase 4 — Wait for catch signal
     await ctx.send(embed=discord.Embed(
-        title="✅ LOCK NOW!",
-        description="Type **catch** quickly to lock the arms!",
+        title="✅ Get Ready",
+        description="Catch signal soon… type **catch** FAST!",
         color=discord.Color.green()
     ))
-
+    await asyncio.sleep(random.uniform(1.0, 2.5))
+    await ctx.send(embed=discord.Embed(
+        title="🔒 CATCH NOW!",
+        description="Type **catch** within 1.5s!",
+        color=discord.Color.green()
+    ))
     def catch_check(m):
         return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "catch"
-
     try:
         start_time = asyncio.get_event_loop().time()
-        catch_msg = await bot.wait_for("message", timeout=3.0, check=catch_check)
+        await bot.wait_for("message", timeout=1.5, check=catch_check)
         reaction_time = asyncio.get_event_loop().time() - start_time
     except asyncio.TimeoutError:
-        await ctx.send(f"💥 {ctx.author.mention} missed the timing. Booster splashed down 🌊")
+        await ctx.send("💥 Missed the timing. Booster splashed down.")
         return
 
-    # Scoring based on positioning + reaction time
+    # Score calculation
+    score_factor = 0
     if correct_position:
-        # Faster reaction = more points
-        if reaction_time < 0.8:
-            points = 5
-            quality = "Perfect Catch!"
-        elif reaction_time < 1.5:
-            points = 3
-            quality = "Good Catch!"
+        score_factor += 1
+    if correct_power:
+        score_factor += 1
+    if correct_thruster_choice:
+        score_factor += 1
+    if emergency_ok:
+        score_factor += 1
+
+    if score_factor == 4:
+        # Perfect
+        if reaction_time < 0.7:
+            points = 8
+            quality = "🌟 Perfect Ultra Catch!"
+        elif reaction_time < 1.2:
+            points = 6
+            quality = "✅ Good Ultra Catch!"
         else:
-            points = 1
-            quality = "Late Catch!"
+            points = 4
+            quality = "⌛ Late Catch"
+    elif score_factor >= 2:
+        points = 2
+        quality = "⚠️ Partial Catch"
     else:
         points = 0
-        quality = "Arms misaligned — booster missed!"
+        quality = "💥 Catastrophic Failure"
 
     if points > 0:
         add_score(ctx.author.id, points)
         total = scores.get(str(ctx.author.id), 0)
         embed = discord.Embed(
-            title=f"🎯 {quality}",
-            description=f"{ctx.author.mention} caught the booster!\nEarned **{points} points**.\nTotal points: **{total}**",
+            title=f"{quality}",
+            description=f"{ctx.author.mention} survived Expert Mode!\nEarned **{points} points**.\nTotal points: **{total}**",
             color=discord.Color.blue()
         )
     else:
         embed = discord.Embed(
-            title="💥 Booster Missed",
-            description=f"{ctx.author.mention} misaligned the arms or was too slow.\nNo points awarded.",
+            title=f"{quality}",
+            description=f"{ctx.author.mention} lost the booster. No points awarded.",
             color=discord.Color.red()
         )
 
