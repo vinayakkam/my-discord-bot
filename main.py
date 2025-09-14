@@ -1193,7 +1193,7 @@ async def catchbooster(ctx):
         return m.author == ctx.author and m.channel == ctx.channel and \
                m.content.lower() in ["thruster-left", "thruster-right", "none"]
     try:
-        tilt_msg = await bot.wait_for("message", timeout=5.0, check=tilt_check)
+        tilt_msg = await bot.wait_for("message", timeout=8.0, check=tilt_check)
         chosen_thruster = tilt_msg.content.lower()
     except asyncio.TimeoutError:
         await ctx.send("⚠️ Too slow. Booster tipped over.")
