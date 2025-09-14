@@ -1162,7 +1162,7 @@ async def catchbooster(ctx):
         return m.author == ctx.author and m.channel == ctx.channel and \
                m.content.lower() in ["left", "right", "center"]
     try:
-        msg = await bot.wait_for("message", timeout=4.0, check=position_check)
+        msg = await bot.wait_for("message", timeout=5.0, check=position_check)
         chosen_position = msg.content.lower()
     except asyncio.TimeoutError:
         await ctx.send("❌ Too slow. Booster crashed.")
@@ -1175,7 +1175,7 @@ async def catchbooster(ctx):
         return m.author == ctx.author and m.channel == ctx.channel and \
                m.content.lower() in ["low", "normal", "boost"]
     try:
-        power_msg = await bot.wait_for("message", timeout=3.5, check=power_check)
+        power_msg = await bot.wait_for("message", timeout=5.0, check=power_check)
         chosen_power = power_msg.content.lower()
     except asyncio.TimeoutError:
         await ctx.send("⚠️ Too slow. Booster missed.")
@@ -1193,7 +1193,7 @@ async def catchbooster(ctx):
         return m.author == ctx.author and m.channel == ctx.channel and \
                m.content.lower() in ["thruster-left", "thruster-right", "none"]
     try:
-        tilt_msg = await bot.wait_for("message", timeout=3.0, check=tilt_check)
+        tilt_msg = await bot.wait_for("message", timeout=5.0, check=tilt_check)
         chosen_thruster = tilt_msg.content.lower()
     except asyncio.TimeoutError:
         await ctx.send("⚠️ Too slow. Booster tipped over.")
