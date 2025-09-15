@@ -857,11 +857,101 @@ async def predict(ctx):
 
 player_states = {}
 
+player_states = {}
+
+
+class MissionView(discord.ui.View):
+    def __init__(self, ctx):
+        super().__init__(timeout=None)
+        self.ctx = ctx
+
+    async def update_embed(self, interaction, description=None):
+        """Helper to rebuild and update embed after actions."""
+        state = player_states.get(self.ctx.author.id)
+        if not state or not state["active"]:
+            await interaction.response.edit_message(content="💥 Mission Ended.", embed=None, view=None)
+            return
+
+        embed = discord.Embed(
+            title="🚀 Starship Mission",
+            description=description or "Manage your mission below.",
+            color=discord.Color.blurple()
+        )
+        embed.add_field(name="Fuel", value=state['fuel'])
+        embed.add_field(name="Food", value=state['food'])
+        embed.add_field(name="Research", value=state['research'])
+        embed.add_field(name="Turns", value=state['turns'])
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def check_end(self, interaction):
+        state = player_states.get(self.ctx.author.id)
+        if state["fuel"] <= 0 or state["food"] <= 0:
+            points = state["turns"] // 2
+            add_score(self.ctx.author.id, points)
+            total = scores.get(str(self.ctx.author.id), 0)
+            player_states[self.ctx.author.id]["active"] = False
+            embed = discord.Embed(
+                title="💥 Mission Failed",
+                description=f"You ran out of resources after {state['turns']} turns.\n"
+                            f"You earned **{points} points**.\nTotal points: **{total}**",
+                color=discord.Color.red()
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            return True
+        return False
+
+    @discord.ui.button(label="Launch 🚀", style=discord.ButtonStyle.primary)
+    async def launch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        state = player_states.get(self.ctx.author.id)
+        if not state or not state["active"]:
+            await interaction.response.send_message("⚠️ Start a mission first.", ephemeral=True)
+            return
+        fuel_cost = random.randint(5, 10)
+        food_cost = random.randint(3, 8)
+        state["fuel"] -= fuel_cost
+        state["food"] -= food_cost
+        state["turns"] += 1
+        event_text = f"You launched forward, using **{fuel_cost} fuel** and **{food_cost} food**."
+        if random.random() < 0.3:
+            bonus = random.randint(5, 15)
+            state["research"] += bonus
+            event_text += f"\nYou discovered alien tech! **+{bonus} research points**."
+        if await self.check_end(interaction): return
+        await self.update_embed(interaction, description=event_text)
+
+    @discord.ui.button(label="Refuel ⛽", style=discord.ButtonStyle.success)
+    async def refuel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        state = player_states.get(self.ctx.author.id)
+        if not state or not state["active"]:
+            await interaction.response.send_message("⚠️ Start a mission first.", ephemeral=True)
+            return
+        fuel_gain = random.randint(5, 15)
+        food_gain = random.randint(5, 15)
+        state["fuel"] += fuel_gain
+        state["food"] += food_gain
+        state["turns"] += 1
+        if await self.check_end(interaction): return
+        await self.update_embed(interaction, description=f"Refueled **+{fuel_gain} fuel** and **+{food_gain} food**.")
+
+    @discord.ui.button(label="Research 🔬", style=discord.ButtonStyle.secondary)
+    async def research(self, interaction: discord.Interaction, button: discord.ui.Button):
+        state = player_states.get(self.ctx.author.id)
+        if not state or not state["active"]:
+            await interaction.response.send_message("⚠️ Start a mission first.", ephemeral=True)
+            return
+        food_cost = random.randint(3, 8)
+        state["food"] -= food_cost
+        state["turns"] += 1
+        gain = random.randint(5, 20)
+        state["research"] += gain
+        if await self.check_end(interaction): return
+        await self.update_embed(interaction, description=f"You spent **{food_cost} food** and gained **+{gain} research points**.")
+
 @bot.group(name="mission", invoke_without_command=True)
 async def mission(ctx):
-    """Start or view your Starship mission."""
-    if ctx.author.id not in player_states:
-        # Create a new mission state
+    """Start or view your Starship mission interactively."""
+    if ctx.author.id not in player_states or not player_states[ctx.author.id]["active"]:
+        # create new mission
         player_states[ctx.author.id] = {
             "fuel": 50,
             "food": 50,
@@ -869,137 +959,19 @@ async def mission(ctx):
             "turns": 0,
             "active": True
         }
-        embed = discord.Embed(
-            title="🚀 Starship Mission Started",
-            description="Your mission has begun! Manage your resources wisely.\n\nCommands:\n`!mission launch`\n`!mission refuel`\n`!mission research`\n`!mission status`",
-            color=discord.Color.blurple()
-        )
-        await ctx.send(embed=embed)
-    else:
-        embed = discord.Embed(
-            title="🚀 Starship Mission",
-            description="You already have an active mission.\nUse `!mission status` to view stats.",
-            color=discord.Color.blurple()
-        )
-        await ctx.send(embed=embed)
 
-
-@mission.command(name="status")
-async def mission_status(ctx):
-    """View your current resources."""
     state = player_states.get(ctx.author.id)
-    if not state or not state["active"]:
-        await ctx.send("⚠️ You don’t have an active mission. Start one with `!mission`.")
-        return
-
     embed = discord.Embed(
-        title="📊 Starship Status",
-        description=f"**Fuel:** {state['fuel']}\n**Food:** {state['food']}\n**Research Points:** {state['research']}\n**Turns Survived:** {state['turns']}",
-        color=discord.Color.green()
+        title="🚀 Starship Mission Started",
+        description="Manage your mission below using the buttons.",
+        color=discord.Color.blurple()
     )
-    await ctx.send(embed=embed)
-
-
-@mission.command(name="launch")
-async def mission_launch(ctx):
-    """Spend fuel & food to travel forward."""
-    state = player_states.get(ctx.author.id)
-    if not state or not state["active"]:
-        await ctx.send("⚠️ You don’t have an active mission. Start one with `!mission`.")
-        return
-
-    # Consume fuel & food
-    fuel_cost = random.randint(5, 10)
-    food_cost = random.randint(3, 8)
-    state["fuel"] -= fuel_cost
-    state["food"] -= food_cost
-    state["turns"] += 1
-
-    event_text = f"You launched forward, using **{fuel_cost} fuel** and **{food_cost} food**."
-
-    # Random event chance
-    if random.random() < 0.3:
-        bonus = random.randint(5, 15)
-        state["research"] += bonus
-        event_text += f"\nYou discovered alien tech! **+{bonus} research points**."
-
-    # Check for game over
-    if state["fuel"] <= 0 or state["food"] <= 0:
-        points = state["turns"] // 2  # Award points based on turns survived
-        add_score(ctx.author.id, points)
-        total = scores.get(str(ctx.author.id), 0)
-        player_states[ctx.author.id]["active"] = False
-        embed = discord.Embed(
-            title="💥 Mission Failed",
-            description=f"You ran out of resources after {state['turns']} turns.\nYou earned **{points} points**.\nTotal points: **{total}**",
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=embed)
-        return
-
-    embed = discord.Embed(
-        title="🚀 Launch Successful",
-        description=event_text,
-        color=discord.Color.blue()
-    )
-    await ctx.send(embed=embed)
-
-
-@mission.command(name="refuel")
-async def mission_refuel(ctx):
-    """Refuel and resupply (random outcome)."""
-    state = player_states.get(ctx.author.id)
-    if not state or not state["active"]:
-        await ctx.send("⚠️ You don’t have an active mission. Start one with `!mission`.")
-        return
-
-    fuel_gain = random.randint(5, 15)
-    food_gain = random.randint(5, 15)
-    state["fuel"] += fuel_gain
-    state["food"] += food_gain
-    state["turns"] += 1
-
-    embed = discord.Embed(
-        title="⛽ Refuel Complete",
-        description=f"Refueled **+{fuel_gain} fuel** and **+{food_gain} food**.",
-        color=discord.Color.green()
-    )
-    await ctx.send(embed=embed)
-
-
-@mission.command(name="research")
-async def mission_research(ctx):
-    """Spend a turn researching for points."""
-    state = player_states.get(ctx.author.id)
-    if not state or not state["active"]:
-        await ctx.send("⚠️ You don’t have an active mission. Start one with `!mission`.")
-        return
-
-    food_cost = random.randint(3, 8)
-    state["food"] -= food_cost
-    state["turns"] += 1
-    gain = random.randint(5, 20)
-    state["research"] += gain
-
-    if state["fuel"] <= 0 or state["food"] <= 0:
-        points = state["turns"] // 2
-        add_score(ctx.author.id, points)
-        total = scores.get(str(ctx.author.id), 0)
-        player_states[ctx.author.id]["active"] = False
-        embed = discord.Embed(
-            title="💥 Mission Failed",
-            description=f"You ran out of resources after {state['turns']} turns.\nYou earned **{points} points**.\nTotal points: **{total}**",
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=embed)
-        return
-
-    embed = discord.Embed(
-        title="🔬 Research Complete",
-        description=f"You spent **{food_cost} food** and gained **+{gain} research points**.",
-        color=discord.Color.teal()
-    )
-    await ctx.send(embed=embed)
+    embed.add_field(name="Fuel", value=state['fuel'])
+    embed.add_field(name="Food", value=state['food'])
+    embed.add_field(name="Research", value=state['research'])
+    embed.add_field(name="Turns", value=state['turns'])
+    view = MissionView(ctx)
+    await ctx.send(embed=embed, view=view)
 
 rocket_design_states = {}
 
