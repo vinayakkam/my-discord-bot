@@ -1238,7 +1238,7 @@ async def catchbooster(ctx):
         return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "catch"
     try:
         start_time = asyncio.get_event_loop().time()
-        await bot.wait_for("message", timeout=1.5, check=catch_check)
+        await bot.wait_for("message", timeout=3.0, check=catch_check)
         reaction_time = asyncio.get_event_loop().time() - start_time
     except asyncio.TimeoutError:
         await ctx.send("💥 Missed the timing. Booster splashed down.")
