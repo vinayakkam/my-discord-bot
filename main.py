@@ -856,40 +856,49 @@ async def predict(ctx):
         print("add_score error:", e)
 
 
-player_states = {}  # user_id → state dict
+player_states = {}  # user_id -> {fuel, food, research, turns, active}
 
+
+# ======= Mission UI View =======
 class MissionView(discord.ui.View):
     def __init__(self, author_id):
         super().__init__(timeout=None)
-        self.author_id = author_id  # the owner of this mission
+        self.author_id = author_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Allow only the original user to click buttons."""
+        """Restrict button presses to mission owner."""
         if interaction.user.id != self.author_id:
             await interaction.response.send_message(
-                "⚠️ This mission’s buttons belong to someone else. You can start your own with `!mission`.",
+                "⚠️ These buttons belong to someone else. Start your own with `!mission`.",
                 ephemeral=True
             )
             return False
         return True
 
+    def disable_all(self):
+        """Disable all buttons after mission ends."""
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+
     @discord.ui.button(label="🚀 Launch", style=discord.ButtonStyle.primary)
     async def launch(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await mission_launch(interaction)
+        await mission_launch(interaction, self)
 
     @discord.ui.button(label="⛽ Refuel", style=discord.ButtonStyle.success)
     async def refuel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await mission_refuel(interaction)
+        await mission_refuel(interaction, self)
 
     @discord.ui.button(label="🔬 Research", style=discord.ButtonStyle.secondary)
     async def research(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await mission_research(interaction)
+        await mission_research(interaction, self)
 
     @discord.ui.button(label="📊 Status", style=discord.ButtonStyle.gray)
     async def status(self, interaction: discord.Interaction, button: discord.ui.Button):
         await mission_status(interaction)
 
 
+# ======= Command to start a mission =======
 @bot.command()
 async def mission(ctx):
     """Start or view your Starship mission with UI buttons."""
@@ -914,58 +923,77 @@ async def mission(ctx):
             color=discord.Color.blurple()
         )
 
-    # view only works for this author
     view = MissionView(ctx.author.id)
     await ctx.send(embed=embed, view=view)
 
 
-# ----- Mission Logic -----
-
+# ======= Mission Action Handlers =======
 async def mission_status(interaction):
-    """Show public status embed (anyone can see)."""
+    """Public status embed."""
     state = player_states.get(interaction.user.id)
+    if not state:
+        await interaction.response.send_message("⚠️ No active mission.", ephemeral=True)
+        return
+
+    # Simple bars
+    def bar(value, max_val=100):
+        filled = int(value / max_val * 10)
+        return "█" * filled + "░" * (10 - filled)
+
     embed = discord.Embed(
-        title=f"📊 Starship Status for {interaction.user.display_name}",
-        description=f"**Fuel:** {state['fuel']}\n"
-                    f"**Food:** {state['food']}\n"
-                    f"**Research:** {state['research']}\n"
-                    f"**Turns:** {state['turns']}",
+        title=f"📊 Starship Status — {interaction.user.display_name}",
+        description=(f"**Fuel:** {state['fuel']} {bar(state['fuel'])}\n"
+                     f"**Food:** {state['food']} {bar(state['food'])}\n"
+                     f"**Research:** {state['research']}\n"
+                     f"**Turns:** {state['turns']}"),
         color=discord.Color.green()
     )
-    # Status visible to everyone
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
 
-async def mission_launch(interaction):
+async def mission_launch(interaction, view: MissionView):
     state = player_states.get(interaction.user.id)
+    if not state or not state["active"]:
+        await interaction.response.send_message("💥 Mission already ended.", ephemeral=True)
+        return
+
     fuel_cost = random.randint(5, 10)
     food_cost = random.randint(3, 8)
     state["fuel"] -= fuel_cost
     state["food"] -= food_cost
     state["turns"] += 1
-    event_text = f"You launched forward, using **{fuel_cost} fuel** and **{food_cost} food**."
 
+    event_text = f"You launched forward, using **{fuel_cost} fuel** and **{food_cost} food**."
     if random.random() < 0.3:
         bonus = random.randint(5, 15)
         state["research"] += bonus
-        event_text += f"\nYou discovered alien tech! **+{bonus} research points**."
+        event_text += f"\nDiscovered alien tech! **+{bonus} research points**."
 
     if state["fuel"] <= 0 or state["food"] <= 0:
+        points = state["turns"] // 2
+        total = add_score(interaction.user.id, points)  # ✅ integrated here
         state["active"] = False
+        view.disable_all()
+        await interaction.message.edit(view=view)
+
         embed = discord.Embed(
             title="💥 Mission Failed",
-            description=f"You ran out of resources after {state['turns']} turns.",
+            description=f"You ran out of resources after {state['turns']} turns.\n"
+                        f"You earned **{points} points**.\nTotal points: **{total}**",
             color=discord.Color.red()
         )
     else:
         embed = discord.Embed(title="🚀 Launch", description=event_text, color=discord.Color.blue())
 
-    # Action reply private
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-async def mission_refuel(interaction):
+async def mission_refuel(interaction, view: MissionView):
     state = player_states.get(interaction.user.id)
+    if not state or not state["active"]:
+        await interaction.response.send_message("💥 Mission already ended.", ephemeral=True)
+        return
+
     fuel_gain = random.randint(5, 15)
     food_gain = random.randint(5, 15)
     state["fuel"] += fuel_gain
@@ -980,8 +1008,12 @@ async def mission_refuel(interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-async def mission_research(interaction):
+async def mission_research(interaction, view: MissionView):
     state = player_states.get(interaction.user.id)
+    if not state or not state["active"]:
+        await interaction.response.send_message("💥 Mission already ended.", ephemeral=True)
+        return
+
     food_cost = random.randint(3, 8)
     state["food"] -= food_cost
     state["turns"] += 1
@@ -989,10 +1021,16 @@ async def mission_research(interaction):
     state["research"] += gain
 
     if state["fuel"] <= 0 or state["food"] <= 0:
+        points = state["turns"] // 2
+        total = add_score(interaction.user.id, points)  # ✅ integrated here
         state["active"] = False
+        view.disable_all()
+        await interaction.message.edit(view=view)
+
         embed = discord.Embed(
             title="💥 Mission Failed",
-            description=f"You ran out of resources after {state['turns']} turns.",
+            description=f"You ran out of resources after {state['turns']} turns.\n"
+                        f"You earned **{points} points**.\nTotal points: **{total}**",
             color=discord.Color.red()
         )
     else:
