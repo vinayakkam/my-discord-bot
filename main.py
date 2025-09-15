@@ -1191,7 +1191,7 @@ async def catchbooster(ctx):
     await ctx.send("🛠️ PHASE 3: Booster tilt correction — type `thruster-left`, `thruster-right` or `none`.")
     def tilt_check(m):
         return m.author == ctx.author and m.channel == ctx.channel and \
-               m.content.lower() in ["t-left", "t-right", "none"]
+               m.content.lower() in ["tleft", "tright", "none"]
     try:
         tilt_msg = await bot.wait_for("message", timeout=8.0, check=tilt_check)
         chosen_thruster = tilt_msg.content.lower()
