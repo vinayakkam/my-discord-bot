@@ -1191,7 +1191,7 @@ async def catchbooster(ctx):
     await ctx.send("🛠️ PHASE 3: Booster tilt correction — type `thruster-left`, `thruster-right` or `none`.")
     def tilt_check(m):
         return m.author == ctx.author and m.channel == ctx.channel and \
-               m.content.lower() in ["thruster-left", "thruster-right", "none"]
+               m.content.lower() in ["t-left", "t-right", "none"]
     try:
         tilt_msg = await bot.wait_for("message", timeout=8.0, check=tilt_check)
         chosen_thruster = tilt_msg.content.lower()
@@ -1201,9 +1201,9 @@ async def catchbooster(ctx):
     if tilt == "stable":
         correct_thruster = "none"
     elif tilt == "tilted-left":
-        correct_thruster = "thruster-left"
+        correct_thruster = "t-left"
     else:
-        correct_thruster = "thruster-right"
+        correct_thruster = "t-right"
     correct_thruster_choice = (chosen_thruster == correct_thruster)
 
     # Random emergency event before catch
