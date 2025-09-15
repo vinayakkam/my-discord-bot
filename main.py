@@ -1214,7 +1214,7 @@ async def catchbooster(ctx):
             return m.author == ctx.author and m.channel == ctx.channel and \
                    m.content.lower() == emergency
         try:
-            await bot.wait_for("message", timeout=2.0, check=emergency_check)
+            await bot.wait_for("message", timeout=3.0, check=emergency_check)
             emergency_ok = True
         except asyncio.TimeoutError:
             await ctx.send(f"💥 You failed the emergency command. Booster exploded.")
