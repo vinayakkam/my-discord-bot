@@ -1231,7 +1231,7 @@ async def catchbooster(ctx):
     await asyncio.sleep(random.uniform(1.0, 2.5))
     await ctx.send(embed=discord.Embed(
         title="🔒 CATCH NOW!",
-        description="Type **catch** within 1.5s!",
+        description="Type **catch** within 3.0s!",
         color=discord.Color.green()
     ))
     def catch_check(m):
@@ -1266,7 +1266,7 @@ async def catchbooster(ctx):
         else:
             points = 4
             quality = "⌛ Late Catch"
-    elif score_factor >= 2:
+    elif score_factor >= 3:
         points = 2
         quality = "⚠️ Partial Catch"
     else:
