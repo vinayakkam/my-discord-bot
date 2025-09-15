@@ -1134,141 +1134,117 @@ async def rocketdesign(ctx):
 # Booster Catch Game
 @bot.command(name="catchbooster")
 async def catchbooster(ctx):
-    """Ultra-hard booster catching simulation."""
-    # Generate conditions
-    drift = random.choice(["left", "right", "center"])
-    speed = random.randint(180, 420)
-    altitude = random.randint(40, 140)
-    tilt = random.choice(["stable", "tilted-left", "tilted-right"])
-    gust = random.choice(["low", "medium", "high"])
+    """Booster catching simulation with SpaceX-style countdown, timeline and animated flames."""
 
-    embed = discord.Embed(
-        title="🚀 Booster Catch Simulation — Expert Mode",
-        description=(
-            f"Booster incoming!\n"
-            f"Altitude: **{altitude} m**\n"
-            f"Speed: **{speed} m/s**\n"
-            f"Wind Drift: **{drift.upper()}**\n"
-            f"Tilt: **{tilt.upper()}**\n"
-            f"Wind Gusts: **{gust.upper()}**\n\n"
-            "PHASE 1: Type `left`, `right` or `center` to position the arms."
-        ),
-        color=discord.Color.orange()
-    )
-    await ctx.send(embed=embed)
+    drift = random.choice(["left", "right", "center"])
+    speed = random.randint(160, 280)
+    altitude = random.randint(150, 220)
+    timeline = []
+
+    # booster flames by stage
+    flames = ["🔥", "🟧", "🟨", "🟩", "🟦"]
+
+    def make_bar(current, max_val, length=10, emoji="█"):
+        filled = max(0, min(length, int(current / max_val * length)))
+        return emoji * filled + "░" * (length - filled)
+
+    # booster ASCII with flames
+    def booster_ascii(stage):
+        flame = flames[min(stage, len(flames)-1)]
+        tower = [
+            "🗼 |    |",
+            "   |    |",
+            "   |    |",
+            "   |    |",
+            "   |    |",
+        ]
+        booster = [
+            f"    ^ {flame}",
+            f"   /|\\ {flame}",
+            f"  /_|_\\ {flame}",
+            f"    |  {flame}"
+        ]
+        offset = min(stage, len(tower)-1)
+        lines = tower[:len(tower)-offset] + booster + tower[len(tower)-offset:]
+        return "\n".join(lines)
+
+    async def update_embed(stage, message=None, status=""):
+        altitude_bar = make_bar(altitude, 220, emoji="🟩")
+        speed_bar = make_bar(speed, 280, emoji="🟦")
+        art = f"```{booster_ascii(stage)}```"
+        timeline_text = "\n".join([f"• {event}" for event in timeline[-5:]]) or "—"
+        e = discord.Embed(
+            title="🚀 Booster Catch — Live Telemetry",
+            description=(
+                art +
+                f"**Altitude:** {altitude} m  {altitude_bar}\n"
+                f"**Speed:** {speed} m/s  {speed_bar}\n"
+                f"**Wind Drift:** {drift.upper()}\n\n"
+                f"**Status:** {status}\n\n"
+                f"**Timeline:**\n{timeline_text}"
+            ),
+            color=discord.Color.blurple()
+        )
+        if message:
+            await message.edit(embed=e)
+        else:
+            return await ctx.send(embed=e)
+
+    # Phase 0 — initial
+    timeline.append("Booster detected on radar")
+    msg = await update_embed(stage=0, status="Incoming booster…")
+    await asyncio.sleep(1.2)
 
     # Phase 1 — Position arms
+    timeline.append("Preparing arms for capture")
+    await update_embed(stage=1, message=msg, status="Type `left`, `right` or `center` to position the arms.")
     def position_check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and \
-               m.content.lower() in ["left", "right", "center"]
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["left","right","center"]
     try:
-        msg = await bot.wait_for("message", timeout=5.0, check=position_check)
-        chosen_position = msg.content.lower()
+        pmsg = await bot.wait_for("message", timeout=6.0, check=position_check)
+        chosen_position = pmsg.content.lower()
+        timeline.append(f"Arms moved to {chosen_position.upper()}")
     except asyncio.TimeoutError:
+        timeline.append("Missed arm positioning window")
         await ctx.send("❌ Too slow. Booster crashed.")
         return
-    correct_position = (chosen_position == drift)
+    correct_position = chosen_position == drift
+    altitude -= random.randint(30, 50)
+    speed -= random.randint(20, 50)
+    await update_embed(stage=2, message=msg, status="Arms in position")
 
-    # Phase 2 — Arm Power
-    await ctx.send("⚙️ PHASE 2: Set arm power: `low`, `normal`, or `boost`.")
-    def power_check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and \
-               m.content.lower() in ["low", "normal", "boost"]
-    try:
-        power_msg = await bot.wait_for("message", timeout=5.0, check=power_check)
-        chosen_power = power_msg.content.lower()
-    except asyncio.TimeoutError:
-        await ctx.send("⚠️ Too slow. Booster missed.")
-        return
-    ideal_power = "normal"
-    if gust == "high":
-        ideal_power = "boost"
-    elif gust == "low":
-        ideal_power = "low"
-    correct_power = (chosen_power == ideal_power)
+    # Phase 2 — Countdown T-5 to T-0 with flames changing
+    for t in range(5, 0, -1):
+        timeline.append(f"T-{t} seconds to catch window")
+        altitude -= random.randint(5, 15)
+        speed -= random.randint(5, 15)
+        # stage controls flames height
+        stage = 3 + (5 - t)
+        await update_embed(stage=stage, message=msg, status=f"Countdown T-{t}s — booster slowing 🔥")
+        await asyncio.sleep(1.0)
+    timeline.append("T-0 Catch window opens")
 
-    # Phase 3 — Correct tilt
-    await ctx.send("🛠️ PHASE 3: Booster tilt correction — type `thruster-left`, `thruster-right` or `none`.")
-    def tilt_check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and \
-               m.content.lower() in ["tleft", "tright", "none"]
-    try:
-        tilt_msg = await bot.wait_for("message", timeout=8.0, check=tilt_check)
-        chosen_thruster = tilt_msg.content.lower()
-    except asyncio.TimeoutError:
-        await ctx.send("⚠️ Too slow. Booster tipped over.")
-        return
-    if tilt == "stable":
-        correct_thruster = "none"
-    elif tilt == "tilted-left":
-        correct_thruster = "tleft"
-    else:
-        correct_thruster = "tright"
-    correct_thruster_choice = (chosen_thruster == correct_thruster)
-
-    # Random emergency event before catch
-    if random.random() < 0.3:
-        emergency = random.choice(["abort", "hold"])
-        await ctx.send(f"⚠️ EMERGENCY: Type **{emergency}** immediately to respond!")
-        def emergency_check(m):
-            return m.author == ctx.author and m.channel == ctx.channel and \
-                   m.content.lower() == emergency
-        try:
-            await bot.wait_for("message", timeout=3.0, check=emergency_check)
-            emergency_ok = True
-        except asyncio.TimeoutError:
-            await ctx.send(f"💥 You failed the emergency command. Booster exploded.")
-            return
-    else:
-        emergency_ok = True
-
-    # Phase 4 — Wait for catch signal
-    await ctx.send(embed=discord.Embed(
-        title="✅ Get Ready",
-        description="Catch signal soon… type **catch** FAST!",
-        color=discord.Color.green()
-    ))
-    await asyncio.sleep(random.uniform(1.0, 2.5))
-    await ctx.send(embed=discord.Embed(
-        title="🔒 CATCH NOW!",
-        description="Type **catch** within 3.0s!",
-        color=discord.Color.green()
-    ))
-    def catch_check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "catch"
+    # Phase 3 — Catch
+    await update_embed(stage=4, message=msg, status="🔒 CATCH NOW! Type **catch** within 3.5s!")
+    def catch_check(m): return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "catch"
     try:
         start_time = asyncio.get_event_loop().time()
-        await bot.wait_for("message", timeout=3.0, check=catch_check)
+        await bot.wait_for("message", timeout=3.5, check=catch_check)
         reaction_time = asyncio.get_event_loop().time() - start_time
+        timeline.append(f"Catch command received ({reaction_time:.2f}s)")
     except asyncio.TimeoutError:
+        timeline.append("Missed catch window")
         await ctx.send("💥 Missed the timing. Booster splashed down.")
         return
 
-    # Score calculation
-    score_factor = 0
+    # SCORING
     if correct_position:
-        score_factor += 1
-    if correct_power:
-        score_factor += 1
-    if correct_thruster_choice:
-        score_factor += 1
-    if emergency_ok:
-        score_factor += 1
-
-    if score_factor == 4:
-        # Perfect
-        if reaction_time < 0.7:
-            points = 8
-            quality = "🌟 Perfect Ultra Catch!"
-        elif reaction_time < 1.2:
+        if reaction_time < 1.2:
             points = 6
-            quality = "✅ Good Ultra Catch!"
+            quality = "🌟 Perfect Catch!"
         else:
             points = 4
-            quality = "⌛ Late Catch"
-    elif score_factor >= 3:
-        points = 2
-        quality = "⚠️ Partial Catch"
+            quality = "✅ Good Catch!"
     else:
         points = 0
         quality = "💥 Catastrophic Failure"
@@ -1276,19 +1252,20 @@ async def catchbooster(ctx):
     if points > 0:
         add_score(ctx.author.id, points)
         total = scores.get(str(ctx.author.id), 0)
-        embed = discord.Embed(
-            title=f"{quality}",
-            description=f"{ctx.author.mention} survived Expert Mode!\nEarned **{points} points**.\nTotal points: **{total}**",
-            color=discord.Color.blue()
+        timeline.append(f"Booster secured. +{points} points.")
+        e = discord.Embed(
+            title=quality,
+            description=f"{ctx.author.mention} caught the booster!\nEarned **{points} points**.\nTotal points: **{total}**",
+            color=discord.Color.green()
         )
     else:
-        embed = discord.Embed(
-            title=f"{quality}",
+        timeline.append("Booster lost")
+        e = discord.Embed(
+            title=quality,
             description=f"{ctx.author.mention} lost the booster. No points awarded.",
             color=discord.Color.red()
         )
-
-    await ctx.send(embed=embed)
+    await ctx.send(embed=e)
 
 
 
