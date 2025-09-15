@@ -1201,9 +1201,9 @@ async def catchbooster(ctx):
     if tilt == "stable":
         correct_thruster = "none"
     elif tilt == "tilted-left":
-        correct_thruster = "t-left"
+        correct_thruster = "tleft"
     else:
-        correct_thruster = "t-right"
+        correct_thruster = "tright"
     correct_thruster_choice = (chosen_thruster == correct_thruster)
 
     # Random emergency event before catch
