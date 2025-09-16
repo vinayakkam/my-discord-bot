@@ -1251,122 +1251,253 @@ async def rocketdesign(ctx):
 # Booster Catch Game
 @bot.command(name="catchbooster")
 async def catchbooster(ctx):
-    """Booster catching simulation with SpaceX-style countdown & one GIF animation."""
+    """Interactive Mechzilla.io-style booster catching game"""
 
-    # --- Game state variables ---
-    drift = random.choice(["left", "right", "center"])
-    speed = random.randint(160, 280)
-    altitude = random.randint(150, 220)
-    timeline = []
+    # Game state
+    game_state = {
+        'booster_x': 12,  # Center position (0-24 range)
+        'booster_y': 0,  # Top of screen
+        'booster_vel_x': random.uniform(-0.5, 0.5),
+        'booster_vel_y': 0.3,
+        'arm_left': 8,
+        'arm_right': 16,
+        'fuel': 100,
+        'wind': random.uniform(-0.2, 0.2),
+        'phase': 'falling',
+        'catch_ready': False,
+        'game_over': False,
+        'success': False,
+        'score': 0
+    }
 
-    # Use one GIF from Giphy
-    gif_url = "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMDRmZXJmcDQxaW1hdGZhbnA4bnZ3cmU0aXR1dDIyNmVlajF5dWRoaCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/AQ80IThpDQmauYILe0/giphy.gif"  # example Falcon landing gif
+    timeline = ["🚀 Mechzilla Mission Started"]
 
-    def make_bar(current, max_val, length=10, emoji="█"):
-        filled = max(0, min(length, int(current / max_val * length)))
-        return emoji * filled + "░" * (length - filled)
+    def make_field():
+        """Create ASCII game field"""
+        lines = []
 
-    async def update_embed(message=None, status=""):
-        altitude_bar = make_bar(altitude, 220, emoji="🟩")
-        speed_bar = make_bar(speed, 280, emoji="🟦")
-        timeline_text = "\n".join([f"• {event}" for event in timeline[-5:]]) or "—"
+        # Create 12 rows of sky
+        for row in range(12):
+            line = ['.'] * 25
 
-        e = discord.Embed(
-            title="🚀 Booster Catch — Live Telemetry",
-            description=(
-                f"**Altitude:** {altitude} m  {altitude_bar}\n"
-                f"**Speed:** {speed} m/s  {speed_bar}\n"
-                f"**Wind Drift:** {drift.upper()}\n\n"
-                f"**Status:** {status}\n\n"
-                f"**Timeline:**\n{timeline_text}"
-            ),
-            color=discord.Color.blurple()
+            # Draw booster if in this row
+            booster_row = int(game_state['booster_y'])
+            booster_col = int(game_state['booster_x'])
+
+            if row == booster_row and 0 <= booster_col < 25:
+                if game_state['phase'] == 'falling':
+                    line[booster_col] = '🚀'
+                    # Add flame trail
+                    if row > 0 and game_state['fuel'] > 10:
+                        if booster_col < 24:
+                            line[booster_col] = '║'
+                else:
+                    line[booster_col] = '║'
+                    if game_state['fuel'] > 0:
+                        line[booster_col] = '▼'
+
+            lines.append(''.join(line))
+
+        # Tower level with arms
+        tower = ['='] * 25
+
+        # Left arm
+        left_pos = max(0, int(game_state['arm_left']))
+        for i in range(left_pos, min(left_pos + 3, 25)):
+            tower[i] = '['
+
+        # Right arm
+        right_pos = min(24, int(game_state['arm_right']))
+        for i in range(max(0, right_pos - 2), right_pos + 1):
+            tower[i] = ']'
+
+        # Tower pillars
+        tower[0] = '║'
+        tower[24] = '║'
+
+        lines.append(''.join(tower))
+        lines.append('█' * 25)  # Ground
+
+        return '\n'.join(lines)
+
+    def update_game():
+        """Update game physics"""
+        # Apply wind
+        game_state['booster_vel_x'] += game_state['wind'] * 0.05
+
+        # Gravity
+        game_state['booster_vel_y'] += 0.02
+
+        # Move booster
+        game_state['booster_x'] += game_state['booster_vel_x']
+        game_state['booster_y'] += game_state['booster_vel_y']
+
+        # Boundaries
+        if game_state['booster_x'] <= 0:
+            game_state['booster_x'] = 0
+            game_state['booster_vel_x'] = abs(game_state['booster_vel_x']) * 0.3
+        elif game_state['booster_x'] >= 24:
+            game_state['booster_x'] = 24
+            game_state['booster_vel_x'] = -abs(game_state['booster_vel_x']) * 0.3
+
+        # Check catch zone
+        if game_state['booster_y'] >= 10 and not game_state['catch_ready']:
+            game_state['catch_ready'] = True
+            game_state['phase'] = 'catch_zone'
+            timeline.append("🎯 CATCH ZONE ACTIVE!")
+
+        # Check crash
+        if game_state['booster_y'] >= 12:
+            game_state['game_over'] = True
+            timeline.append("💥 Booster hit ground!")
+
+    def check_catch():
+        """Check if catch is successful"""
+        bx = game_state['booster_x']
+        left = game_state['arm_left'] + 2
+        right = game_state['arm_right'] - 2
+
+        return (left <= bx <= right and
+                10 <= game_state['booster_y'] <= 11 and
+                abs(game_state['booster_vel_y']) < 0.6)
+
+    def make_embed(status=""):
+        """Create Discord embed"""
+        field = f"```\n{make_field()}\n```"
+
+        fuel_bar = "🟢" * (game_state['fuel'] // 20) + "⚫" * (5 - game_state['fuel'] // 20)
+        wind_dir = "⬅️" if game_state['wind'] < 0 else "➡️"
+
+        embed = discord.Embed(
+            title="🦾 MECHZILLA.IO",
+            description=field,
+            color=0xFF6B35
         )
-        e.set_image(url=gif_url)
-        if message:
-            await message.edit(embed=e)
-            return message
-        else:
-            return await ctx.send(embed=e)
 
-    # --- Phase 0: initial detection ---
-    timeline.append("Booster detected on radar")
-    msg = await update_embed(status="Incoming booster…")
-    await asyncio.sleep(1.2)
+        embed.add_field(
+            name="🎮 Controls",
+            value="`A` ⬅️ Move Arms\n`D` ➡️ Move Arms\n`W` 🔥 Thrust\n`CATCH` 🤏 Grab",
+            inline=True
+        )
 
-    # --- Phase 1: Position arms ---
-    timeline.append("Preparing arms for capture")
-    await update_embed(message=msg, status="Type `left`, `right` or `center` to position the arms.")
-    def position_check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["left", "right", "center"]
-    try:
-        pmsg = await bot.wait_for("message", timeout=6.0, check=position_check)
-        chosen_position = pmsg.content.lower()
-        timeline.append(f"Arms moved to {chosen_position.upper()}")
-    except asyncio.TimeoutError:
-        timeline.append("Missed arm positioning window")
-        await ctx.send("❌ Too slow. Booster crashed.")
-        return
-    correct_position = chosen_position == drift
-    altitude -= random.randint(30, 50)
-    speed -= random.randint(20, 50)
-    await update_embed(message=msg, status="Arms in position")
+        embed.add_field(
+            name="📊 Status",
+            value=f"Fuel: {fuel_bar}\nWind: {wind_dir}\nPhase: {game_state['phase'].upper()}",
+            inline=True
+        )
 
-    # --- Phase 2: Countdown T-5 to T-0 ---
-    for t in range(5, 0, -1):
-        timeline.append(f"T-{t} seconds to catch window")
-        altitude -= random.randint(5, 15)
-        speed -= random.randint(5, 15)
-        await update_embed(message=msg, status=f"Countdown T-{t}s — booster slowing 🔥")
-        await asyncio.sleep(1.0)
-    timeline.append("T-0 Catch window opens")
+        if timeline:
+            embed.add_field(
+                name="📡 Log",
+                value="\n".join(timeline[-3:]),
+                inline=False
+            )
 
-    # --- Phase 3: Catch ---
-    await update_embed(message=msg, status="🔒 CATCH NOW! Type **catch** within 3.5s!")
-    def catch_check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "catch"
-    try:
-        start_time = asyncio.get_event_loop().time()
-        await bot.wait_for("message", timeout=3.5, check=catch_check)
-        reaction_time = asyncio.get_event_loop().time() - start_time
-        timeline.append(f"Catch command received ({reaction_time:.2f}s)")
-    except asyncio.TimeoutError:
-        timeline.append("Missed catch window")
-        await ctx.send("💥 Missed the timing. Booster splashed down.")
-        return
+        if status:
+            embed.add_field(name="🚨 Alert", value=status, inline=False)
 
-    # --- SCORING ---
-    if correct_position:
-        if reaction_time < 1.2:
-            points = 6
-            quality = "🌟 Perfect Catch!"
-        else:
-            points = 4
-            quality = "✅ Good Catch!"
+        return embed
+
+    # Start game
+    embed = make_embed("Game starting...")
+    msg = await ctx.send(embed=embed)
+    await asyncio.sleep(2)
+
+    # Game loop
+    start_time = time.time()
+
+    while not game_state['game_over']:
+        # Check for player input
+        def check_msg(m):
+            return (m.author == ctx.author and
+                    m.channel == ctx.channel and
+                    m.content.lower().strip() in ['a', 'd', 'w', 'catch'])
+
+        try:
+            # Wait for input
+            player_msg = await bot.wait_for('message', timeout=1.0, check=check_msg)
+            cmd = player_msg.content.lower().strip()
+
+            if cmd == 'a' and game_state['arm_left'] > 2:
+                game_state['arm_left'] -= 2
+                game_state['arm_right'] -= 2
+                timeline.append("⬅️ Arms moved LEFT")
+
+            elif cmd == 'd' and game_state['arm_right'] < 22:
+                game_state['arm_left'] += 2
+                game_state['arm_right'] += 2
+                timeline.append("➡️ Arms moved RIGHT")
+
+            elif cmd == 'w' and game_state['fuel'] > 0:
+                game_state['booster_vel_y'] -= 0.2
+                game_state['fuel'] -= 15
+                timeline.append("🔥 Thrust burn!")
+
+            elif cmd == 'catch' and game_state['catch_ready']:
+                if check_catch():
+                    game_state['success'] = True
+                    game_state['game_over'] = True
+                    elapsed = time.time() - start_time
+                    game_state['score'] = max(10, int(100 - elapsed))
+                    timeline.append("🌟 PERFECT CATCH!")
+                else:
+                    timeline.append("❌ Missed catch!")
+
+        except asyncio.TimeoutError:
+            pass  # Continue without input
+
+        # Update physics
+        update_game()
+
+        # Update display
+        status_msg = ""
+        if game_state['catch_ready']:
+            status_msg = "🚨 TYPE 'CATCH' NOW! 🚨"
+        elif game_state['booster_y'] > 6:
+            status_msg = "Position arms with A/D!"
+
+        try:
+            await msg.edit(embed=make_embed(status_msg))
+        except:
+            # Handle rate limit
+            pass
+
+        await asyncio.sleep(0.8)
+
+    # Game over
+    if game_state['success']:
+        final_embed = discord.Embed(
+            title="🏆 MISSION SUCCESS!",
+            description=f"**{ctx.author.display_name}** caught the booster!",
+            color=0x00FF00
+        )
+        final_embed.add_field(
+            name="Score",
+            value=f"**{game_state['score']} points**",
+            inline=True
+        )
+        final_embed.add_field(
+            name="Time",
+            value=f"{time.time() - start_time:.1f}s",
+            inline=True
+        )
+
+        # Add to score if you have scoring system
+        # add_score(ctx.author.id, game_state['score'])
+
     else:
-        points = 0
-        quality = "💥 Catastrophic Failure"
-
-    if points > 0:
-        add_score(ctx.author.id, points)  # integrate your existing scoring
-        total = scores.get(str(ctx.author.id), 0)
-        timeline.append(f"Booster secured. +{points} points.")
-        e = discord.Embed(
-            title=quality,
-            description=f"{ctx.author.mention} caught the booster!\nEarned **{points} points**.\nTotal points: **{total}**",
-            color=discord.Color.green()
+        final_embed = discord.Embed(
+            title="💥 MISSION FAILED",
+            description=f"The booster was lost!",
+            color=0xFF0000
         )
-        e.set_image(url=gif_url)
-    else:
-        timeline.append("Booster lost")
-        e = discord.Embed(
-            title=quality,
-            description=f"{ctx.author.mention} lost the booster. No points awarded.",
-            color=discord.Color.red()
+        final_embed.add_field(
+            name="Cause",
+            value=timeline[-1] if timeline else "Unknown",
+            inline=False
         )
-        e.set_image(url=gif_url)
 
-    await ctx.send(embed=e)
+    await ctx.send(embed=final_embed)
 
 
 
