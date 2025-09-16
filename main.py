@@ -405,11 +405,75 @@ TRIVIA_QUESTIONS = {
     ],
 }
 
-LETTERS = ["A", "B", "C"]
+LETTERS = ["A", "B", "C"]  # We'll only show 3 options like before
+
+class TriviaView(discord.ui.View):
+    def __init__(self, ctx, letter_to_option, correct_letter, points):
+        super().__init__(timeout=90)
+        self.ctx = ctx
+        self.letter_to_option = letter_to_option
+        self.correct_letter = correct_letter
+        self.points = points
+        self.answered = False
+
+        # Add a button for each option
+        for L in letter_to_option:
+            self.add_item(TriviaButton(L, letter_to_option[L]))
+
+    async def disable_all(self, interaction=None):
+        for child in self.children:
+            child.disabled = True
+        if interaction:
+            await interaction.message.edit(view=self)
+
+class TriviaButton(discord.ui.Button):
+    def __init__(self, letter, label):
+        super().__init__(label=f"{letter}) {label}", style=discord.ButtonStyle.secondary)
+        self.letter = letter
+
+    async def callback(self, interaction: discord.Interaction):
+        view: TriviaView = self.view
+        if interaction.user.id != view.ctx.author.id:
+            await interaction.response.send_message(
+                "⚠️ This trivia is not for you. Use `!trivia` to start your own.",
+                ephemeral=True
+            )
+            return
+
+        if view.answered:
+            await interaction.response.send_message(
+                "⚠️ You already answered this question.", ephemeral=True
+            )
+            return
+
+        view.answered = True
+        chosen_letter = self.letter
+        chosen_answer = view.letter_to_option[chosen_letter]
+
+        if chosen_letter == view.correct_letter:
+            add_score(view.ctx.author.id, view.points)
+            total = scores.get(str(view.ctx.author.id), 0)
+            embed = discord.Embed(
+                title="✅ Correct!",
+                description=f"You chose **{chosen_letter}) {chosen_answer}** — +{view.points} point(s)!\nTotal points: **{total}**",
+                color=discord.Color.green()
+            )
+        else:
+            correct_answer = view.letter_to_option[view.correct_letter]
+            embed = discord.Embed(
+                title="❌ Wrong",
+                description=f"You chose **{chosen_letter}) {chosen_answer}**.\n"
+                            f"Correct answer: **{view.correct_letter}) {correct_answer}**",
+                color=discord.Color.red()
+            )
+
+        await view.disable_all(interaction)
+        await interaction.followup.send(embed=embed)
+
 
 @bot.command(name="trivia")
 async def trivia(ctx, difficulty: str = None):
-    """Ask a random trivia question. Difficulty: easy/medium/hard."""
+    """Ask a random trivia question with UI buttons."""
     difficulty = (difficulty or "easy").lower()
     if difficulty not in TRIVIA_QUESTIONS:
         await ctx.send("⚠️ Please choose a difficulty: `easy`, `medium`, or `hard`.\nExample: `!trivia medium`")
@@ -426,45 +490,15 @@ async def trivia(ctx, difficulty: str = None):
 
     points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
 
-    question_text = f"**[{difficulty.upper()} — {points} point(s)]**\n\n{q['question']}\n\n" + "\n".join(
-        [f"{L}) {O}" for L, O in letter_to_option.items()]) + "\n\nType A, B, or C in chat (90s)."
-    embed = discord.Embed(title="🎓 Space Trivia Time!",
-                          description=question_text,
-                          color=discord.Color.teal())
-    await ctx.send(embed=embed)
+    question_text = f"**[{difficulty.upper()} — {points} point(s)]**\n\n{q['question']}"
+    embed = discord.Embed(
+        title="🎓 Space Trivia Time!",
+        description=question_text,
+        color=discord.Color.teal()
+    )
 
-    def check(m):
-        return (m.author == ctx.author and
-                m.channel == ctx.channel and
-                m.content.upper() in letter_to_option.keys())
-
-    try:
-        reply = await bot.wait_for("message", timeout=90.0, check=check)
-    except Exception:
-        timeout_embed = discord.Embed(
-            title="⏳ Timeout",
-            description="You took too long to answer.",
-            color=discord.Color.red())
-        await ctx.send(embed=timeout_embed)
-        return
-
-    chosen = reply.content.upper()
-    chosen_answer = letter_to_option[chosen]
-
-    if chosen == correct_letter:
-        add_score(ctx.author.id, points)
-        total = scores.get(str(ctx.author.id), 0)
-        success_embed = discord.Embed(
-            title="✅ Correct!",
-            description=f"You answered **{chosen}) {chosen_answer}** — +{points} point(s)!\nTotal points: **{total}**",
-            color=discord.Color.green())
-        await ctx.send(embed=success_embed)
-    else:
-        fail_embed = discord.Embed(
-            title="❌ Wrong",
-            description=f"You answered **{chosen}) {chosen_answer}**.\nCorrect answer: **{correct_letter}) {q['answer']}**.",
-            color=discord.Color.red())
-        await ctx.send(embed=fail_embed)
+    view = TriviaView(ctx, letter_to_option, correct_letter, points)
+    await ctx.send(embed=embed, view=view)
 
 
 
