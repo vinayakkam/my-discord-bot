@@ -408,126 +408,138 @@ TRIVIA_QUESTIONS = {
 LETTERS = ["A", "B", "C"]
 
 # ============ DIFFICULTY DROPDOWN ============
-class DifficultyDropdown(discord.ui.Select):
-    def __init__(self, ctx, difficulties=("easy", "medium", "hard")):
-        self.ctx = ctx
-        options = [
-            discord.SelectOption(label=d.title(), description=f"{i+1} point(s)")
-            for i, d in enumerate(difficulties)
-        ]
-        super().__init__(placeholder="Select difficulty…", options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        if interaction.user != self.ctx.author:
-            await interaction.response.send_message("❌ Not your trivia session!", ephemeral=True)
-            return
-        # Pass chosen difficulty to the parent View
-        await self.view.start_question(interaction, self.values[0].lower())
-
-
 class DifficultyView(discord.ui.View):
-    def __init__(self, ctx, start_question_callback):
+    def __init__(self, ctx):
         super().__init__(timeout=None)
         self.ctx = ctx
-        self.start_question_callback = start_question_callback
+
         self.add_item(DifficultyDropdown(ctx))
 
-    async def start_question(self, interaction, difficulty):
-        await self.start_question_callback(interaction, difficulty)
-        self.clear_items()  # remove dropdown after selecting
-
-
-# ---- UI: Answer Buttons ----
-class AnswerButton(discord.ui.Button):
-    def __init__(self, ctx, label, correct_letter, letter_to_option, points, question_embed, after_answer):
-        super().__init__(style=discord.ButtonStyle.secondary, label=label)
-        self.ctx = ctx
-        self.correct_letter = correct_letter
-        self.letter_to_option = letter_to_option
-        self.points = points
-        self.question_embed = question_embed
-        self.after_answer = after_answer
-
-    async def callback(self, interaction: discord.Interaction):
-        if interaction.user != self.ctx.author:
-            await interaction.response.send_message("❌ Not your trivia session!", ephemeral=True)
-            return
-        chosen = self.label[0]
-        chosen_answer = self.letter_to_option[chosen]
-
-        if chosen == self.correct_letter:
-            total = self.after_answer(self.ctx.author.id, self.points)
-            result_text = f"✅ Correct! **+{self.points} point(s)**. Total: **{total}**"
-            color = discord.Color.green()
-        else:
-            correct_ans = self.letter_to_option[self.correct_letter]
-            result_text = f"❌ Wrong! Correct was **{self.correct_letter}) {correct_ans}**"
-            color = discord.Color.red()
-
-        # Disable all buttons now
-        for item in self.view.children:
-            item.disabled = True
-
-        # Edit embed but keep question visible
-        new_embed = discord.Embed(
-            title=self.question_embed.title,
-            description=self.question_embed.description + "\n\n" + result_text,
-            color=color
-        )
-        await interaction.response.edit_message(embed=new_embed, view=self.view)
-
-
-class AnswerView(discord.ui.View):
-    def __init__(self, ctx, correct_letter, letter_to_option, points, question_embed, after_answer):
-        super().__init__(timeout=None)
-        for L, O in letter_to_option.items():
-            self.add_item(AnswerButton(ctx, f"{L}) {O}", correct_letter,
-                                        letter_to_option, points, question_embed, after_answer))
-        # Add Play Again button
-        self.add_item(PlayAgainButton(ctx))
-
-
-# ---- UI: Play Again ----
-class PlayAgainButton(discord.ui.Button):
+class DifficultyDropdown(discord.ui.Select):
     def __init__(self, ctx):
-        super().__init__(style=discord.ButtonStyle.success, label="🔄 Play Again")
         self.ctx = ctx
+        options = [
+            discord.SelectOption(label="Easy", description="+1 point"),
+            discord.SelectOption(label="Medium", description="+2 points"),
+            discord.SelectOption(label="Hard", description="+3 points")
+        ]
+        super().__init__(placeholder="Select Difficulty", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user != self.ctx.author:
-            await interaction.response.send_message("❌ Not your trivia session!", ephemeral=True)
+            await interaction.response.send_message("❌ This is not your trivia session.", ephemeral=True)
             return
-        # Resend difficulty view
-        diff_view = DifficultyView(self.ctx, start_question_callback=self.view.start_question_callback)
-        embed = discord.Embed(title="🎓 Space Trivia", description="Pick difficulty:", color=discord.Color.teal())
-        await interaction.response.edit_message(embed=embed, view=diff_view)
 
-# ============ COMMAND ============
+        difficulty = self.values[0].lower()
+        await send_trivia_question(self.ctx, difficulty)
+        await interaction.response.edit_message(content="Starting trivia…", view=None)
+
+# -------------------------------------------------------------------
+
+async def send_trivia_question(ctx, difficulty):
+    q = random.choice(TRIVIA_QUESTIONS[difficulty])
+
+    options = q["options"][:3]
+    random.shuffle(options)
+    letter_to_option = {LETTERS[i]: options[i] for i in range(len(options))}
+    correct_letter = next((L for L, O in letter_to_option.items()
+                           if O.lower() == q["answer"].lower()), None)
+
+    points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
+
+    question_text = (
+        f"**[{difficulty.upper()} — {points} point(s)]**\n\n{q['question']}\n\n" +
+        "\n".join([f"{L}) {O}" for L, O in letter_to_option.items()])
+    )
+
+    embed = discord.Embed(
+        title="🎓 Space Trivia Time!",
+        description=question_text,
+        color=discord.Color.blurple()
+    )
+
+    view = TriviaView(ctx, embed, question_text, letter_to_option, correct_letter, q['answer'], points, difficulty)
+    await ctx.send(embed=embed, view=view)
+
+# -------------------------------------------------------------------
+
+class TriviaView(discord.ui.View):
+    def __init__(self, ctx, embed, question_text, letter_to_option, correct_letter, answer, points, difficulty):
+        super().__init__(timeout=None)
+        self.ctx = ctx
+        self.embed = embed
+        self.question_text = question_text
+        self.letter_to_option = letter_to_option
+        self.correct_letter = correct_letter
+        self.answer = answer
+        self.points = points
+        self.difficulty = difficulty
+
+        for L, O in letter_to_option.items():
+            self.add_item(self.AnswerButton(L, O, self))
+
+        self.add_item(self.PlayAgainButton(self))
+
+    class AnswerButton(discord.ui.Button):
+        def __init__(self, letter, option, parent):
+            super().__init__(label=f"{letter}) {option}", style=discord.ButtonStyle.secondary)
+            self.letter = letter
+            self.option = option
+            self.parent = parent
+
+        async def callback(self, interaction: discord.Interaction):
+            if interaction.user != self.parent.ctx.author:
+                await interaction.response.send_message("❌ This trivia is not yours.", ephemeral=True)
+                return
+
+            # disable all buttons
+            for c in self.view.children:
+                if isinstance(c, discord.ui.Button):
+                    c.disabled = True
+
+            if self.letter == self.parent.correct_letter:
+                add_score(self.parent.ctx.author.id, self.parent.points)
+                total = scores.get(str(self.parent.ctx.author.id), 0)
+                self.parent.embed.color = discord.Color.green()
+                self.parent.embed.description = (
+                    self.parent.question_text +
+                    f"\n\n✅ Correct! +{self.parent.points} point(s)! Total: **{total}**"
+                )
+            else:
+                self.parent.embed.color = discord.Color.red()
+                self.parent.embed.description = (
+                    self.parent.question_text +
+                    f"\n\n❌ Wrong! Correct answer: **{self.parent.correct_letter}) {self.parent.answer}**."
+                )
+
+            await interaction.response.edit_message(embed=self.parent.embed, view=self.view)
+
+    class PlayAgainButton(discord.ui.Button):
+        def __init__(self, parent):
+            super().__init__(label="Play Again", style=discord.ButtonStyle.success)
+            self.parent = parent
+
+        async def callback(self, interaction: discord.Interaction):
+            if interaction.user != self.parent.ctx.author:
+                await interaction.response.send_message("❌ Not your session.", ephemeral=True)
+                return
+
+            # disable old buttons
+            for c in self.view.children:
+                c.disabled = True
+            await interaction.response.edit_message(view=self.view)
+
+            # send new difficulty selection
+            view = DifficultyView(self.parent.ctx)
+            await self.parent.ctx.send("Select a difficulty to play again:", view=view)
+
+# -------------------------------------------------------------------
+
 @bot.command(name="trivia")
 async def trivia(ctx):
-    async def start_question(interaction, difficulty):
-        q = random.choice(TRIVIA_QUESTIONS[difficulty])
-        # shuffle options etc…
-        options = q["options"][:3]
-        random.shuffle(options)
-        letter_to_option = {LETTERS[i]: options[i] for i in range(len(options))}
-        correct_letter = next(L for L, O in letter_to_option.items()
-                              if O.lower() == q["answer"].lower())
-
-        points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
-
-        question_text = f"**[{difficulty.upper()} — {points} point(s)]**\n\n{q['question']}\n\n" + "\n".join(
-            [f"{L}) {O}" for L, O in letter_to_option.items()])
-        embed = discord.Embed(title="🎓 Space Trivia Time!",
-                              description=question_text,
-                              color=discord.Color.teal())
-
-        view = AnswerView(ctx, correct_letter, letter_to_option, points, embed, add_score)
-        await interaction.message.edit(embed=embed, view=view)
-
-    view = DifficultyView(ctx, start_question_callback=start_question)
-    embed = discord.Embed(title="🎓 Space Trivia", description="Pick difficulty:", color=discord.Color.teal())
-    await ctx.send(embed=embed, view=view)
+    """Start Trivia with UI"""
+    view = DifficultyView(ctx)
+    await ctx.send("🎮 Select a difficulty to start trivia:", view=view)
 
 
 
