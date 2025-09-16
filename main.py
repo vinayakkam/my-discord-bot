@@ -433,39 +433,43 @@ class DifficultyView(discord.ui.View):
 
 # ============ TRIVIA BUTTONS ============
 class TriviaButton(discord.ui.Button):
-    def __init__(self, letter, label, correct_letter, points, ctx):
+    def __init__(self, letter, label, correct_letter, points, ctx, base_embed):
         super().__init__(label=f"{letter}) {label}", style=discord.ButtonStyle.secondary)
         self.letter = letter
         self.correct_letter = correct_letter
         self.points = points
         self.ctx = ctx
         self.label_text = label
+        self.base_embed = base_embed  # original embed we’ll update
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("⚠️ This trivia isn’t for you.", ephemeral=True)
             return
 
-        # disable all buttons
+        # Disable all buttons
         for child in self.view.children:
             child.disabled = True
+
+        # Update embed to include result but still keep question text
+        updated_embed = self.base_embed.copy()
 
         if self.letter == self.correct_letter:
             add_score(self.ctx.author.id, self.points)
             total = scores.get(str(self.ctx.author.id), 0)
-            embed = discord.Embed(
-                title="✅ Correct!",
-                description=f"You chose **{self.letter}) {self.label_text}** — +{self.points} point(s)!\nTotal points: **{total}**",
-                color=discord.Color.green()
-            )
+            result_text = (f"\n\n✅ **Correct!** +{self.points} point(s)!\n"
+                           f"Total points: **{total}**")
+            updated_embed.color = discord.Color.green()
         else:
-            embed = discord.Embed(
-                title="❌ Wrong",
-                description=f"You chose **{self.letter}) {self.label_text}**.\nCorrect answer: **{self.correct_letter}**",
-                color=discord.Color.red()
-            )
+            result_text = (f"\n\n❌ **Wrong!** You chose **{self.letter}) {self.label_text}**.\n"
+                           f"Correct answer: **{self.correct_letter}**")
+            updated_embed.color = discord.Color.red()
 
-        await interaction.response.edit_message(embed=embed, view=self.view)  # edit original message
+        # Append result to description (question stays intact)
+        updated_embed.description = self.base_embed.description + result_text
+
+        # Edit original message (embed + greyed buttons)
+        await interaction.response.edit_message(embed=updated_embed, view=self.view)  # edit original message
 
 class TriviaView(discord.ui.View):
     def __init__(self, ctx, letter_to_option, correct_letter, points):
