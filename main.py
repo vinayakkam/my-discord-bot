@@ -1250,7 +1250,7 @@ async def rocketdesign(ctx):
 
 # Booster Catch Game
 @bot.command(name="mechzilla")
-async def catchbooster(ctx):
+async def mechzilla_game(ctx):
     """Interactive Mechazilla.io-style booster catching game"""
 
     # Game state
