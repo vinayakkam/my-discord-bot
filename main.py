@@ -1251,49 +1251,29 @@ async def rocketdesign(ctx):
 # Booster Catch Game
 @bot.command(name="catchbooster")
 async def catchbooster(ctx):
-    """Booster catching simulation with SpaceX-style countdown, timeline and animated flames."""
+    """Booster catching simulation with SpaceX-style countdown & one GIF animation."""
 
+    # --- Game state variables ---
     drift = random.choice(["left", "right", "center"])
     speed = random.randint(160, 280)
     altitude = random.randint(150, 220)
     timeline = []
 
-    # booster flames by stage
-    flames = ["🔥", "🟧", "🟨", "🟩", "🟦"]
+    # Use one GIF from Giphy
+    gif_url = "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMDRmZXJmcDQxaW1hdGZhbnA4bnZ3cmU0aXR1dDIyNmVlajF5dWRoaCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/AQ80IThpDQmauYILe0/giphy.gif"  # example Falcon landing gif
 
     def make_bar(current, max_val, length=10, emoji="█"):
         filled = max(0, min(length, int(current / max_val * length)))
         return emoji * filled + "░" * (length - filled)
 
-    # booster ASCII with flames
-    def booster_ascii(stage):
-        flame = flames[min(stage, len(flames)-1)]
-        tower = [
-            "🗼 |    |",
-            "   |    |",
-            "   |    |",
-            "   |    |",
-            "   |    |",
-        ]
-        booster = [
-            f"    ^ {flame}",
-            f"   /|\\ {flame}",
-            f"  /_|_\\ {flame}",
-            f"    |  {flame}"
-        ]
-        offset = min(stage, len(tower)-1)
-        lines = tower[:len(tower)-offset] + booster + tower[len(tower)-offset:]
-        return "\n".join(lines)
-
-    async def update_embed(stage, message=None, status=""):
+    async def update_embed(message=None, status=""):
         altitude_bar = make_bar(altitude, 220, emoji="🟩")
         speed_bar = make_bar(speed, 280, emoji="🟦")
-        art = f"```{booster_ascii(stage)}```"
         timeline_text = "\n".join([f"• {event}" for event in timeline[-5:]]) or "—"
+
         e = discord.Embed(
             title="🚀 Booster Catch — Live Telemetry",
             description=(
-                art +
                 f"**Altitude:** {altitude} m  {altitude_bar}\n"
                 f"**Speed:** {speed} m/s  {speed_bar}\n"
                 f"**Wind Drift:** {drift.upper()}\n\n"
@@ -1302,21 +1282,23 @@ async def catchbooster(ctx):
             ),
             color=discord.Color.blurple()
         )
+        e.set_image(url=gif_url)
         if message:
             await message.edit(embed=e)
+            return message
         else:
             return await ctx.send(embed=e)
 
-    # Phase 0 — initial
+    # --- Phase 0: initial detection ---
     timeline.append("Booster detected on radar")
-    msg = await update_embed(stage=0, status="Incoming booster…")
+    msg = await update_embed(status="Incoming booster…")
     await asyncio.sleep(1.2)
 
-    # Phase 1 — Position arms
+    # --- Phase 1: Position arms ---
     timeline.append("Preparing arms for capture")
-    await update_embed(stage=1, message=msg, status="Type `left`, `right` or `center` to position the arms.")
+    await update_embed(message=msg, status="Type `left`, `right` or `center` to position the arms.")
     def position_check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["left","right","center"]
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["left", "right", "center"]
     try:
         pmsg = await bot.wait_for("message", timeout=6.0, check=position_check)
         chosen_position = pmsg.content.lower()
@@ -1328,22 +1310,21 @@ async def catchbooster(ctx):
     correct_position = chosen_position == drift
     altitude -= random.randint(30, 50)
     speed -= random.randint(20, 50)
-    await update_embed(stage=2, message=msg, status="Arms in position")
+    await update_embed(message=msg, status="Arms in position")
 
-    # Phase 2 — Countdown T-5 to T-0 with flames changing
+    # --- Phase 2: Countdown T-5 to T-0 ---
     for t in range(5, 0, -1):
         timeline.append(f"T-{t} seconds to catch window")
         altitude -= random.randint(5, 15)
         speed -= random.randint(5, 15)
-        # stage controls flames height
-        stage = 3 + (5 - t)
-        await update_embed(stage=stage, message=msg, status=f"Countdown T-{t}s — booster slowing 🔥")
+        await update_embed(message=msg, status=f"Countdown T-{t}s — booster slowing 🔥")
         await asyncio.sleep(1.0)
     timeline.append("T-0 Catch window opens")
 
-    # Phase 3 — Catch
-    await update_embed(stage=4, message=msg, status="🔒 CATCH NOW! Type **catch** within 3.5s!")
-    def catch_check(m): return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "catch"
+    # --- Phase 3: Catch ---
+    await update_embed(message=msg, status="🔒 CATCH NOW! Type **catch** within 3.5s!")
+    def catch_check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "catch"
     try:
         start_time = asyncio.get_event_loop().time()
         await bot.wait_for("message", timeout=3.5, check=catch_check)
@@ -1354,7 +1335,7 @@ async def catchbooster(ctx):
         await ctx.send("💥 Missed the timing. Booster splashed down.")
         return
 
-    # SCORING
+    # --- SCORING ---
     if correct_position:
         if reaction_time < 1.2:
             points = 6
@@ -1367,7 +1348,7 @@ async def catchbooster(ctx):
         quality = "💥 Catastrophic Failure"
 
     if points > 0:
-        add_score(ctx.author.id, points)
+        add_score(ctx.author.id, points)  # integrate your existing scoring
         total = scores.get(str(ctx.author.id), 0)
         timeline.append(f"Booster secured. +{points} points.")
         e = discord.Embed(
@@ -1375,6 +1356,7 @@ async def catchbooster(ctx):
             description=f"{ctx.author.mention} caught the booster!\nEarned **{points} points**.\nTotal points: **{total}**",
             color=discord.Color.green()
         )
+        e.set_image(url=gif_url)
     else:
         timeline.append("Booster lost")
         e = discord.Embed(
@@ -1382,6 +1364,8 @@ async def catchbooster(ctx):
             description=f"{ctx.author.mention} lost the booster. No points awarded.",
             color=discord.Color.red()
         )
+        e.set_image(url=gif_url)
+
     await ctx.send(embed=e)
 
 
@@ -1443,7 +1427,7 @@ async def games(ctx):
         name="🎓 Trivia Quiz",
         value=(
             "Answer space-themed questions:\n"
-            "`!trivia easy` (+1 pt) • `!trivia medium` (+2 pt) • `!trivia hard` (+3 pt)"
+            "`!trivia`"
         ),
         inline=False
     )
@@ -1467,10 +1451,6 @@ async def games(ctx):
         name="🛰️ Starship Mission (Resource Management)",
         value=(
             "`!mission` — Start your mission and manage Fuel, Food, and Research.\n"
-            "`!mission launch` — Travel forward\n"
-            "`!mission refuel` — Gather supplies\n"
-            "`!mission research` — Earn research points\n"
-            "`!mission status` — View your stats\n"
             "Survive as many turns as possible to earn points!"
         ),
         inline=False
