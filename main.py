@@ -1251,7 +1251,7 @@ async def rocketdesign(ctx):
 # Booster Catch Game
 @bot.command(name="catchbooster")
 async def catchbooster(ctx):
-    """Interactive Mechzilla.io-style booster catching game"""
+    """Interactive Mechzilla.io-style booster catching game with reaction controls"""
 
     # Game state
     game_state = {
@@ -1271,6 +1271,14 @@ async def catchbooster(ctx):
     }
 
     timeline = ["🚀 Mechzilla Mission Started"]
+
+    # Control emojis
+    CONTROLS = {
+        '⬅️': 'left',
+        '➡️': 'right',
+        '⬆️': 'thrust',
+        '🤏': 'catch'
+    }
 
     def make_field():
         """Create ASCII game field"""
@@ -1369,79 +1377,111 @@ async def catchbooster(ctx):
         wind_dir = "⬅️" if game_state['wind'] < 0 else "➡️"
 
         embed = discord.Embed(
-            title="🦾 MECHZILLA.IO",
+            title="🦾 MECHZILLA.IO - Click Reactions to Control!",
             description=field,
             color=0xFF6B35
         )
 
+        # Control instructions with larger arrows
+        control_text = (
+            "⬅️ **Move Arms Left**\n"
+            "➡️ **Move Arms Right** \n"
+            "⬆️ **Engine Thrust**\n"
+            "🤏 **Catch Booster**"
+        )
+
         embed.add_field(
-            name="🎮 Controls",
-            value="`A` ⬅️ Move Arms\n`D` ➡️ Move Arms\n`W` 🔥 Thrust\n`CATCH` 🤏 Grab",
+            name="🎮 CLICK THE REACTIONS BELOW!",
+            value=control_text,
             inline=True
         )
 
         embed.add_field(
             name="📊 Status",
-            value=f"Fuel: {fuel_bar}\nWind: {wind_dir}\nPhase: {game_state['phase'].upper()}",
+            value=f"**Fuel:** {fuel_bar}\n**Wind:** {wind_dir}\n**Phase:** {game_state['phase'].upper()}",
             inline=True
         )
 
         if timeline:
             embed.add_field(
-                name="📡 Log",
+                name="📡 Mission Log",
                 value="\n".join(timeline[-3:]),
                 inline=False
             )
 
         if status:
-            embed.add_field(name="🚨 Alert", value=status, inline=False)
+            embed.add_field(name="🚨 STATUS", value=f"**{status}**", inline=False)
 
         return embed
 
-    # Start game
-    embed = make_embed("Game starting...")
-    msg = await ctx.send(embed=embed)
-    await asyncio.sleep(2)
+    def handle_action(action):
+        """Handle player actions"""
+        if action == 'left' and game_state['arm_left'] > 2:
+            game_state['arm_left'] -= 2
+            game_state['arm_right'] -= 2
+            timeline.append("⬅️ Arms moved LEFT")
+            return True
 
-    # Game loop
+        elif action == 'right' and game_state['arm_right'] < 22:
+            game_state['arm_left'] += 2
+            game_state['arm_right'] += 2
+            timeline.append("➡️ Arms moved RIGHT")
+            return True
+
+        elif action == 'thrust' and game_state['fuel'] > 0:
+            game_state['booster_vel_y'] -= 0.2
+            game_state['fuel'] -= 15
+            timeline.append("🔥 Thrust burn!")
+            return True
+
+        elif action == 'catch' and game_state['catch_ready']:
+            if check_catch():
+                game_state['success'] = True
+                game_state['game_over'] = True
+                elapsed = time.time() - start_time
+                game_state['score'] = max(10, int(100 - elapsed))
+                timeline.append("🌟 PERFECT CATCH!")
+                return True
+            else:
+                timeline.append("❌ Missed catch!")
+                return True
+
+        return False
+
+    # Start game
+    embed = make_embed("Game starting in 3 seconds...")
+    msg = await ctx.send(embed=embed)
+
+    # Add reaction controls
+    for emoji in CONTROLS.keys():
+        await msg.add_reaction(emoji)
+
+    await asyncio.sleep(3)
     start_time = time.time()
 
+    # Game loop
     while not game_state['game_over']:
-        # Check for player input
-        def check_msg(m):
-            return (m.author == ctx.author and
-                    m.channel == ctx.channel and
-                    m.content.lower().strip() in ['a', 'd', 'w', 'catch'])
+
+        # Check for reaction clicks
+        def check_reaction(reaction, user):
+            return (user == ctx.author and
+                    str(reaction.emoji) in CONTROLS and
+                    reaction.message.id == msg.id)
 
         try:
-            # Wait for input
-            player_msg = await bot.wait_for('message', timeout=1.0, check=check_msg)
-            cmd = player_msg.content.lower().strip()
+            # Wait for reaction
+            reaction, user = await bot.wait_for('reaction_add', timeout=0.8, check=check_reaction)
 
-            if cmd == 'a' and game_state['arm_left'] > 2:
-                game_state['arm_left'] -= 2
-                game_state['arm_right'] -= 2
-                timeline.append("⬅️ Arms moved LEFT")
+            # Handle the action
+            action = CONTROLS[str(reaction.emoji)]
+            action_handled = handle_action(action)
 
-            elif cmd == 'd' and game_state['arm_right'] < 22:
-                game_state['arm_left'] += 2
-                game_state['arm_right'] += 2
-                timeline.append("➡️ Arms moved RIGHT")
-
-            elif cmd == 'w' and game_state['fuel'] > 0:
-                game_state['booster_vel_y'] -= 0.2
-                game_state['fuel'] -= 15
-                timeline.append("🔥 Thrust burn!")
-
-            elif cmd == 'catch' and game_state['catch_ready']:
-                if check_catch():
-                    game_state['success'] = True
-                    game_state['game_over'] = True
-                    elapsed = time.time() - start_time
-                    game_state['score'] = max(10, int(100 - elapsed))
-                    timeline.append("🌟 PERFECT CATCH!")
-                else:
-                    timeline.append("❌ Missed catch!")
+            # Remove the reaction so player can click again
+            if action_handled:
+                try:
+                    await msg.remove_reaction(reaction.emoji, user)
+                except:
+                    pass  # Ignore permission errors
 
         except asyncio.TimeoutError:
             pass  # Continue without input
@@ -1452,9 +1492,11 @@ async def catchbooster(ctx):
         # Update display
         status_msg = ""
         if game_state['catch_ready']:
-            status_msg = "🚨 TYPE 'CATCH' NOW! 🚨"
+            status_msg = "🚨 CLICK 🤏 TO CATCH NOW! 🚨"
         elif game_state['booster_y'] > 6:
-            status_msg = "Position arms with A/D!"
+            status_msg = "Position arms with ⬅️ ➡️ reactions!"
+        elif game_state['booster_y'] > 3:
+            status_msg = "Booster approaching... Get ready!"
 
         try:
             await msg.edit(embed=make_embed(status_msg))
@@ -1464,21 +1506,32 @@ async def catchbooster(ctx):
 
         await asyncio.sleep(0.8)
 
-    # Game over
+    # Game over - remove reactions
+    try:
+        await msg.clear_reactions()
+    except:
+        pass
+
+    # Results
     if game_state['success']:
         final_embed = discord.Embed(
             title="🏆 MISSION SUCCESS!",
-            description=f"**{ctx.author.display_name}** caught the booster!",
+            description=f"**{ctx.author.display_name}** successfully caught the booster!",
             color=0x00FF00
         )
         final_embed.add_field(
-            name="Score",
+            name="🎯 Final Score",
             value=f"**{game_state['score']} points**",
             inline=True
         )
         final_embed.add_field(
-            name="Time",
-            value=f"{time.time() - start_time:.1f}s",
+            name="⏱️ Mission Time",
+            value=f"{time.time() - start_time:.1f} seconds",
+            inline=True
+        )
+        final_embed.add_field(
+            name="⛽ Fuel Used",
+            value=f"{100 - game_state['fuel']}%",
             inline=True
         )
 
@@ -1488,12 +1541,12 @@ async def catchbooster(ctx):
     else:
         final_embed = discord.Embed(
             title="💥 MISSION FAILED",
-            description=f"The booster was lost!",
+            description=f"The booster was lost! Better luck next time.",
             color=0xFF0000
         )
         final_embed.add_field(
-            name="Cause",
-            value=timeline[-1] if timeline else "Unknown",
+            name="💔 What went wrong?",
+            value=timeline[-1] if timeline else "Unknown system failure",
             inline=False
         )
 
