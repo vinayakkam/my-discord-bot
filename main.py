@@ -1983,46 +1983,40 @@ class EnhancedCatchGame:
 
 @bot.command(name="catchbooster")
 async def catchbooster(ctx):
-    """Enhanced Mechzilla.io-style booster catching game with superior animations"""
+    """Enhanced Mechzilla.io-style booster catching game with superior animations (fully integrated with scoring system)."""
 
+    # Create the game and view
     game = EnhancedCatchGame(ctx)
-
-    # Create view with buttons
     view = CatchGameView(game)
     game.view = view
 
-    # Start game with enhanced intro
     embed = game.make_embed("🚀 **Mission Control Online - Booster separation confirmed!**")
     msg = await ctx.send(embed=embed, view=view)
 
     await asyncio.sleep(2)
     start_time = time.time()
 
-    # Enhanced game loop with variable update rates
     update_counter = 0
     last_update_time = time.time()
 
+    # === GAME LOOP ===
     while not game.game_state['game_over']:
         current_time = time.time()
-
-        # Update physics every frame
         game.update_game()
         update_counter += 1
 
-        # Dynamic update frequency based on game phase
         if game.game_state['catch_ready']:
-            update_interval = 0.4  # Faster updates in catch zone
+            update_interval = 0.4
         elif game.game_state['booster_y'] > 8:
-            update_interval = 0.5  # Medium updates during approach
+            update_interval = 0.5
         else:
-            update_interval = 0.6  # Normal updates during descent
+            update_interval = 0.6
 
-        # Update display based on interval
         if current_time - last_update_time >= update_interval:
-            # Enhanced dynamic status messages
             altitude = 12 - game.game_state['booster_y']
             velocity = game.game_state['booster_vel_y']
 
+            # Dynamic status messages
             if game.game_state['catch_ready']:
                 status_msg = "🚨 **CATCH WINDOW OPEN - EXECUTE IMMEDIATELY!** 🚨"
             elif game.game_state['landing_burn_active']:
@@ -2040,57 +2034,43 @@ async def catchbooster(ctx):
             else:
                 status_msg = "🚀 **Descent phase - All systems nominal**"
 
-            # Update button states
             view.update_button_states()
 
             try:
                 await msg.edit(embed=game.make_embed(status_msg), view=view)
                 last_update_time = current_time
             except discord.errors.NotFound:
-                break  # Message was deleted
+                break
             except discord.errors.HTTPException:
-                # Handle rate limits gracefully
                 await asyncio.sleep(0.2)
 
-        await asyncio.sleep(0.1)  # Shorter base sleep for smoother physics
+        await asyncio.sleep(0.1)
 
-    # Enhanced game over sequence
+    # Disable buttons on game end
     for item in view.children:
         item.disabled = True
 
-    # Calculate comprehensive results
+    # === SCORING ===
     elapsed_time = time.time() - start_time
     user_id = ctx.author.id
 
     if game.game_state['success']:
-        # Enhanced scoring system
+        # Scoring breakdown
         base_score = game.game_state['score']
-
-        # Time bonus (faster completion = more points)
         time_bonus = max(0, int(100 - elapsed_time * 2))
-
-        # Fuel efficiency bonus
         fuel_bonus = game.game_state['fuel'] // 2
-
-        # Precision bonus based on final position
         arm_center = (game.game_state['arm_left'] + game.game_state['arm_right']) / 2
         booster_pos = game.game_state['booster_x']
         precision_error = abs(arm_center - booster_pos)
         precision_bonus = max(0, int(50 - precision_error * 10))
-
-        # Velocity bonus for gentle landings
         final_velocity = abs(game.game_state['booster_vel_y'])
         velocity_bonus = max(0, int(30 - final_velocity * 20))
-
-        # Auto-pilot penalty (encourage manual control)
         auto_penalty = 20 if hasattr(game, '_auto_engine_used') else 0
 
         total_score = base_score + time_bonus + fuel_bonus + precision_bonus + velocity_bonus - auto_penalty
 
-        # Add to persistent scoring system
+        # === Add to persistent scoring ===
         add_score(user_id, total_score)
-
-        # Get user's total score for display
         user_total = scores.get(str(user_id), 0)
 
         final_embed = discord.Embed(
@@ -2112,54 +2092,45 @@ async def catchbooster(ctx):
         )
 
         final_embed.add_field(
-            name="⏱️ Mission Statistics",
+            name="⏱️ Mission Stats",
             value=(f"**Duration:** {elapsed_time:.1f}s\n"
                    f"**Fuel Remaining:** {game.game_state['fuel']}%\n"
                    f"**Final Velocity:** {final_velocity:.2f}m/s\n"
-                   f"**Precision Error:** {precision_error:.1f}m\n"
-                   f"**Landing Quality:** {'Perfect' if base_score >= 200 else 'Excellent' if base_score >= 150 else 'Good'}"),
+                   f"**Precision Error:** {precision_error:.1f}m"),
             inline=True
         )
 
-        # Enhanced achievements system
+        # Achievements
         achievements = []
-        if base_score >= 200:
-            achievements.append("🌟 Perfect Landing Master")
-        if fuel_bonus >= 40:
-            achievements.append("⛽ Fuel Conservation Expert")
-        if time_bonus >= 60:
-            achievements.append("⚡ Lightning Fast Pilot")
-        if precision_bonus >= 40:
-            achievements.append("🎯 Precision Specialist")
-        if velocity_bonus >= 25:
-            achievements.append("🪶 Feather Touch Landing")
-        if auto_penalty == 0:
-            achievements.append("🎮 Manual Flight Ace")
-        if total_score >= 300:
-            achievements.append("👨‍🚀 Elite Space Pilot")
+        if base_score >= 200: achievements.append("🌟 Perfect Landing Master")
+        if fuel_bonus >= 40: achievements.append("⛽ Fuel Conservation Expert")
+        if time_bonus >= 60: achievements.append("⚡ Lightning Fast Pilot")
+        if precision_bonus >= 40: achievements.append("🎯 Precision Specialist")
+        if velocity_bonus >= 25: achievements.append("🪶 Feather Touch Landing")
+        if auto_penalty == 0: achievements.append("🎮 Manual Flight Ace")
+        if total_score >= 300: achievements.append("👨‍🚀 Elite Space Pilot")
 
         if achievements:
             final_embed.add_field(
-                name="🏅 Achievements Unlocked",
+                name="🏅 Achievements",
                 value="\n".join(achievements),
                 inline=False
             )
 
         final_embed.add_field(
             name="🏆 Career Statistics",
-            value=f"**Total Career Points:** {user_total:,} pts\n**Games Played:** Check leaderboard for rank!",
+            value=f"**Total Career Points:** {user_total:,} pts\nCheck leaderboard for rank!",
             inline=False
         )
 
     else:
-        # Enhanced failure analysis
+        # === FAILURE ===
         final_embed = discord.Embed(
             title="💥 MISSION FAILED - BOOSTER LOST",
             description="Mission analysis and recommendations for future attempts:",
             color=0xFF0000
         )
 
-        # Detailed failure metrics
         impact_velocity = game.game_state['booster_vel_y']
         fuel_remaining = game.game_state['fuel']
         final_position = game.game_state['booster_x']
@@ -2170,26 +2141,23 @@ async def catchbooster(ctx):
                    f"**Final Position:** {final_position:.1f}m\n"
                    f"**Fuel Remaining:** {fuel_remaining}%\n"
                    f"**Mission Duration:** {elapsed_time:.1f}s\n"
-                   f"**Catch Attempts:** {'Yes' if game.game_state.get('catch_attempted') else 'No'}"),
+                   f"**Catch Attempted:** {'Yes' if game.game_state.get('catch_attempted') else 'No'}"),
             inline=True
         )
 
-        # Intelligent recommendations based on failure mode
         recommendations = []
         if impact_velocity > 1.5:
             recommendations.append("• Use thrust burns earlier to reduce descent speed")
         if fuel_remaining > 50:
-            recommendations.append("• Don't hesitate to use more fuel for control")
+            recommendations.append("• Use more fuel for control if needed")
         if abs(final_position - 12) > 5:
-            recommendations.append("• Position arms earlier in the descent")
+            recommendations.append("• Position arms earlier")
         if not game.game_state.get('catch_attempted'):
             recommendations.append("• Attempt catch when booster enters the catch zone")
-
         recommendations.append("• Monitor the auto-landing burn system")
-        recommendations.append("• Account for wind effects on trajectory")
 
         final_embed.add_field(
-            name="💡 Improvement Recommendations",
+            name="💡 Recommendations",
             value="\n".join(recommendations),
             inline=True
         )
@@ -2200,7 +2168,7 @@ async def catchbooster(ctx):
             inline=False
         )
 
-        # Small consolation score for attempting
+        # Consolation score
         consolation_score = 10
         add_score(user_id, consolation_score)
         user_total = scores.get(str(user_id), 0)
@@ -2218,6 +2186,7 @@ async def catchbooster(ctx):
         await msg.edit(embed=final_embed, view=view)
     except:
         await ctx.send(embed=final_embed)
+
 
 
 
