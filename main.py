@@ -1308,7 +1308,7 @@ class EnhancedCatchGame:
             'booster_x': 12,  # Center position (0-24 range)
             'booster_y': 0,  # Top of screen
             'booster_vel_x': random.uniform(-0.5, 0.5),
-            'booster_vel_y': 0.3,
+            'booster_vel_y': 0.15,
             'arm_left': 8,
             'arm_right': 16,
             'fuel': 100,
