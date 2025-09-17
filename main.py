@@ -1911,7 +1911,7 @@ class EnhancedCatchGame:
             embed_color = 0x0099FF  # Blue for normal flight
 
         embed = discord.Embed(
-            title="🦾 ENHANCED MECHZILLA.IO v2.0",
+            title="Catch Booster16",
             description=field,
             color=embed_color
         )
