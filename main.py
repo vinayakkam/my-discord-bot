@@ -74,7 +74,7 @@ async def on_member_join(member):
     # Add useful information
     embed.add_field(
         name="📚 Quick Start",
-        value="• Check out <#RULES_CHANNEL_ID> for server rules\n• Visit <#INFO_CHANNEL_ID> for game info\n• Say hello in <#GENERAL_CHAT_ID>!",
+        value="• Check out <#1411426415450263582> for server rules\n• Visit <#1411730265499369615> for game info\n• Say hello in <#1411425020772614236>!",
         inline=True
     )
 
