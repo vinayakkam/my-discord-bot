@@ -30,107 +30,12 @@ async def on_ready():
     print(f"✅ Synced slash commands to {GUILD_ID}")
     print(f"Logged in as {bot.user}")
 
-
 @bot.event
 async def on_member_join(member):
-    # Replace with your welcome channel ID
+    # Replace CHANNEL_ID with the ID of the channel where you want to send welcome messages
     channel = bot.get_channel(1411426415450263585)
-
-    if not channel:
-        return
-
-    # Create a beautiful embed
-    embed = discord.Embed(
-        title="🎉 Welcome to BumbleRat Burocrazy Simulator! 🎉",
-        description=f"**{member.mention}** has joined our chaotic office!",
-        color=0x00ff88,  # Green color
-        timestamp=datetime.datetime.utcnow()
-    )
-
-    # Add member's avatar as thumbnail
-    embed.set_thumbnail(url=member.display_avatar.url)
-
-    # Add server icon as author
-    embed.set_author(
-        name=f"{member.guild.name}",
-        icon_url=member.guild.icon.url if member.guild.icon else None
-    )
-
-    # Add welcome message field
-    welcome_messages = [
-        "🐀 Another brave soul enters the burocrazy maze!",
-        "📋 Time to get those TPS reports filed!",
-        "🏢 Welcome to the most chaotic office simulator!",
-        "⚡ Ready to navigate the red tape jungle?",
-        "🎯 Let's see how you handle the paperwork pandemonium!"
-    ]
-
-    embed.add_field(
-        name="🌟 Get Started",
-        value=random.choice(welcome_messages),
-        inline=False
-    )
-
-    # Add useful information
-    embed.add_field(
-        name="📚 Quick Start",
-        value="• Check out <#1411426415450263582> for server rules\n• Visit <#1411730265499369615> for game info\n• Say hello in <#1411425020772614236>!",
-        inline=True
-    )
-
-    embed.add_field(
-        name="🎮 Game Features",
-        value="• Burocrazy chaos\n• Office shenanigans\n• Paperwork adventures\n• Community fun!",
-        inline=True
-    )
-
-    # Add member count
-    embed.add_field(
-        name="👥 Member Count",
-        value=f"You're member #{member.guild.member_count}!",
-        inline=False
-    )
-
-    # Add footer with bot info
-    embed.set_footer(
-        text="OLIT Bot • Welcome System",
-        icon_url=bot.user.display_avatar.url
-    )
-
-    # Create view with buttons for interactivity
-    class WelcomeView(discord.ui.View):
-        def __init__(self):
-            super().__init__(timeout=300)  # 5 minutes timeout
-
-        @discord.ui.button(label="📋 Rules", style=discord.ButtonStyle.primary, emoji="📋")
-        async def rules_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            await interaction.response.send_message("📋 Please check out our server rules to get started!",
-                                                    ephemeral=True)
-
-        @discord.ui.button(label="🎮 Game Info", style=discord.ButtonStyle.secondary, emoji="🎮")
-        async def info_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            await interaction.response.send_message(
-                "🎮 Learn more about BumbleRat Burocrazy Simulator in our info channels!", ephemeral=True)
-
-        @discord.ui.button(label="👋 Say Hi", style=discord.ButtonStyle.success, emoji="👋")
-        async def greet_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            greetings = [
-                "Hello there! 👋",
-                "Welcome to the burocrazy! 🎉",
-                "Ready for some burocrazy fun? 📋",
-                "Let the paperwork begin! 📄",
-                "Time to climb the corporate ladder! 🪜"
-            ]
-            await interaction.response.send_message(random.choice(greetings), ephemeral=True)
-
-    # Send the embed with buttons
-    view = WelcomeView()
-    await channel.send(embed=embed, view=view)
-
-    # Optional: Add a reaction to the message
-    message = await channel.fetch_message(channel.last_message_id)
-    await message.add_reaction("🎉")
-    await message.add_reaction("🐀")
+    if channel:  # Make sure the channel exists
+        await channel.send(f"Welcome to the BumbleRat Burocrazy Simulator, {member.name}!")
 
 @bot.event
 async def on_message(message):
