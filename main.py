@@ -1305,7 +1305,7 @@ class EnhancedCatchGame:
     def __init__(self, ctx):
         self.ctx = ctx
         self.game_state = {
-            'booster_x': 8,  # Center position (0-24 range)
+            'booster_x': 6,  # Center position (0-24 range)
             'booster_y': 0,  # Top of screen
             'booster_vel_x': random.uniform(-0.5, 0.5),
             'booster_vel_y': 0.05,
