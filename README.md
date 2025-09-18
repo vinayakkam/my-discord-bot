@@ -18,3 +18,7 @@ Features currently consists of:-
     5. Trivia  
     6. Math Quiz
     7. Word Unscramble
+    8. Catch Booster 
+    9. Rocketdesign
+   10. Starship Predictor
+   11. Starship Simulation 
