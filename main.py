@@ -1095,11 +1095,13 @@ async def starship(ctx):
 async def predict(ctx):
     """
     Enhanced UI-driven Starship ship-only simulation with improved features:
+    - Chat-based ship name input (no modal)
     - Better visual feedback and progress tracking
     - Enhanced embeds with status indicators
     - Improved error handling and user guidance
     - More interactive elements and confirmations
     """
+    import asyncio  # Add this import for timeout handling
 
     tests = [
         "Heat shield tile test",
@@ -1437,12 +1439,41 @@ async def predict(ctx):
                 )
                 return
 
+            # Ask for ship name in chat
+            await interaction.response.send_message(
+                "🚀 **Please provide your ship designation** (e.g., S38, IFT-6):",
+                ephemeral=True
+            )
+
+            def check(msg):
+                return msg.author.id == self.owner.id and msg.channel.id == interaction.channel_id
+
             try:
-                modal = ShipNameModal(owner=self.owner)
-                await interaction.response.send_modal(modal)
-            except Exception as e:
-                await interaction.response.send_message(
-                    f"Error opening modal: {str(e)}",
+                # Wait for ship name response
+                ship_msg = await bot.wait_for('message', check=check, timeout=60.0)
+                ship_name = ship_msg.content.strip() or "Unknown Ship"
+
+                # Ask for mission type
+                await interaction.followup.send(
+                    f"✅ Ship designation: **{ship_name}**\n\n"
+                    f"🎯 **Please provide mission type** (e.g., Orbital Test, Starlink Deploy) or type 'skip':",
+                    ephemeral=True
+                )
+
+                mission_msg = await bot.wait_for('message', check=check, timeout=60.0)
+                mission_type = mission_msg.content.strip() if mission_msg.content.strip().lower() != 'skip' else "Test Flight"
+
+                # Create and send test interface
+                test_embed, test_view = create_test_interface(ship_name, mission_type, self.owner)
+                await interaction.followup.send(
+                    embed=test_embed,
+                    view=test_view,
+                    ephemeral=True
+                )
+
+            except asyncio.TimeoutError:
+                await interaction.followup.send(
+                    "⏰ **Timeout:** No response received. Please run the command again.",
                     ephemeral=True
                 )
 
@@ -1487,7 +1518,7 @@ async def predict(ctx):
 
     start_embed.set_footer(text="SpaceX Mission Control • Boca Chica, Texas")
 
-    await ctx.send(embed=start_embed, view=StartView(owner=ctx.author))
+    await ctx.send(embed=start_embed, view=StartView(owne
 
 
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
