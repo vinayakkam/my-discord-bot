@@ -321,44 +321,79 @@ async def dice(ctx, guess: int = None, sides: int = 6):
 # -----------------------------------
 # 4️⃣ Number Guessing
 # -----------------------------------
+class GuessModal(discord.ui.Modal, title="🔢 Number Guessing Game"):
+    def __init__(self, ctx, number):
+        super().__init__()
+        self.ctx = ctx
+        self.number = number
+
+        self.guess_input = discord.ui.TextInput(
+            label="Enter your guess (1-10):",
+            style=discord.TextStyle.short,
+            placeholder="Type a number between 1 and 10",
+            required=True,
+            max_length=2
+        )
+        self.add_item(self.guess_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            guess_num = int(self.guess_input.value)
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Invalid number! Please type a valid integer.", ephemeral=True
+            )
+            return
+
+        if guess_num == self.number:
+            embed = discord.Embed(
+                title="🎉 Correct!",
+                description=f"You guessed it! The number was **{self.number}** (+1 point).",
+                color=discord.Color.green()
+            )
+            add_score(interaction.user.id, 1)
+        else:
+            embed = discord.Embed(
+                title="😢 Wrong Guess",
+                description=f"Nope, the number was **{self.number}**.",
+                color=discord.Color.red()
+            )
+
+        await interaction.response.edit_message(embed=embed, view=None)
+
+
+class GuessView(discord.ui.View):
+    def __init__(self, ctx, number):
+        super().__init__(timeout=15)
+        self.ctx = ctx
+        self.number = number
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message(
+                "⚠️ This guessing session isn’t yours.", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Make a Guess", style=discord.ButtonStyle.primary, emoji="🎲")
+    async def make_guess(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = GuessModal(self.ctx, self.number)
+        await interaction.response.send_modal(modal)
+
+
 @bot.command(name="guess")
 async def guess(ctx):
     number = random.randint(1, 10)
 
-    prompt_embed = discord.Embed(
+    embed = discord.Embed(
         title="🔢 Number Guessing Game",
-        description="I picked a number between **1 and 10**. Type your guess below! (15s timeout)",
+        description=f"I picked a number between **1 and 10**.\nClick below to make your guess!",
         color=discord.Color.purple()
     )
-    await ctx.send(embed=prompt_embed)
 
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.isdigit()
-
-    try:
-        guess_msg = await bot.wait_for("message", timeout=15.0, check=check)
-        guess_num = int(guess_msg.content)
-        if guess_num == number:
-            result_embed = discord.Embed(
-                title="🎉 Correct!",
-                description=f"You guessed it! The number was **{number}** (+1 point).",
-                color=discord.Color.green()
-            )
-            add_score(ctx.author.id, 1)
-        else:
-            result_embed = discord.Embed(
-                title="😢 Wrong Guess",
-                description=f"Nope, the number was **{number}**.",
-                color=discord.Color.red()
-            )
-        await ctx.send(embed=result_embed)
-    except:
-        timeout_embed = discord.Embed(
-            title="⏳ Timeout",
-            description="You took too long to respond. Try again!",
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=timeout_embed)
+    view = GuessView(ctx, number)
+    await ctx.send(embed=embed, view=view)
 
 # -----------------------------------
 # 5️⃣ Scoreboard Commands
