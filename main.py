@@ -1090,163 +1090,16 @@ async def starship(ctx):
         view=view
     )
 
-class ShipNameModal(discord.ui.Modal, title="🚀 Enter Starship Ship Name"):
-    ship_name = discord.ui.TextInput(
-        label="Ship Name (e.g. S38)",
-        style=discord.TextStyle.short,
-        placeholder="S38",
-        required=True,
-        max_length=20
-    )
+@bot.command(name="predict")
+async def predict(ctx):
+    """
+    UI-driven Starship ship-only simulation:
+      1) sends a button
+      2) clicking button opens a modal to enter ship name
+      3) modal.on_submit sends dropdowns for test results + Finish button
+      4) Finish calculates and displays chance (and optionally awards points)
+    """
 
-    def __init__(self, tests):
-        super().__init__()
-        self.tests = tests
-
-    async def on_submit(self, interaction: discord.Interaction):
-        ship_name = self.ship_name.value
-
-        # Create dropdown view for all tests
-        view = discord.ui.View(timeout=None)
-        self.user_answers = {}
-
-        options = [
-            discord.SelectOption(label="Success", description="Test fully passed", emoji="🟩"),
-            discord.SelectOption(label="Partial", description="Partially passed", emoji="🟨"),
-            discord.SelectOption(label="Failure", description="Failed test", emoji="🟥")
-        ]
-
-        for test in self.tests:
-            select = discord.ui.Select(
-                placeholder=f"{test} result",
-                options=options,
-                custom_id=f"test_{test}"
-            )
-
-            async def select_callback(inter: discord.Interaction, test_name=test, sel=select):
-                self.user_answers[test_name] = sel.values[0]
-                await inter.response.defer()
-
-            select.callback = select_callback
-            view.add_item(select)
-
-        # Finish button
-        async def finish_callback(inter: discord.Interaction):
-            # Compute chance based on selected answers
-            score = 0
-            for ans in self.user_answers.values():
-                if ans.lower() == "success":
-                    score += 3
-                elif ans.lower() == "partial":
-                    score += 1
-            chance = int((score / (len(self.tests)*3)) * 100)
-            chance += random.randint(-5, 5)
-            chance = max(0, min(100, chance))
-
-            result_embed = discord.Embed(
-                title=f"🚀 Starship {ship_name} Launch Simulation",
-                description=(
-                    f"Results:\n\n" +
-                    "\n".join([f"**{k}** → {v}" for k, v in self.user_answers.items()]) +
-                    f"\n\n🔮 **Predicted Launch Success Chance: {chance}%**"
-                ),
-                color=discord.Color.green() if chance >= 50 else discord.Color.red()
-            )
-            await inter.response.edit_message(embed=result_embed, view=None)
-
-        button = discord.ui.Button(label="Finish", style=discord.ButtonStyle.green)
-        button.callback = finish_callback
-        view.add_item(button)
-
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title=f"🚀 Starship {ship_name} Tests",
-                description="Select results for each test below, then press **Finish**.",
-                color=discord.Color.dark_blue()
-            ),
-            view=view,
-            ephemeral=True
-        )
-
-
-# === View for the initial Predict button ===
-class ShipNameModal(discord.ui.Modal, title="🚀 Enter Starship Ship Name"):
-    ship_name = discord.ui.TextInput(
-        label="Ship Name (e.g. S38)",
-        style=discord.TextStyle.short,
-        placeholder="S38",
-        required=True,
-        max_length=20
-    )
-
-    def __init__(self, user: discord.User):
-        super().__init__()
-        self.user = user
-        self.ship_name_value = None
-
-    async def on_submit(self, interaction: discord.Interaction):
-        self.ship_name_value = str(self.ship_name)
-        await interaction.response.defer()
-        # after defer we continue logic outside modal
-
-
-# Dropdown for test outcomes
-class TestDropdown(discord.ui.Select):
-    def __init__(self, test_name, callback_func):
-        self.test_name = test_name
-        self.callback_func = callback_func
-
-        options = [
-            discord.SelectOption(label="Success", value="success", emoji="🟩"),
-            discord.SelectOption(label="Partial", value="partial", emoji="🟨"),
-            discord.SelectOption(label="Failure", value="failure", emoji="🟥")
-        ]
-        super().__init__(placeholder=f"{test_name} result...", options=options, min_values=1, max_values=1)
-
-    async def callback(self, interaction: discord.Interaction):
-        choice = self.values[0]
-        await self.callback_func(interaction, self.test_name, choice)
-
-
-# View for initial button
-class PredictStartView(discord.ui.View):
-    def __init__(self, author: discord.User):
-        super().__init__(timeout=60)
-        self.author = author
-
-    @discord.ui.button(label="Enter Ship Name", style=discord.ButtonStyle.primary, emoji="🚀")
-    async def enter_name(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.author:
-            await interaction.response.send_message("This button isn’t for you.", ephemeral=True)
-            return
-        modal = ShipNameModal(interaction.user)
-        await interaction.response.send_modal(modal)
-
-        # Wait for modal submission
-        def check_modal(i: discord.Interaction):
-            return i.user == interaction.user and hasattr(modal, "ship_name_value")
-
-        # Poll until ship_name_value set
-        for _ in range(60):
-            await discord.utils.sleep_until(discord.utils.utcnow() + discord.utils.timedelta(milliseconds=200))
-            if modal.ship_name_value:
-                break
-
-        ship_name = modal.ship_name_value
-        if not ship_name:
-            await interaction.followup.send("⏳ Timed out waiting for ship name.", ephemeral=True)
-            return
-
-        await interaction.followup.send(embed=discord.Embed(
-            title="✅ Ship Name Received",
-            description=f"Ship Name: **{ship_name}**",
-            color=discord.Color.dark_blue()
-        ))
-        # now start asking tests
-        await start_tests(interaction, ship_name)
-
-
-async def start_tests(interaction, ship_name):
     tests = [
         "Heat shield tile test",
         "Propellant tank pressure test",
@@ -1254,65 +1107,148 @@ async def start_tests(interaction, ship_name):
         "Vacuum engine static fire",
         "Flight control surfaces test"
     ]
-    user_answers = {}
 
-    async def handle_choice(inter, test_name, choice):
-        user_answers[test_name] = choice
-        await inter.response.send_message(f"Recorded {test_name}: {choice}", ephemeral=True)
-        # check if done
-        if len(user_answers) == len(tests):
-            await finalize(inter, ship_name, user_answers)
+    # --- Modal for ship name (created when button clicked) ---
+    class ShipNameModal(discord.ui.Modal, title="🚀 Enter Starship Ship Name"):
+        ship_name = discord.ui.TextInput(
+            label="Ship Name (e.g. S38)",
+            style=discord.TextStyle.short,
+            placeholder="S38",
+            required=True,
+            max_length=20
+        )
 
-    view = discord.ui.View(timeout=120)
-    for t in tests:
-        view.add_item(TestDropdown(t, handle_choice))
+        def __init__(self, owner: discord.User):
+            super().__init__()
+            self.owner = owner  # who started the flow
 
-    await interaction.followup.send(
-        embed=discord.Embed(
-            title=f"🚀 Testing {ship_name}",
-            description="Choose outcomes for each test below. Once you’ve picked all, you’ll get the prediction.",
-            color=discord.Color.blurple()
-        ),
-        view=view
-    )
+        async def on_submit(self, interaction: discord.Interaction):
+            # Restrict modal submission to the flow owner (defensive)
+            if interaction.user.id != self.owner.id:
+                await interaction.response.send_message("This modal is not for you.", ephemeral=True)
+                return
 
+            ship_name = self.ship_name.value.strip() or "Unknown"
 
-async def finalize(interaction, ship_name, user_answers):
-    score = 0
-    for ans in user_answers.values():
-        if ans == "success":
-            score += 3
-        elif ans == "partial":
-            score += 1
+            # store answers here
+            user_answers: dict[str, str] = {}
 
-    chance = int((score / 15) * 100)
-    chance += random.randint(-5, 5)
-    chance = max(0, min(chance, 100))
+            # Build a view of dropdowns + finish button. Only the owner can interact.
+            view = discord.ui.View(timeout=180)
 
-    result = discord.Embed(
-        title=f"🚀 Starship {ship_name} Ship-Only Launch Simulation",
-        description=(
-            f"Based on your test results for **{ship_name}**:\n\n"
-            f"🟩 **{list(user_answers.values()).count('success')} successes**\n"
-            f"🟨 **{list(user_answers.values()).count('partial')} partials**\n"
-            f"🟥 **{list(user_answers.values()).count('failure')} failures**\n\n"
-            f"🔮 **Predicted Launch Success Chance: {chance}%**"
-        ),
-        color=discord.Color.green() if chance >= 50 else discord.Color.red()
-    )
-    await interaction.followup.send(embed=result)
+            # Create a select for each test
+            def make_select(test_name: str):
+                select = discord.ui.Select(
+                    placeholder=test_name,
+                    min_values=1,
+                    max_values=1,
+                    options=[
+                        discord.SelectOption(label="Success ✅", value="success"),
+                        discord.SelectOption(label="Partial ⚠️", value="partial"),
+                        discord.SelectOption(label="Failure ❌", value="failure"),
+                    ]
+                )
 
+                async def select_cb(sel_interaction: discord.Interaction):
+                    # only owner can choose
+                    if sel_interaction.user.id != self.owner.id:
+                        await sel_interaction.response.send_message("This selection isn't for you.", ephemeral=True)
+                        return
+                    user_answers[test_name] = sel_interaction.data["values"][0]  # or sel_interaction.data
+                    # Acknowledge selection quietly
+                    await sel_interaction.response.send_message(f"Recorded **{test_name}** → **{user_answers[test_name]}**", ephemeral=True)
 
-@bot.command(name="predict")
-async def predict(ctx):
-    """Launch Starship simulation with UI."""
-    embed = discord.Embed(
+                select.callback = select_cb
+                return select
+
+            for t in tests:
+                view.add_item(make_select(t))
+
+            # Finish button
+            finish_btn = discord.ui.Button(label="Finish & Calculate", style=discord.ButtonStyle.green)
+
+            async def finish_cb(btn_inter: discord.Interaction):
+                if btn_inter.user.id != self.owner.id:
+                    await btn_inter.response.send_message("This button isn't for you.", ephemeral=True)
+                    return
+
+                if len(user_answers) < len(tests):
+                    await btn_inter.response.send_message(
+                        f"Please answer all tests first ({len(user_answers)}/{len(tests)} answered).", ephemeral=True
+                    )
+                    return
+
+                # compute score (success=3, partial=1)
+                score = sum(3 if v == "success" else 1 if v == "partial" else 0 for v in user_answers.values())
+                chance = int((score / (len(tests) * 3)) * 100)
+                chance += random.randint(-5, 5)  # small randomness
+                chance = max(0, min(chance, 100))
+
+                # Build result embed
+                result_embed = discord.Embed(
+                    title=f"🚀 Starship {ship_name} Ship-Only Launch Simulation",
+                    description=(
+                        f"Based on your test results for **{ship_name}**:\n\n"
+                        f"🟩 **{list(user_answers.values()).count('success')} successes**\n"
+                        f"🟨 **{list(user_answers.values()).count('partial')} partials**\n"
+                        f"🟥 **{list(user_answers.values()).count('failure')} failures**\n\n"
+                        f"🔮 **Predicted Launch Success Chance: {chance}%**"
+                    ),
+                    color=discord.Color.green() if chance >= 50 else discord.Color.red()
+                )
+
+                # Optionally award participation point using your scoring system
+                try:
+                    if 'add_score' in globals():
+                        add_score(self.owner.id, 1)
+                except Exception:
+                    pass
+
+                # Edit the message containing the dropdowns to show the result and remove the view
+                try:
+                    await btn_inter.response.edit_message(embed=result_embed, view=None)
+                except discord.errors.HTTPException:
+                    # fallback to sending a new message if editing fails
+                    await btn_inter.response.send_message(embed=result_embed)
+
+            finish_btn.callback = finish_cb
+            view.add_item(finish_btn)
+
+            # Send the dropdown view as an ephemeral message to the user who submitted the modal.
+            # Keeping ephemeral=True so only the player sees the interactive UI.
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title=f"🧪 Tests for {ship_name}",
+                    description="Select the outcome for each test, then press **Finish & Calculate**.",
+                    color=discord.Color.blurple()
+                ),
+                view=view,
+                ephemeral=True
+            )
+
+    # --- View with initial "Enter Ship Name" button (sent by the text command) ---
+    class StartView(discord.ui.View):
+        def __init__(self, owner: discord.User):
+            super().__init__(timeout=120)
+            self.owner = owner
+
+        @discord.ui.button(label="Enter Ship Name", style=discord.ButtonStyle.primary, emoji="🚀")
+        async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+            # Restrict button to the user who issued the command
+            if interaction.user.id != self.owner.id:
+                await interaction.response.send_message("This button isn't for you.", ephemeral=True)
+                return
+
+            modal = ShipNameModal(owner=self.owner)
+            await interaction.response.send_modal(modal)
+
+    # send the initial message with the button
+    start_embed = discord.Embed(
         title="🚀 Starship Ship Simulation",
-        description="Click the button below to enter your Ship Name.",
+        description="Click **Enter Ship Name** to start the ship-only simulation (modal will open).",
         color=discord.Color.dark_blue()
     )
-    await ctx.send(embed=embed, view=PredictStartView(ctx.author))
-user_answers = {}
+    await ctx.send(embed=start_embed, view=StartView(owner=ctx.author))
 
 
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
