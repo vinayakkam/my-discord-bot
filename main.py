@@ -810,9 +810,29 @@ UNSCRAMBLE_WORDS = {
     ]
 }
 
-class UnscrambleModal(discord.ui.Modal):
-    def __init__(self, ctx, word, points):
-        super().__init__(title="Unscramble the Word")
+
+def make_scrambled(word: str, max_attempts: int = 40) -> str | None:
+    """Return a scrambled permutation of `word` that is not identical to `word`."""
+    if not word or len(word) <= 1:
+        return None
+    if len(set(word.lower())) == 1:
+        return None
+    chars = list(word)
+    for _ in range(max_attempts):
+        random.shuffle(chars)
+        scrambled = ''.join(chars)
+        if scrambled.lower() != word.lower():
+            return scrambled
+    for _ in range(max_attempts):
+        scrambled = ''.join(random.sample(word, len(word)))
+        if scrambled.lower() != word.lower():
+            return scrambled
+    return None
+
+
+class UnscrambleModal(discord.ui.Modal, title="Unscramble the Word"):
+    def __init__(self, ctx, word: str, points: int):
+        super().__init__()
         self.ctx = ctx
         self.word = word
         self.points = points
@@ -821,12 +841,11 @@ class UnscrambleModal(discord.ui.Modal):
             label="Your answer",
             placeholder="Type the unscrambled word here",
             required=True,
-            max_length=50
+            max_length=100
         )
         self.add_item(self.answer_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # check author only
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("This is not your game.", ephemeral=True)
             return
@@ -848,14 +867,16 @@ class UnscrambleModal(discord.ui.Modal):
             )
         await interaction.response.edit_message(embed=embed, view=None)
 
+
 class UnscrambleView(discord.ui.View):
-    def __init__(self, ctx, word, points, timeout=60):
+    def __init__(self, ctx, word: str, points: int, timeout: int = 60):
         super().__init__(timeout=timeout)
         self.ctx = ctx
         self.word = word
         self.points = points
+        self.message: discord.Message | None = None
 
-    @discord.ui.button(label="Unscramble", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Unscramble", style=discord.ButtonStyle.primary, emoji="🔤")
     async def unscramble_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("This is not your game.", ephemeral=True)
@@ -864,39 +885,75 @@ class UnscrambleView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
     async def on_timeout(self):
-        # Send timeout embed
         try:
-            timeout_embed = discord.Embed(
-                title="⏳ Timeout",
-                description="You took too long to answer.",
-                color=discord.Color.red()
-            )
-            await self.message.edit(embed=timeout_embed, view=None)
-        except:
+            if self.message:
+                timeout_embed = discord.Embed(
+                    title="⏳ Timeout",
+                    description="You took too long to answer.",
+                    color=discord.Color.red()
+                )
+                await self.message.edit(embed=timeout_embed, view=None)
+        except Exception:
             pass
 
+
+class DifficultyDropdown(discord.ui.Select):
+    def __init__(self, ctx):
+        self.ctx = ctx
+        options = [
+            discord.SelectOption(label="Easy", description="Simple words (1 point)", emoji="🟩"),
+            discord.SelectOption(label="Medium", description="Medium words (2 points)", emoji="🟨"),
+            discord.SelectOption(label="Hard", description="Hard words (3 points)", emoji="🟥"),
+        ]
+        super().__init__(placeholder="Choose difficulty", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This dropdown isn’t for you.", ephemeral=True)
+            return
+
+        difficulty = self.values[0].lower()
+        points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
+
+        # pick a word
+        word, scrambled = None, None
+        attempts = 0
+        while attempts < 60:
+            candidate = random.choice(UNSCRAMBLE_WORDS[difficulty])
+            s = make_scrambled(candidate)
+            if s:
+                word = candidate
+                scrambled = s
+                break
+            attempts += 1
+        if not scrambled:  # fallback
+            word = random.choice(UNSCRAMBLE_WORDS[difficulty])
+            scrambled = ''.join(random.sample(word, len(word)))
+
+        embed = discord.Embed(
+            title="🔤 Word Unscramble",
+            description=f"**[{difficulty.upper()} — {points} point(s)]**\n\nUnscramble this word: **{scrambled}**",
+            color=discord.Color.purple()
+        )
+        view = UnscrambleView(self.ctx, word, points)
+        view.message = await interaction.response.edit_message(embed=embed, view=view)
+
+
+class DifficultyView(discord.ui.View):
+    def __init__(self, ctx):
+        super().__init__(timeout=30)
+        self.add_item(DifficultyDropdown(ctx))
+
+
 @bot.command(name="unscramble")
-async def unscramble(ctx, difficulty: str = None):
-    """
-    Unscramble game with UI
-    Usage: !unscramble easy / medium / hard
-    """
-    difficulty = (difficulty or "easy").lower()
-    if difficulty not in UNSCRAMBLE_WORDS:
-        await ctx.send("⚠️ Please choose a difficulty: `easy`, `medium`, or `hard`.\nExample: `!unscramble medium`")
-        return
-
-    word = random.choice(UNSCRAMBLE_WORDS[difficulty])
-    scrambled = ''.join(random.sample(word, len(word)))
-    points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
-
+async def unscramble(ctx):
+    """Start the unscramble game with a difficulty dropdown."""
     embed = discord.Embed(
         title="🔤 Word Unscramble",
-        description=f"**[{difficulty.upper()} — {points} point(s)]**\n\nUnscramble this word: **{scrambled}**",
-        color=discord.Color.purple()
+        description="Pick your difficulty below:",
+        color=discord.Color.blurple()
     )
-    view = UnscrambleView(ctx, word, points)
-    view.message = await ctx.send(embed=embed, view=view)
+    await ctx.send(embed=embed, view=DifficultyView(ctx))
 
 @bot.command(name="starship")
 async def starship(ctx):
