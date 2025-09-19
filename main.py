@@ -156,42 +156,75 @@ def add_score(user_id, points=1):
 # -----------------------------------
 # 1️⃣ Rock Paper Scissors
 # -----------------------------------
-@bot.command(name="rps")
-async def rps(ctx, choice: str = None):
-    options = ["rock", "paper", "scissors"]
+class RPSView(discord.ui.View):
+    def __init__(self, ctx, timeout=30):
+        super().__init__(timeout=timeout)
+        self.ctx = ctx
+        self.user = ctx.author
+        self.options = ["rock", "paper", "scissors"]
 
-    if choice is None or choice.lower() not in options:
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Only the invoking user can click."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message(
+                "⚠️ This RPS session isn’t yours.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def play(self, interaction, user_choice):
+        bot_choice = random.choice(self.options)
+        if user_choice == bot_choice:
+            result = "It's a draw! 🤝"
+            color = discord.Color.yellow()
+        elif (
+            (user_choice == "rock" and bot_choice == "scissors")
+            or (user_choice == "paper" and bot_choice == "rock")
+            or (user_choice == "scissors" and bot_choice == "paper")
+        ):
+            result = "You win! 🎉 (+1 point)"
+            add_score(interaction.user.id, 1)
+            color = discord.Color.green()
+        else:
+            result = "You lose! 😢"
+            color = discord.Color.red()
+
         embed = discord.Embed(
             title="🪨📄✂️ Rock Paper Scissors",
-            description="Please choose rock, paper, or scissors.\nExample: `!rps rock`",
-            color=discord.Color.red()
+            color=color
         )
-        await ctx.send(embed=embed)
-        return
+        embed.add_field(name="Your Choice", value=user_choice.capitalize())
+        embed.add_field(name="Bot's Choice", value=bot_choice.capitalize())
+        embed.add_field(name="Result", value=result, inline=False)
 
-    user_choice = choice.lower()
-    bot_choice = random.choice(options)
+        # Disable buttons after click
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(embed=embed, view=self)
 
-    if user_choice == bot_choice:
-        result = "It's a draw! 🤝"
-    elif (
-        (user_choice == "rock" and bot_choice == "scissors")
-        or (user_choice == "paper" and bot_choice == "rock")
-        or (user_choice == "scissors" and bot_choice == "paper")
-    ):
-        result = "You win! 🎉 (+1 point)"
-        add_score(ctx.author.id, 1)
-    else:
-        result = "You lose! 😢"
+    @discord.ui.button(label="🪨 Rock", style=discord.ButtonStyle.primary)
+    async def rock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.play(interaction, "rock")
 
+    @discord.ui.button(label="📄 Paper", style=discord.ButtonStyle.primary)
+    async def paper(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.play(interaction, "paper")
+
+    @discord.ui.button(label="✂️ Scissors", style=discord.ButtonStyle.primary)
+    async def scissors(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.play(interaction, "scissors")
+
+
+@bot.command(name="rps")
+async def rps(ctx):
+    """Start an interactive Rock-Paper-Scissors game with buttons."""
     embed = discord.Embed(
         title="🪨📄✂️ Rock Paper Scissors",
-        color=discord.Color.blue()
+        description=f"{ctx.author.mention}, click a button below to play!",
+        color=discord.Color.blurple()
     )
-    embed.add_field(name="Your Choice", value=user_choice.capitalize())
-    embed.add_field(name="Bot's Choice", value=bot_choice.capitalize())
-    embed.add_field(name="Result", value=result, inline=False)
-    await ctx.send(embed=embed)
+    view = RPSView(ctx)
+    await ctx.send(embed=embed, view=view)
 
 # -----------------------------------
 # 2️⃣ Coin Flip
