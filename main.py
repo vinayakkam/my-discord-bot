@@ -30,13 +30,43 @@ async def on_ready():
     print(f"✅ Synced slash commands to {GUILD_ID}")
     print(f"Logged in as {bot.user}")
 
-@bot.event
-async def on_member_join(member):
-    # Replace CHANNEL_ID with the ID of the channel where you want to send welcome messages
-    channel = bot.get_channel(1411426415450263585)
-    if channel:  # Make sure the channel exists
-        await channel.send(f"Welcome to the BumbleRat Burocrazy Simulator, {member.name}!")
+import discord
+from discord.ext import commands
 
+# Dictionary mapping guild (server) IDs to their welcome channel IDs
+welcome_channels = {
+    1411425019434766499: 1411426415450263585,  # Example: Server A channel
+    1210475350119813120: 1418594720774619218,  # Example: Server B channel
+    # Add more servers here
+}
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    """Send an embed welcome message with profile pic to the correct channel per server."""
+
+    guild_id = member.guild.id
+    channel_id = welcome_channels.get(guild_id)
+
+    if channel_id:
+        channel = member.guild.get_channel(channel_id)
+    else:
+        channel = member.guild.system_channel  # fallback to system channel
+    if not channel:
+        return  # no channel found, do nothing
+
+    # Make the embed
+    embed = discord.Embed(
+        title=f"🎉 Welcome to {member.guild.name}!",
+        description=(
+            f"Hey {member.mention}, welcome aboard! We’re excited to have you here.\n\n"
+            f"Take a look at the rules, introduce yourself, and enjoy your stay 🚀"
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)  # user's profile picture
+    embed.set_footer(text=f"You’re member #{len(member.guild.members)} in {member.guild.name}!")
+
+    await channel.send(embed=embed)
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
