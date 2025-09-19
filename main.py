@@ -1094,13 +1094,7 @@ async def starship(ctx):
 @bot.command(name="predict")
 async def predict(ctx):
     """
-    Enhanced UI-driven Starship ship-only simulation with improved features:
-    - Chat-based ship name input (no modal)
-    - Mission type buttons
-    - Better visual feedback and progress tracking
-    - Enhanced embeds with status indicators
-    - Improved error handling and user guidance
-    - More interactive elements and confirmations
+    Simplified Starship mission simulation - straight to testing interface
     """
 
     tests = [
@@ -1119,30 +1113,26 @@ async def predict(ctx):
         "Flight control surfaces test": "Validates aerodynamic control systems"
     }
 
-    # Function to create test interface
-    def create_test_interface(ship_name: str, mission_type: str, owner: discord.User):
-        # Store test results and progress
-        user_answers: dict[str, str] = {}
+    # Function to create the main testing interface
+    def create_test_interface(ship_name: str, owner: discord.User):
+        user_answers = {}
         completed_tests = set()
 
-        # Enhanced view with better organization
-        view = discord.ui.View(timeout=300)  # Extended timeout
+        view = discord.ui.View(timeout=300)
 
-        # Progress tracker function
         def get_progress_bar(completed: int, total: int) -> str:
             progress = completed / total
             filled = int(progress * 10)
             bar = "█" * filled + "░" * (10 - filled)
             return f"[{bar}] {completed}/{total} ({int(progress * 100)}%)"
 
-        # Create enhanced selects for each test
+        # Create test selects
         def make_test_select(test_name: str, index: int):
-            # Add emoji indicators for test types
             test_emojis = ["🛡️", "⛽", "🚀", "🔥", "✈️"]
             emoji = test_emojis[index % len(test_emojis)]
 
             select = discord.ui.Select(
-                placeholder=f"{emoji} {test_name}"[:100],  # Discord has 100 char limit
+                placeholder=f"{emoji} {test_name}"[:100],
                 min_values=1,
                 max_values=1,
                 options=[
@@ -1167,7 +1157,7 @@ async def predict(ctx):
                 ]
             )
 
-            async def select_callback(sel_interaction: discord.Interaction):
+            async def select_callback(sel_interaction):
                 if sel_interaction.user.id != owner.id:
                     await sel_interaction.response.send_message(
                         "❌ Only the mission commander can input test results.",
@@ -1179,7 +1169,6 @@ async def predict(ctx):
                 user_answers[test_name] = result
                 completed_tests.add(test_name)
 
-                # Status messages based on result
                 status_messages = {
                     "success": f"✅ **{test_name}** completed successfully!",
                     "partial": f"⚠️ **{test_name}** completed with minor issues.",
@@ -1202,14 +1191,14 @@ async def predict(ctx):
         for i, test in enumerate(tests):
             view.add_item(make_test_select(test, i))
 
-        # Enhanced finish button with confirmation
+        # Calculate results button
         finish_btn = discord.ui.Button(
             label="Calculate Success Rate",
             style=discord.ButtonStyle.success,
             emoji="🚀"
         )
 
-        async def finish_callback(btn_inter: discord.Interaction):
+        async def finish_callback(btn_inter):
             if btn_inter.user.id != owner.id:
                 await btn_inter.response.send_message(
                     "❌ Only the mission commander can finalize results.",
@@ -1217,7 +1206,7 @@ async def predict(ctx):
                 )
                 return
 
-            # Check completion
+            # Check if all tests completed
             missing_tests = set(tests) - completed_tests
             if missing_tests:
                 missing_list = "\n".join(f"• {test}" for test in missing_tests)
@@ -1229,17 +1218,17 @@ async def predict(ctx):
                 )
                 return
 
-            # Calculate enhanced scoring
+            # Calculate scoring
             base_scores = {"success": 3, "partial": 1, "failure": 0}
             score = sum(base_scores[result] for result in user_answers.values())
             max_score = len(tests) * 3
             base_chance = int((score / max_score) * 100)
 
-            # Add mission complexity modifier
-            complexity_modifier = random.randint(-8, 12)  # Slightly optimistic bias
+            # Add randomization
+            complexity_modifier = random.randint(-8, 12)
             final_chance = max(5, min(95, base_chance + complexity_modifier))
 
-            # Determine mission outcome and color
+            # Determine outcome
             if final_chance >= 80:
                 outcome = "🟢 HIGH CONFIDENCE"
                 color = discord.Color.green()
@@ -1257,16 +1246,15 @@ async def predict(ctx):
                 color = discord.Color.red()
                 outcome_msg = "Poor test results indicate significant mission risk."
 
-            # Count results for detailed breakdown
+            # Count results
             success_count = list(user_answers.values()).count('success')
             partial_count = list(user_answers.values()).count('partial')
             failure_count = list(user_answers.values()).count('failure')
 
-            # Create comprehensive results embed
+            # Create results embed
             result_embed = discord.Embed(
                 title=f"🚀 Mission Analysis: {ship_name}",
                 description=(
-                    f"**Mission Type:** {mission_type}\n"
                     f"**Test Campaign Status:** Complete ✅\n\n"
                     f"**Test Results Summary:**\n"
                     f"🟢 Complete Success: **{success_count}** tests\n"
@@ -1279,7 +1267,7 @@ async def predict(ctx):
                 color=color
             )
 
-            # Add detailed test breakdown
+            # Add test breakdown
             test_details = ""
             result_emojis = {"success": "✅", "partial": "⚠️", "failure": "❌"}
             for test, result in user_answers.items():
@@ -1287,11 +1275,11 @@ async def predict(ctx):
 
             result_embed.add_field(
                 name="📋 Detailed Test Results",
-                value=test_details or "No tests completed",
+                value=test_details,
                 inline=False
             )
 
-            # Add mission recommendations
+            # Add recommendations
             if final_chance >= 70:
                 recommendations = "✅ Mission is GO for launch\n✅ All systems nominal\n✅ Proceed with confidence"
             elif final_chance >= 50:
@@ -1310,7 +1298,7 @@ async def predict(ctx):
                 icon_url=owner.display_avatar.url if owner.display_avatar else None
             )
 
-            # Award points for participation
+            # Award points
             try:
                 if 'add_score' in globals():
                     points_awarded = 2 if final_chance >= 50 else 1
@@ -1323,22 +1311,18 @@ async def predict(ctx):
             except Exception:
                 pass
 
-            # Update the message with results
-            try:
-                await btn_inter.response.edit_message(embed=result_embed, view=None)
-            except discord.errors.HTTPException:
-                await btn_inter.response.send_message(embed=result_embed)
+            await btn_inter.response.send_message(embed=result_embed, ephemeral=True)
 
         finish_btn.callback = finish_callback
         view.add_item(finish_btn)
 
-        # Add a reset button for convenience
+        # Reset button
         reset_btn = discord.ui.Button(
             label="🔄 Reset Tests",
             style=discord.ButtonStyle.secondary
         )
 
-        async def reset_callback(reset_inter: discord.Interaction):
+        async def reset_callback(reset_inter):
             if reset_inter.user.id != owner.id:
                 await reset_inter.response.send_message(
                     "❌ Only the mission commander can reset tests.",
@@ -1360,7 +1344,6 @@ async def predict(ctx):
         test_embed = discord.Embed(
             title=f"🧪 Pre-Flight Testing: {ship_name}",
             description=(
-                f"**Mission:** {mission_type}\n"
                 f"**Commander:** {owner.display_name}\n\n"
                 f"Complete all **{len(tests)} critical tests** below, then calculate mission success probability.\n\n"
                 f"**Progress:** {get_progress_bar(0, len(tests))}"
@@ -1378,119 +1361,7 @@ async def predict(ctx):
 
         return test_embed, view
 
-    # --- Mission Type Selection View ---
-    class MissionTypeView(discord.ui.View):
-        def __init__(self, owner: discord.User, ship_name: str):
-            super().__init__(timeout=180)
-            self.owner = owner
-            self.ship_name = ship_name
-
-        @discord.ui.button(
-            label="Orbital Test",
-            style=discord.ButtonStyle.primary,
-            emoji="🌍"
-        )
-        async def orbital_test(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != self.owner.id:
-                await interaction.response.send_message(
-                    "This simulation was started by someone else. Use the command to start your own!",
-                    ephemeral=True
-                )
-                return
-
-            mission_type = "Orbital Test Flight"
-            test_embed, test_view = create_test_interface(self.ship_name, mission_type, self.owner)
-            await interaction.response.send_message(embed=test_embed, view=test_view, ephemeral=True)
-
-        @discord.ui.button(
-            label="Starlink Deploy",
-            style=discord.ButtonStyle.primary,
-            emoji="🛰️"
-        )
-        async def starlink_deploy(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != self.owner.id:
-                await interaction.response.send_message(
-                    "This simulation was started by someone else. Use the command to start your own!",
-                    ephemeral=True
-                )
-                return
-
-            mission_type = "Starlink Deployment"
-            test_embed, test_view = create_test_interface(self.ship_name, mission_type, self.owner)
-            await interaction.response.send_message(embed=test_embed, view=test_view, ephemeral=True)
-
-        @discord.ui.button(
-            label="Crew Mission",
-            style=discord.ButtonStyle.primary,
-            emoji="👨‍🚀"
-        )
-        async def crew_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != self.owner.id:
-                await interaction.response.send_message(
-                    "This simulation was started by someone else. Use the command to start your own!",
-                    ephemeral=True
-                )
-                return
-
-            mission_type = "Crewed Mission"
-            test_embed, test_view = create_test_interface(self.ship_name, mission_type, self.owner)
-            await interaction.response.send_message(embed=test_embed, view=test_view, ephemeral=True)
-
-        @discord.ui.button(
-            label="Mars Mission",
-            style=discord.ButtonStyle.danger,
-            emoji="🔴"
-        )
-        async def mars_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != self.owner.id:
-                await interaction.response.send_message(
-                    "This simulation was started by someone else. Use the command to start your own!",
-                    ephemeral=True
-                )
-                return
-
-            mission_type = "Mars Transit"
-            test_embed, test_view = create_test_interface(self.ship_name, mission_type, self.owner)
-            await interaction.response.edit_message(embed=test_embed, view=test_view)
-
-        @discord.ui.button(
-            label="Custom Mission",
-            style=discord.ButtonStyle.secondary,
-            emoji="⚙️"
-        )
-        async def custom_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != self.owner.id:
-                await interaction.response.send_message(
-                    "This simulation was started by someone else. Use the command to start your own!",
-                    ephemeral=True
-                )
-                return
-
-            # Ask for custom mission type in chat
-            await interaction.response.send_message(
-                f"🎯 **Please provide your custom mission type** (e.g., Moon Landing, Space Station Deploy):",
-                ephemeral=True
-            )
-
-            def check(msg):
-                return msg.author.id == self.owner.id and msg.channel.id == interaction.channel_id
-
-            try:
-                # Wait for custom mission type response
-                mission_msg = await bot.wait_for('message', check=check, timeout=60.0)
-                mission_type = mission_msg.content.strip() or "Custom Mission"
-
-                # Create and send test interface
-                test_embed, test_view = create_test_interface(self.ship_name, mission_type, self.owner)
-                await interaction.followup.edit_message(interaction.message.id, embed=test_embed, view=test_view)
-
-            except asyncio.TimeoutError:
-                await interaction.followup.send(
-                    "⏰ **Timeout:** No response received. Please run the command again.",
-                    ephemeral=True
-                )
-
-    # --- Enhanced start view ---
+    # Simple start view - just ship name then straight to testing
     class StartView(discord.ui.View):
         def __init__(self, owner: discord.User):
             super().__init__(timeout=180)
@@ -1509,7 +1380,7 @@ async def predict(ctx):
                 )
                 return
 
-            # Ask for ship name in chat
+            # Ask for ship name
             await interaction.response.send_message(
                 "🚀 **Please provide your ship designation** (e.g., S38, IFT-6):",
                 ephemeral=True
@@ -1519,33 +1390,13 @@ async def predict(ctx):
                 return msg.author.id == self.owner.id and msg.channel.id == interaction.channel_id
 
             try:
-                # Wait for ship name response
+                # Wait for ship name
                 ship_msg = await bot.wait_for('message', check=check, timeout=60.0)
-                ship_name = ship_msg.content.strip() or "Unknown Ship"
+                ship_name = ship_msg.content.strip() or "Starship"
 
-                # Show mission type selection
-                mission_embed = discord.Embed(
-                    title=f"🎯 Mission Selection: {ship_name}",
-                    description=(
-                        f"**Ship Designation:** {ship_name}\n"
-                        f"**Commander:** {self.owner.display_name}\n\n"
-                        f"Select your mission type from the options below:\n\n"
-                        f"🌍 **Orbital Test** - Standard test flight\n"
-                        f"🛰️ **Starlink Deploy** - Satellite deployment\n"
-                        f"👨‍🚀 **Crew Mission** - Human spaceflight\n"
-                        f"🔴 **Mars Mission** - Interplanetary transit\n"
-                        f"⚙️ **Custom Mission** - Define your own"
-                    ),
-                    color=discord.Color.blue()
-                )
-
-                mission_embed.set_footer(text="Choose your mission type to proceed to testing")
-
-                await interaction.followup.edit_message(
-                    interaction.message.id,
-                    embed=mission_embed,
-                    view=MissionTypeView(self.owner, ship_name)
-                )
+                # Go straight to testing interface
+                test_embed, test_view = create_test_interface(ship_name, self.owner)
+                await interaction.followup.send(embed=test_embed, view=test_view, ephemeral=True)
 
             except asyncio.TimeoutError:
                 await interaction.followup.send(
@@ -1566,10 +1417,9 @@ async def predict(ctx):
                     "critical pre-flight test results.\n\n"
                     "**How it works:**\n"
                     "1. Enter your ship designation\n"
-                    "2. Select your mission type\n"
-                    "3. Complete all 5 critical test evaluations\n"
-                    "4. Receive calculated success probability\n"
-                    "5. Get mission recommendations\n\n"
+                    "2. Complete all 5 critical test evaluations\n"
+                    "3. Receive calculated success probability\n"
+                    "4. Get mission recommendations\n\n"
                     "**Test Categories:**\n"
                     "Heat Shield, Propulsion, Maneuvering, Engine, Flight Control"
                 ),
@@ -1578,7 +1428,7 @@ async def predict(ctx):
             info_embed.set_footer(text="For entertainment purposes")
             await interaction.response.send_message(embed=info_embed, ephemeral=True)
 
-    # Send initial command response
+    # Send initial embed
     start_embed = discord.Embed(
         title="SpaceX Starship Mission Simulator",
         description=(
