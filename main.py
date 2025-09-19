@@ -1518,7 +1518,7 @@ async def predict(ctx):
 
     start_embed.set_footer(text="SpaceX Mission Control • Boca Chica, Texas")
 
-    await ctx.send(embed=start_embed, view=StartView(owne
+    await ctx.send(embed=start_embed, view=StartView(owner=ctx.author))
 
 
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
