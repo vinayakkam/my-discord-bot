@@ -1118,22 +1118,29 @@ async def predict(ctx):
     }
 
     # --- Enhanced Modal for ship name ---
-    class ShipNameModal(discord.ui.Modal, title="🚀 Starship Mission Parameters"):
-        ship_name = discord.ui.TextInput(
-            label="Ship Designation (e.g., S38, IFT-6)",
-            style=discord.TextStyle.short,
-            placeholder="Enter ship name or test flight number...",
-            required=True,
-            max_length=30
-        )
+    class ShipNameModal(discord.ui.Modal):
+        def __init__(self, owner: discord.User):
+            super().__init__(title="🚀 Starship Mission Parameters")
+            self.owner = owner
 
-        mission_type = discord.ui.TextInput(
-            label="Mission Type (Optional)",
-            style=discord.TextStyle.short,
-            placeholder="e.g., Orbital Test, Starlink Deploy, Mars Prep...",
-            required=False,
-            max_length=50
-        )
+            # Add text inputs to the modal
+            self.ship_name = discord.ui.TextInput(
+                label="Ship Designation",
+                style=discord.TextStyle.short,
+                placeholder="S38",
+                required=True,
+                max_length=20
+            )
+            self.add_item(self.ship_name)
+
+            self.mission_type = discord.ui.TextInput(
+                label="Mission Type (Optional)",
+                style=discord.TextStyle.short,
+                placeholder="Orbital Test",
+                required=False,
+                max_length=30
+            )
+            self.add_item(self.mission_type)
 
         def __init__(self, owner: discord.User):
             super().__init__()
@@ -1171,30 +1178,29 @@ async def predict(ctx):
                 emoji = test_emojis[index % len(test_emojis)]
 
                 select = discord.ui.Select(
-                    placeholder=f"{emoji} {test_name}",
+                    placeholder=f"{emoji} {test_name}"[:100],  # Discord has 100 char limit
                     min_values=1,
                     max_values=1,
                     options=[
                         discord.SelectOption(
-                            label="Complete Success ✅",
+                            label="Complete Success",
                             value="success",
-                            description="All parameters within nominal range",
+                            description="All parameters nominal",
                             emoji="✅"
                         ),
                         discord.SelectOption(
-                            label="Partial Success ⚠️",
+                            label="Partial Success",
                             value="partial",
-                            description="Some issues but within acceptable limits",
+                            description="Minor issues detected",
                             emoji="⚠️"
                         ),
                         discord.SelectOption(
-                            label="Test Failure ❌",
+                            label="Test Failure",
                             value="failure",
-                            description="Critical issues identified",
+                            description="Critical issues found",
                             emoji="❌"
                         ),
-                    ],
-                    custom_id=f"test_{index}"
+                    ]
                 )
 
                 async def select_callback(sel_interaction: discord.Interaction):
@@ -1234,7 +1240,7 @@ async def predict(ctx):
 
             # Enhanced finish button with confirmation
             finish_btn = discord.ui.Button(
-                label="🎯 Calculate Mission Success Probability",
+                label="Calculate Success Rate",
                 style=discord.ButtonStyle.success,
                 emoji="🚀"
             )
@@ -1419,9 +1425,9 @@ async def predict(ctx):
             self.owner = owner
 
         @discord.ui.button(
-            label="🚀 Begin Mission Simulation",
+            label="Begin Simulation",
             style=discord.ButtonStyle.primary,
-            emoji="🎯"
+            emoji="🚀"
         )
         async def start_simulation(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user.id != self.owner.id:
