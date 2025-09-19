@@ -1093,25 +1093,45 @@ async def starship(ctx):
 @bot.command(name="predict")
 async def predict(ctx):
     """
-    Simulate Starship ship-only launch success chance based on test outcomes.
-    Asks for the ship name first.
+    Starship ship-only launch simulation with Discord UI.
+    Collects ship name with a modal, then dropdowns for test outcomes,
+    and calculates predicted success chance.
     """
 
-    # 1️⃣ Ask for ship name first
-    ask_name = discord.Embed(
-        title="🚀 Starship Ship Simulation",
-        description="Please enter the **Ship Name** (e.g. `S38`) within 15s:",
-        color=discord.Color.dark_blue()
+    # 1️⃣ Ask for ship name using a Modal (popup)
+    class ShipNameModal(discord.ui.Modal, title="🚀 Enter Starship Ship Name"):
+        ship_name = discord.ui.TextInput(
+            label="Ship Name (e.g. S38)",
+            style=discord.TextStyle.short,
+            placeholder="S38",
+            required=True,
+            max_length=20
+        )
+
+        async def on_submit(self, interaction: discord.Interaction):
+            self.ship_name_value = str(self.ship_name)
+            await interaction.response.defer()
+
+    modal = ShipNameModal()
+    await ctx.send(
+        embed=discord.Embed(
+            title="🚀 Starship Ship Simulation",
+            description="A modal will pop up asking for the **Ship Name**. Fill it in.",
+            color=discord.Color.dark_blue()
+        )
     )
-    await ctx.send(embed=ask_name)
+    await ctx.interaction.response.send_modal(modal) if hasattr(ctx, "interaction") else await ctx.author.send_modal(modal)  # fallback for hybrid
 
-    def name_check(m):
-        return m.author == ctx.author and m.channel == ctx.channel
-
+    # Wait for modal submit
     try:
-        name_msg = await bot.wait_for("message", timeout=15.0, check=name_check)
-        ship_name = name_msg.content.strip()
-    except:
+        timeout = 60
+        done = await bot.wait_for(
+            "modal_submit",
+            timeout=timeout,
+            check=lambda i: i.user == ctx.author and isinstance(i.data, dict)
+        )
+        ship_name = modal.ship_name_value
+    except Exception:
         await ctx.send(embed=discord.Embed(
             title="⏳ Timeout",
             description="You didn’t provide a ship name in time. Cancelling simulation.",
@@ -1128,75 +1148,91 @@ async def predict(ctx):
         "Flight control surfaces test"
     ]
 
-    # Store answers as 'success', 'partial', 'failure'
+    # Store user answers
     user_answers = {}
 
-    # 3️⃣ Ask the test questions one by one
-    for test_name in tests:
-        embed = discord.Embed(
-            title=f"🚀 Testing {ship_name}",
-            description=(
-                f"**{test_name}**\n"
-                f"Reply with `success`, `partial`, or `failure` (15s timeout)."
-            ),
-            color=discord.Color.dark_blue()
-        )
-        await ctx.send(embed=embed)
+    # 3️⃣ Create the UI View for selecting test outcomes
+    class PredictView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=180)
 
-        def check(m):
-            return (
-                m.author == ctx.author
-                and m.channel == ctx.channel
-                and m.content.lower() in ["success", "partial", "failure"]
+            for test_name in tests:
+                select = discord.ui.Select(
+                    placeholder=f"{test_name} — select outcome",
+                    min_values=1,
+                    max_values=1,
+                    options=[
+                        discord.SelectOption(label="Success ✅", value=f"{test_name}|success"),
+                        discord.SelectOption(label="Partial ⚠️", value=f"{test_name}|partial"),
+                        discord.SelectOption(label="Failure ❌", value=f"{test_name}|failure"),
+                    ]
+                )
+                select.callback = self.make_callback(select, test_name)
+                self.add_item(select)
+
+            submit_button = discord.ui.Button(label="Submit All", style=discord.ButtonStyle.green)
+            submit_button.callback = self.submit
+            self.add_item(submit_button)
+
+        def make_callback(self, select, test_name):
+            async def callback(interaction: discord.Interaction):
+                value = select.values[0].split("|")[1]  # success/partial/failure
+                user_answers[test_name] = value
+                await interaction.response.defer()  # acknowledge silently
+            return callback
+
+        async def submit(self, interaction: discord.Interaction):
+            # Check if all answered
+            if len(user_answers) < len(tests):
+                await interaction.response.send_message(
+                    "⚠️ Please answer all tests before submitting.",
+                    ephemeral=True
+                )
+                return
+
+            # Compute the score
+            score = 0
+            for ans in user_answers.values():
+                if ans == "success":
+                    score += 3
+                elif ans == "partial":
+                    score += 1
+                # failure = 0
+
+            # Max = 15
+            chance = int((score / 15) * 100)
+            chance += random.randint(-5, 5)
+            chance = max(0, min(chance, 100))
+
+            result = discord.Embed(
+                title=f"🚀 Starship {ship_name} Ship-Only Launch Simulation",
+                description=(
+                    f"Based on your test results for **{ship_name}**:\n\n"
+                    f"🟩 **{list(user_answers.values()).count('success')} successes**\n"
+                    f"🟨 **{list(user_answers.values()).count('partial')} partials**\n"
+                    f"🟥 **{list(user_answers.values()).count('failure')} failures**\n\n"
+                    f"🔮 **Predicted Launch Success Chance: {chance}%**"
+                ),
+                color=discord.Color.green() if chance >= 50 else discord.Color.red()
             )
 
-        try:
-            msg = await bot.wait_for("message", timeout=15.0, check=check)
-            user_answers[test_name] = msg.content.lower()
-        except:
-            await ctx.send(embed=discord.Embed(
-                title="⏳ Timeout",
-                description=f"No answer for **{test_name}**, counting as failure.",
-                color=discord.Color.red()
-            ))
-            user_answers[test_name] = "failure"
+            await interaction.response.edit_message(embed=result, view=None)
 
-    # 4️⃣ Compute chance of success based on answers
-    score = 0
-    for ans in user_answers.values():
-        if ans == "success":
-            score += 3
-        elif ans == "partial":
-            score += 1
-        # failure = 0
+            try:
+                add_score(ctx.author.id, 1)
+            except Exception as e:
+                print("add_score error:", e)
 
-    # Max possible = 5 tests × 3 points = 15
-    chance = int((score / 15) * 100)
+    view = PredictView()
 
-    # Add random ±5% variability to simulate unknown factors
-    chance += random.randint(-5, 5)
-    chance = max(0, min(chance, 100))
-
-    # 5️⃣ Create result embed
-    result = discord.Embed(
-        title=f"🚀 Starship {ship_name} Ship-Only Launch Simulation",
-        description=(
-            f"Based on your test results for **{ship_name}**:\n\n"
-            f"🟩 **{list(user_answers.values()).count('success')} successes**\n"
-            f"🟨 **{list(user_answers.values()).count('partial')} partials**\n"
-            f"🟥 **{list(user_answers.values()).count('failure')} failures**\n\n"
-            f"🔮 **Predicted Launch Success Chance: {chance}%**"
+    await ctx.send(
+        embed=discord.Embed(
+            title=f"🚀 Testing Starship {ship_name}",
+            description="Use the dropdowns below to select **Success**, **Partial**, or **Failure** for each test, then click **Submit All**.",
+            color=discord.Color.dark_teal()
         ),
-        color=discord.Color.green() if chance >= 50 else discord.Color.red()
+        view=view
     )
-
-    await ctx.send(embed=result)
-
-    # ✅ Award +1 point for participating (if you have add_score)
-    try:
-        add_score(ctx.author.id, 1)
-    except Exception as e:
-        print("add_score error:", e)
 
 
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
