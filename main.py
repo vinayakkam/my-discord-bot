@@ -1312,6 +1312,7 @@ async def predict(ctx):
         color=discord.Color.dark_blue()
     )
     await ctx.send(embed=embed, view=PredictStartView(ctx.author))
+user_answers = {}
 
 
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
