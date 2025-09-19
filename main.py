@@ -810,10 +810,75 @@ UNSCRAMBLE_WORDS = {
     ]
 }
 
+class UnscrambleModal(discord.ui.Modal):
+    def __init__(self, ctx, word, points):
+        super().__init__(title="Unscramble the Word")
+        self.ctx = ctx
+        self.word = word
+        self.points = points
+
+        self.answer_input = discord.ui.TextInput(
+            label="Your answer",
+            placeholder="Type the unscrambled word here",
+            required=True,
+            max_length=50
+        )
+        self.add_item(self.answer_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # check author only
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This is not your game.", ephemeral=True)
+            return
+
+        guess = self.answer_input.value.strip().lower()
+        if guess == self.word.lower():
+            add_score(self.ctx.author.id, self.points)
+            total = scores.get(str(self.ctx.author.id), 0)
+            embed = discord.Embed(
+                title="✅ Correct!",
+                description=f"You unscrambled it! +{self.points} point(s)\nTotal points: **{total}**",
+                color=discord.Color.green()
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ Wrong",
+                description=f"The correct word was **{self.word}**.",
+                color=discord.Color.red()
+            )
+        await interaction.response.edit_message(embed=embed, view=None)
+
+class UnscrambleView(discord.ui.View):
+    def __init__(self, ctx, word, points, timeout=60):
+        super().__init__(timeout=timeout)
+        self.ctx = ctx
+        self.word = word
+        self.points = points
+
+    @discord.ui.button(label="Unscramble", style=discord.ButtonStyle.primary)
+    async def unscramble_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This is not your game.", ephemeral=True)
+            return
+        modal = UnscrambleModal(self.ctx, self.word, self.points)
+        await interaction.response.send_modal(modal)
+
+    async def on_timeout(self):
+        # Send timeout embed
+        try:
+            timeout_embed = discord.Embed(
+                title="⏳ Timeout",
+                description="You took too long to answer.",
+                color=discord.Color.red()
+            )
+            await self.message.edit(embed=timeout_embed, view=None)
+        except:
+            pass
+
 @bot.command(name="unscramble")
 async def unscramble(ctx, difficulty: str = None):
     """
-    Unscramble game with difficulty.
+    Unscramble game with UI
     Usage: !unscramble easy / medium / hard
     """
     difficulty = (difficulty or "easy").lower()
@@ -823,44 +888,15 @@ async def unscramble(ctx, difficulty: str = None):
 
     word = random.choice(UNSCRAMBLE_WORDS[difficulty])
     scrambled = ''.join(random.sample(word, len(word)))
-
-    # Point system by difficulty
     points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
 
     embed = discord.Embed(
         title="🔤 Word Unscramble",
-        description=f"**[{difficulty.upper()} — {points} point(s)]**\n\nUnscramble this word: **{scrambled}** (60s timeout)",
+        description=f"**[{difficulty.upper()} — {points} point(s)]**\n\nUnscramble this word: **{scrambled}**",
         color=discord.Color.purple()
     )
-    await ctx.send(embed=embed)
-
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel
-
-    try:
-        msg = await bot.wait_for("message", timeout=60.0, check=check)
-        if msg.content.lower() == word.lower():
-            add_score(ctx.author.id, points)
-            total = scores.get(str(ctx.author.id), 0)
-            result_embed = discord.Embed(
-                title="✅ Correct!",
-                description=f"You unscrambled it! +{points} point(s)\nTotal points: **{total}**",
-                color=discord.Color.green()
-            )
-        else:
-            result_embed = discord.Embed(
-                title="❌ Wrong",
-                description=f"The word was **{word}**.",
-                color=discord.Color.red()
-            )
-        await ctx.send(embed=result_embed)
-    except:
-        timeout_embed = discord.Embed(
-            title="⏳ Timeout",
-            description="You took too long to answer.",
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=timeout_embed)
+    view = UnscrambleView(ctx, word, points)
+    view.message = await ctx.send(embed=embed, view=view)
 
 @bot.command(name="starship")
 async def starship(ctx):
