@@ -1149,7 +1149,7 @@ async def predict(ctx):
         async def on_submit(self, interaction: discord.Interaction):
             if interaction.user.id != self.owner.id:
                 await interaction.response.send_message(
-                    "❌ This simulation session belongs to someone else.",
+                    "This simulation session belongs to someone else.",
                     ephemeral=True
                 )
                 return
@@ -1432,56 +1432,59 @@ async def predict(ctx):
         async def start_simulation(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user.id != self.owner.id:
                 await interaction.response.send_message(
-                    "❌ This simulation was started by someone else. Use `/predict` to start your own!",
+                    "This simulation was started by someone else. Use the command to start your own!",
                     ephemeral=True
                 )
                 return
 
-            modal = ShipNameModal(owner=self.owner)
-            await interaction.response.send_modal(modal)
+            try:
+                modal = ShipNameModal(owner=self.owner)
+                await interaction.response.send_modal(modal)
+            except Exception as e:
+                await interaction.response.send_message(
+                    f"Error opening modal: {str(e)}",
+                    ephemeral=True
+                )
 
         @discord.ui.button(
-            label="ℹ️ About",
+            label="About",
             style=discord.ButtonStyle.secondary,
-            emoji="📖"
+            emoji="ℹ️"
         )
         async def show_info(self, interaction: discord.Interaction, button: discord.ui.Button):
             info_embed = discord.Embed(
-                title="🚀 Starship Mission Simulator",
+                title="Starship Mission Simulator",
                 description=(
                     "This simulation evaluates Starship mission readiness based on "
                     "critical pre-flight test results.\n\n"
                     "**How it works:**\n"
                     "1. Enter your ship designation and mission type\n"
                     "2. Complete all 5 critical test evaluations\n"
-                    "3. Receive AI-calculated success probability\n"
+                    "3. Receive calculated success probability\n"
                     "4. Get mission recommendations\n\n"
                     "**Test Categories:**\n"
-                    "🛡️ Thermal Protection • ⛽ Propulsion • 🚀 Maneuvering\n"
-                    "🔥 Engine Performance • ✈️ Flight Control"
+                    "Heat Shield, Propulsion, Maneuvering, Engine, Flight Control"
                 ),
                 color=discord.Color.blurple()
             )
-            info_embed.set_footer(text="Simulation accuracy not guaranteed • For entertainment purposes")
+            info_embed.set_footer(text="For entertainment purposes")
             await interaction.response.send_message(embed=info_embed, ephemeral=True)
 
     # Send initial command response
     start_embed = discord.Embed(
-        title="🚀 SpaceX Starship Mission Simulator",
+        title="SpaceX Starship Mission Simulator",
         description=(
             f"**Mission Commander:** {ctx.author.display_name}\n\n"
-            f"Ready to simulate a Starship mission? This advanced simulator will:\n\n"
-            f"🧪 **Evaluate** 5 critical pre-flight tests\n"
-            f"🤖 **Calculate** AI-powered success probability\n"
-            f"📊 **Provide** detailed mission analysis\n"
-            f"🏆 **Award** participation points\n\n"
-            f"Click **Begin Mission Simulation** to start!"
+            f"Ready to simulate a Starship mission? This simulator will:\n\n"
+            f"• Evaluate 5 critical pre-flight tests\n"
+            f"• Calculate success probability\n"
+            f"• Provide detailed mission analysis\n"
+            f"• Award participation points\n\n"
+            f"Click **Begin Simulation** to start!"
         ),
         color=discord.Color.dark_blue()
     )
 
-    start_embed.set_thumbnail(
-        url="https://cdn.discordapp.com/emojis/🚀.png")  # You can replace with actual Starship image URL
     start_embed.set_footer(text="SpaceX Mission Control • Boca Chica, Texas")
 
     await ctx.send(embed=start_embed, view=StartView(owner=ctx.author))
