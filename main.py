@@ -1400,7 +1400,7 @@ async def predict(ctx):
 
             mission_type = "Orbital Test Flight"
             test_embed, test_view = create_test_interface(self.ship_name, mission_type, self.owner)
-            await interaction.response.edit_message(embed=test_embed, view=test_view)
+            await interaction.response.send_message(embed=test_embed, view=test_view, ephemeral=True)
 
         @discord.ui.button(
             label="Starlink Deploy",
@@ -1417,7 +1417,7 @@ async def predict(ctx):
 
             mission_type = "Starlink Deployment"
             test_embed, test_view = create_test_interface(self.ship_name, mission_type, self.owner)
-            await interaction.response.edit_message(embed=test_embed, view=test_view)
+            await interaction.response.send_message(embed=test_embed, view=test_view, ephemeral=True)
 
         @discord.ui.button(
             label="Crew Mission",
@@ -1434,7 +1434,7 @@ async def predict(ctx):
 
             mission_type = "Crewed Mission"
             test_embed, test_view = create_test_interface(self.ship_name, mission_type, self.owner)
-            await interaction.response.edit_message(embed=test_embed, view=test_view)
+            await interaction.response.send_message(embed=test_embed, view=test_view, ephemeral=True)
 
         @discord.ui.button(
             label="Mars Mission",
