@@ -681,66 +681,92 @@ async def trivia(ctx):
 # -----------------------------------
 # 7️⃣ Math Quiz
 # -----------------------------------
-@bot.command(name="mathquiz")
-async def mathquiz(ctx):
-    """Ask a random math question — handles negatives and harder problems."""
-    # Random numbers: allow negative numbers sometimes
-    a = random.randint(-20, 20)
-    b = random.randint(-20, 20)
+class MathQuizModal(discord.ui.Modal, title="🧮 Math Quiz Answer"):
+    def __init__(self, ctx, answer):
+        super().__init__()
+        self.ctx = ctx
+        self.answer = answer
 
-    # Make sure we don’t divide by zero
-    op = random.choice(["+", "-", "*", "//"])
-    if op == "//":
-        while b == 0:  # re-pick if zero
-            b = random.randint(-20, 20)
+        self.answer_input = discord.ui.TextInput(
+            label="Your Answer:",
+            style=discord.TextStyle.short,
+            placeholder="Enter your answer here",
+            required=True
+        )
+        self.add_item(self.answer_input)
 
-    question = f"{a} {op} {b}"
-    answer = eval(question)
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validate answer input
+        try:
+            user_answer = int(self.answer_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Please enter a valid integer!", ephemeral=True
+            )
+            return
 
-    # Pretty operator name for embed
-    op_name = {"//": "÷ (integer division)", "+": "+", "-": "-", "*": "×"}[op]
-
-    embed = discord.Embed(
-        title="🧮 Math Quiz",
-        description=f"Solve: **{a} {op_name} {b}** (60s timeout)",
-        color=discord.Color.gold()
-    )
-    await ctx.send(embed=embed)
-
-    def check(m):
-        # Accept negative numbers with a leading '-' sign
-        content = m.content.strip()
-        if content.startswith("-"):
-            return content[1:].isdigit() and m.author == ctx.author and m.channel == ctx.channel
-        return content.isdigit() and m.author == ctx.author and m.channel == ctx.channel
-
-    try:
-        msg = await bot.wait_for("message", timeout=60.0, check=check)
-        if int(msg.content) == answer:
-            # Add point to your existing scoreboard system
-            add_score(ctx.author.id, 1)
-            total_points = scores.get(str(ctx.author.id), 0)
-
-            result_embed = discord.Embed(
+        if user_answer == self.answer:
+            add_score(interaction.user.id, 1)
+            total_points = scores.get(str(interaction.user.id), 0)
+            embed = discord.Embed(
                 title="✅ Correct!",
                 description=f"You solved it! (+1 point)\nTotal points: **{total_points}**",
                 color=discord.Color.green()
             )
         else:
-            result_embed = discord.Embed(
+            embed = discord.Embed(
                 title="❌ Wrong",
-                description=f"The correct answer was **{answer}**.",
+                description=f"The correct answer was **{self.answer}**.",
                 color=discord.Color.red()
             )
-        await ctx.send(embed=result_embed)
 
-    except:
-        timeout_embed = discord.Embed(
-            title="⏳ Timeout",
-            description="You took too long to answer.",
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=timeout_embed)
+        await interaction.response.edit_message(embed=embed, view=None)
+
+
+class MathQuizView(discord.ui.View):
+    def __init__(self, ctx, answer):
+        super().__init__(timeout=60)
+        self.ctx = ctx
+        self.answer = answer
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message(
+                "⚠️ This quiz isn’t for you.", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Answer Question", style=discord.ButtonStyle.primary, emoji="✏️")
+    async def answer_question(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = MathQuizModal(self.ctx, self.answer)
+        await interaction.response.send_modal(modal)
+
+
+@bot.command(name="mathquiz")
+async def mathquiz(ctx):
+    """Ask a random math question with UI and modal input"""
+    a = random.randint(-20, 20)
+    b = random.randint(-20, 20)
+
+    op = random.choice(["+", "-", "*", "//"])
+    if op == "//":
+        while b == 0:
+            b = random.randint(-20, 20)
+
+    question = f"{a} {op} {b}"
+    answer = eval(question)
+
+    op_name = {"//": "÷ (integer division)", "+": "+", "-": "-", "*": "×"}[op]
+
+    embed = discord.Embed(
+        title="🧮 Math Quiz",
+        description=f"Solve: **{a} {op_name} {b}**\nClick below to answer!",
+        color=discord.Color.gold()
+    )
+
+    view = MathQuizView(ctx, answer)
+    await ctx.send(embed=embed, view=view)
 
 # -----------------------------------
 # 8️⃣ Word Unscramble
