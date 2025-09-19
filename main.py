@@ -229,26 +229,62 @@ async def rps(ctx):
 # -----------------------------------
 # 2️⃣ Coin Flip
 # -----------------------------------
-@bot.command(name="coinflip")
-async def coinflip(ctx, guess: str = None):
-    """Flip a coin. Usage: !coinflip heads/tails"""
-    result = random.choice(["heads", "tails"])
+class CoinFlipView(discord.ui.View):
+    def __init__(self, ctx, timeout=30):
+        super().__init__(timeout=timeout)
+        self.ctx = ctx
+        self.user = ctx.author
 
-    if guess and guess.lower() in ["heads", "tails"]:
-        if guess.lower() == result:
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Ensure only the user who started the game can press the button."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message(
+                "⚠️ This coin flip session isn’t yours.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def flip_coin(self, interaction, guess):
+        result = random.choice(["heads", "tails"])
+        if guess == result:
             desc = f"It’s **{result.capitalize()}**! You guessed right 🎉 (+1 point)"
-            add_score(ctx.author.id, 1)
+            add_score(interaction.user.id, 1)
+            color = discord.Color.green()
         else:
             desc = f"It’s **{result.capitalize()}**! You guessed wrong 😢"
-    else:
-        desc = f"It’s **{result.capitalize()}**!"
+            color = discord.Color.red()
 
+        embed = discord.Embed(
+            title="🪙 Coin Flip",
+            description=desc,
+            color=color
+        )
+
+        # Disable all buttons after click
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="🪙 Heads", style=discord.ButtonStyle.primary)
+    async def heads(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.flip_coin(interaction, "heads")
+
+    @discord.ui.button(label="🪙 Tails", style=discord.ButtonStyle.secondary)
+    async def tails(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.flip_coin(interaction, "tails")
+
+
+@bot.command(name="coinflip")
+async def coinflip(ctx):
+    """Interactive Coin Flip with UI buttons."""
     embed = discord.Embed(
         title="🪙 Coin Flip",
-        description=desc,
+        description=f"{ctx.author.mention}, choose **Heads** or **Tails** below!",
         color=discord.Color.gold()
     )
-    await ctx.send(embed=embed)
+    view = CoinFlipView(ctx)
+    await ctx.send(embed=embed, view=view)
 
 # -----------------------------------
 # 3️⃣ Dice Roll
