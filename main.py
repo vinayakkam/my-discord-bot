@@ -396,76 +396,81 @@ async def guess(ctx):
 # -----------------------------------
 # 5️⃣ Scoreboard Commands
 # -----------------------------------
-@bot.command(name="score")
-async def score(ctx, member: discord.Member = None):
-    """Check your or another member's score."""
-    member = member or ctx.author
-    score_value = scores.get(member.id, 0)
-    embed = discord.Embed(
-        title="🏆 Score",
-        description=f"**{member.display_name}** has **{score_value}** points.",
-        color=discord.Color.orange()
-    )
-    await ctx.send(embed=embed)
-
-LEADER_ROLE_ID = 1415720279631593573  # 🔹 paste your role ID here
-
 @bot.command(name="leaderboard")
 async def leaderboard(ctx):
-    """Show the leaderboard and auto-assign Leader role."""
-    if not scores:  # scores should be your loaded dict
-        await ctx.send("⚠️ No scores available yet.")
+    """
+    Show the leaderboard for this server and auto-assign Leader role.
+    - Displays server name in header
+    - Shows player avatars
+    - Assigns Leader role to the top scorer in this server
+    """
+
+    # Filter only scores of members in the current server
+    guild = ctx.guild
+    guild_member_ids = [member.id for member in guild.members]
+    guild_scores = {uid: pts for uid, pts in scores.items() if int(uid) in guild_member_ids}
+
+    if not guild_scores:
+        await ctx.send("⚠️ No scores available for this server yet.")
         return
 
     # Sort scores (highest first)
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    sorted_scores = sorted(guild_scores.items(), key=lambda x: x[1], reverse=True)
     top_10 = sorted_scores[:10]
 
-    # 🟩 Build leaderboard text
+    # Beautify leaderboard text
     leaderboard_text = ""
     for i, (user_id, score) in enumerate(top_10, start=1):
-        member = ctx.guild.get_member(int(user_id))
-        name = member.display_name if member else f"User {user_id}"
-        leaderboard_text += f"**{i}.** {name} — {score} points\n"
+        member = guild.get_member(int(user_id))
+        if member:  # Only display if still in server
+            avatar_url = member.display_avatar.url
+            leaderboard_text += f"**{i}.** [{member.display_name}]({avatar_url}) — **{score}** points\n"
 
-    # 🟩 Send embed
     embed = discord.Embed(
-        title="🏆 Leaderboard",
+        title=f"🏆 Leaderboard — {guild.name}",
         description=leaderboard_text,
         color=discord.Color.gold()
     )
+
+    # Thumbnail as server icon
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
     await ctx.send(embed=embed)
 
-    # 🟩 Now handle Leader role assignment automatically
+    # 🟩 Handle Leader role assignment automatically in this server
     try:
-        # Get top user ID
+        # Get the top user ID
         top_user_id = int(sorted_scores[0][0])
-        top_member = ctx.guild.get_member(top_user_id)
+        top_member = guild.get_member(top_user_id)
 
-        # Get the role
-        role = ctx.guild.get_role(LEADER_ROLE_ID)
+        # Get the Leader role
+        role = guild.get_role(LEADER_ROLE_ID)
         if role is None:
-            await ctx.send(f"⚠️ Role with ID `{LEADER_ROLE_ID}` not found. Please check the ID.")
+            await ctx.send(f"⚠️ Role with ID `{1415720279631593573}` not found in this server. Please create it or update the ID.")
             return
 
         # Remove role from everyone else
-        for member in ctx.guild.members:
+        for member in guild.members:
             if role in member.roles and member.id != top_user_id:
                 try:
                     await member.remove_roles(role)
                 except discord.Forbidden:
-                    await ctx.send("⚠️ I lack permission to remove roles.")
+                    await ctx.send("⚠️ I lack permission to remove roles from some members.")
                     return
 
         # Add role to the top player if not already
         if top_member and role not in top_member.roles:
             try:
                 await top_member.add_roles(role)
-                await ctx.send(f"🏅 {top_member.mention} is now the **Leaderboard Leader**!")
+                await ctx.send(f"🏅 {top_member.mention} is now the **Leaderboard Leader** for **{guild.name}**!")
             except discord.Forbidden:
                 await ctx.send("⚠️ I lack permission to add roles.")
     except Exception as e:
         await ctx.send(f"⚠️ Error assigning Leader role: `{e}`")
+
+
+        
 
 # 60 Space Trivia Questions (20 each difficulty)
 TRIVIA_QUESTIONS = {
