@@ -1091,361 +1091,408 @@ async def starship(ctx):
     )
 
 
-@bot.command(name="predict")
-async def predict(ctx):
-    """
-    Simplified Starship mission simulation - straight to testing interface
-    """
+TESTS = [
+    {"name": "Heat Shield Integrity", "desc": "Thermal protection system", "emoji": "🛡️"},
+    {"name": "Propellant Systems", "desc": "Fuel pressure & flow validation", "emoji": "⛽"},
+    {"name": "RCS Thrusters", "desc": "Reaction control functionality", "emoji": "🚀"},
+    {"name": "Engine Performance", "desc": "Vacuum engine static fire", "emoji": "🔥"},
+    {"name": "Flight Controls", "desc": "Aerodynamic surface systems", "emoji": "✈️"}
+]
 
-    tests = [
-        "Heat shield tile test",
-        "Propellant tank pressure test",
-        "RCS thruster test",
-        "Vacuum engine static fire",
-        "Flight control surfaces test"
-    ]
 
-    test_descriptions = {
-        "Heat shield tile test": "Tests thermal protection system integrity",
-        "Propellant tank pressure test": "Validates fuel system pressure handling",
-        "RCS thruster test": "Checks reaction control system functionality",
-        "Vacuum engine static fire": "Tests main engine performance in vacuum",
-        "Flight control surfaces test": "Validates aerodynamic control systems"
-    }
+class ShipNameModal(discord.ui.Modal, title="Mission Setup"):
+    def __init__(self, parent_view):
+        super().__init__()
+        self.parent_view = parent_view
 
-    # Function to create the main testing interface
-    def create_test_interface(ship_name: str, owner: discord.User):
-        user_answers = {}
-        completed_tests = set()
+    ship_name = discord.ui.TextInput(
+        label="Ship Designation",
+        placeholder="Enter ship name (e.g., S38, IFT-6, Starship)",
+        default="Starship",
+        max_length=20
+    )
 
-        view = discord.ui.View(timeout=300)
+    async def on_submit(self, interaction: discord.Interaction):
+        self.parent_view.ship_name = self.ship_name.value.strip() or "Starship"
+        self.parent_view.setup_complete = True
 
-        def get_progress_bar(completed: int, total: int) -> str:
-            progress = completed / total
-            filled = int(progress * 10)
-            bar = "█" * filled + "░" * (10 - filled)
-            return f"[{bar}] {completed}/{total} ({int(progress * 100)}%)"
+        # Switch to test interface
+        embed = self.parent_view.create_test_embed()
+        self.parent_view.clear_items()
+        self.parent_view.add_test_components()
 
-        # Create test selects
-        def make_test_select(test_name: str, index: int):
-            test_emojis = ["🛡️", "⛽", "🚀", "🔥", "✈️"]
-            emoji = test_emojis[index % len(test_emojis)]
+        await interaction.response.edit_message(embed=embed, view=self.parent_view)
 
-            select = discord.ui.Select(
-                placeholder=f"{emoji} {test_name}"[:100],
-                min_values=1,
-                max_values=1,
-                options=[
-                    discord.SelectOption(
-                        label="Complete Success",
-                        value="success",
-                        description="All parameters nominal",
-                        emoji="✅"
-                    ),
-                    discord.SelectOption(
-                        label="Partial Success",
-                        value="partial",
-                        description="Minor issues detected",
-                        emoji="⚠️"
-                    ),
-                    discord.SelectOption(
-                        label="Test Failure",
-                        value="failure",
-                        description="Critical issues found",
-                        emoji="❌"
-                    ),
-                ]
-            )
 
-            async def select_callback(sel_interaction):
-                if sel_interaction.user.id != owner.id:
-                    await sel_interaction.response.send_message(
-                        "❌ Only the mission commander can input test results.",
-                        ephemeral=True
-                    )
-                    return
+class TestSelectDropdown(discord.ui.Select):
+    def __init__(self, test_index: int, parent_view):
+        self.test_index = test_index
+        self.test_info = TESTS[test_index]
+        self.parent_view = parent_view
 
-                result = sel_interaction.data["values"][0]
-                user_answers[test_name] = result
-                completed_tests.add(test_name)
+        options = [
+            discord.SelectOption(label="Complete Success", value="success", emoji="✅",
+                                 description="All parameters nominal"),
+            discord.SelectOption(label="Partial Success", value="partial", emoji="⚠️",
+                                 description="Minor issues detected"),
+            discord.SelectOption(label="Test Failure", value="failure", emoji="❌",
+                                 description="Critical problems found")
+        ]
 
-                status_messages = {
-                    "success": f"✅ **{test_name}** completed successfully!",
-                    "partial": f"⚠️ **{test_name}** completed with minor issues.",
-                    "failure": f"❌ **{test_name}** failed - critical issues detected."
-                }
-
-                progress = get_progress_bar(len(completed_tests), len(tests))
-
-                await sel_interaction.response.send_message(
-                    f"{status_messages[result]}\n\n"
-                    f"**Progress:** {progress}\n"
-                    f"*{test_descriptions.get(test_name, 'Test completed')}*",
-                    ephemeral=True
-                )
-
-            select.callback = select_callback
-            return select
-
-        # Add all test selects
-        for i, test in enumerate(tests):
-            view.add_item(make_test_select(test, i))
-
-        # Calculate results button
-        finish_btn = discord.ui.Button(
-            label="Calculate Success Rate",
-            style=discord.ButtonStyle.success,
-            emoji="🚀"
+        super().__init__(
+            placeholder=f"{self.test_info['emoji']} {self.test_info['name']}",
+            min_values=1, max_values=1, options=options, row=test_index % 4
         )
 
-        async def finish_callback(btn_inter):
-            if btn_inter.user.id != owner.id:
-                await btn_inter.response.send_message(
-                    "❌ Only the mission commander can finalize results.",
-                    ephemeral=True
-                )
-                return
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.parent_view.owner_id:
+            await interaction.response.send_message("❌ Only the mission commander can select test results.",
+                                                    ephemeral=True)
+            return
 
-            # Check if all tests completed
-            missing_tests = set(tests) - completed_tests
-            if missing_tests:
-                missing_list = "\n".join(f"• {test}" for test in missing_tests)
-                await btn_inter.response.send_message(
-                    f"⚠️ **Incomplete Test Suite**\n\n"
-                    f"Please complete the following tests:\n{missing_list}\n\n"
-                    f"**Progress:** {get_progress_bar(len(completed_tests), len(tests))}",
-                    ephemeral=True
-                )
-                return
+        result = self.values[0]
+        test_name = self.test_info['name']
 
-            # Calculate scoring
-            base_scores = {"success": 3, "partial": 1, "failure": 0}
-            score = sum(base_scores[result] for result in user_answers.values())
-            max_score = len(tests) * 3
-            base_chance = int((score / max_score) * 100)
+        self.parent_view.test_results[test_name] = result
+        self.parent_view.completed_tests.add(test_name)
 
-            # Add randomization
-            complexity_modifier = random.randint(-8, 12)
-            final_chance = max(5, min(95, base_chance + complexity_modifier))
+        # Update placeholder to show selection
+        result_emoji = {"success": "✅", "partial": "⚠️", "failure": "❌"}[result]
+        self.placeholder = f"{result_emoji} {self.test_info['name']} - {result.title()}"
 
-            # Determine outcome
-            if final_chance >= 80:
-                outcome = "🟢 HIGH CONFIDENCE"
-                color = discord.Color.green()
-                outcome_msg = "Excellent test results indicate high mission success probability!"
-            elif final_chance >= 60:
-                outcome = "🟡 MODERATE CONFIDENCE"
-                color = discord.Color.gold()
-                outcome_msg = "Good test results with some areas for improvement."
-            elif final_chance >= 40:
-                outcome = "🟠 LOW CONFIDENCE"
-                color = discord.Color.orange()
-                outcome_msg = "Mixed results suggest elevated mission risk."
+        # Update embed and view
+        embed = self.parent_view.create_test_embed()
+        self.parent_view.update_buttons()
+
+        status_msg = {
+            "success": f"✅ **{test_name}** completed successfully!",
+            "partial": f"⚠️ **{test_name}** completed with minor issues.",
+            "failure": f"❌ **{test_name}** failed critical parameters."
+        }[result]
+
+        await interaction.response.edit_message(embed=embed, view=self.parent_view)
+        await interaction.followup.send(f"{status_msg}\n*{self.test_info['desc']}*", ephemeral=True)
+
+
+class StarshipSimulator(discord.ui.View):
+    def __init__(self, owner: discord.User):
+        super().__init__(timeout=300)
+        self.owner_id = owner.id
+        self.owner = owner
+        self.ship_name: Optional[str] = None
+        self.setup_complete = False
+        self.test_results: Dict[str, str] = {}
+        self.completed_tests: Set[str] = set()
+        self.results_shown = False
+
+        # Start with setup button
+        self.add_setup_components()
+
+    def add_setup_components(self):
+        """Add initial setup components"""
+        start_btn = discord.ui.Button(label="🚀 Begin Mission Setup", style=discord.ButtonStyle.primary, row=0)
+        start_btn.callback = self.start_setup
+        self.add_item(start_btn)
+
+        info_btn = discord.ui.Button(label="ℹ️ About Simulator", style=discord.ButtonStyle.secondary, row=0)
+        info_btn.callback = self.show_info
+        self.add_item(info_btn)
+
+    def add_test_components(self):
+        """Add test interface components"""
+        # Add test dropdowns
+        for i in range(len(TESTS)):
+            self.add_item(TestSelectDropdown(i, self))
+
+        # Add control buttons
+        self.calculate_btn = discord.ui.Button(label="🚀 Calculate Mission Success", style=discord.ButtonStyle.success,
+                                               row=4, disabled=True)
+        self.calculate_btn.callback = self.calculate_results
+        self.add_item(self.calculate_btn)
+
+        reset_btn = discord.ui.Button(label="🔄 Reset Tests", style=discord.ButtonStyle.secondary, row=4)
+        reset_btn.callback = self.reset_tests
+        self.add_item(reset_btn)
+
+    def add_results_components(self):
+        """Add results interface components"""
+        new_test_btn = discord.ui.Button(label="🔄 New Test Campaign", style=discord.ButtonStyle.primary, row=0)
+        new_test_btn.callback = self.new_test_campaign
+        self.add_item(new_test_btn)
+
+        new_mission_btn = discord.ui.Button(label="🚀 New Mission", style=discord.ButtonStyle.secondary, row=0)
+        new_mission_btn.callback = self.new_mission
+        self.add_item(new_mission_btn)
+
+    def update_buttons(self):
+        """Update button states based on test completion"""
+        if hasattr(self, 'calculate_btn'):
+            completed = len(self.completed_tests)
+            total = len(TESTS)
+
+            if completed == total:
+                self.calculate_btn.disabled = False
+                self.calculate_btn.label = "🚀 Calculate Mission Success"
+                self.calculate_btn.style = discord.ButtonStyle.success
             else:
-                outcome = "🔴 CRITICAL CONCERNS"
-                color = discord.Color.red()
-                outcome_msg = "Poor test results indicate significant mission risk."
+                self.calculate_btn.disabled = True
+                self.calculate_btn.label = f"🚀 Complete {total - completed} more tests"
+                self.calculate_btn.style = discord.ButtonStyle.secondary
 
-            # Count results
-            success_count = list(user_answers.values()).count('success')
-            partial_count = list(user_answers.values()).count('partial')
-            failure_count = list(user_answers.values()).count('failure')
+    def get_progress_bar(self) -> str:
+        """Generate progress bar string"""
+        completed = len(self.completed_tests)
+        total = len(TESTS)
+        progress = completed / total if total > 0 else 0
+        filled = int(progress * 10)
+        bar = "█" * filled + "░" * (10 - filled)
+        return f"[{bar}] {completed}/{total} ({int(progress * 100)}%)"
 
-            # Create results embed
-            result_embed = discord.Embed(
-                title=f"🚀 Mission Analysis: {ship_name}",
-                description=(
-                    f"**Test Campaign Status:** Complete ✅\n\n"
-                    f"**Test Results Summary:**\n"
-                    f"🟢 Complete Success: **{success_count}** tests\n"
-                    f"🟡 Partial Success: **{partial_count}** tests\n"
-                    f"🔴 Failed Tests: **{failure_count}** tests\n\n"
-                    f"**Mission Confidence Level:** {outcome}\n"
-                    f"**Predicted Success Probability:** `{final_chance}%`\n\n"
-                    f"*{outcome_msg}*"
-                ),
-                color=color
-            )
-
-            # Add test breakdown
-            test_details = ""
-            result_emojis = {"success": "✅", "partial": "⚠️", "failure": "❌"}
-            for test, result in user_answers.items():
-                test_details += f"{result_emojis[result]} {test}\n"
-
-            result_embed.add_field(
-                name="📋 Detailed Test Results",
-                value=test_details,
-                inline=False
-            )
-
-            # Add recommendations
-            if final_chance >= 70:
-                recommendations = "✅ Mission is GO for launch\n✅ All systems nominal\n✅ Proceed with confidence"
-            elif final_chance >= 50:
-                recommendations = "⚠️ Consider additional testing\n⚠️ Review failed systems\n⚠️ Proceed with caution"
-            else:
-                recommendations = "🛑 Recommend mission delay\n🛑 Address critical failures\n🛑 Conduct additional testing"
-
-            result_embed.add_field(
-                name="📊 Mission Recommendations",
-                value=recommendations,
-                inline=False
-            )
-
-            result_embed.set_footer(
-                text=f"Simulation completed by {owner.display_name} • SpaceX Mission Control",
-                icon_url=owner.display_avatar.url if owner.display_avatar else None
-            )
-
-            # Award points
-            try:
-                if 'add_score' in globals():
-                    points_awarded = 2 if final_chance >= 50 else 1
-                    add_score(owner.id, points_awarded)
-                    result_embed.add_field(
-                        name="🏆 Points Awarded",
-                        value=f"+{points_awarded} mission points",
-                        inline=True
-                    )
-            except Exception:
-                pass
-
-            await btn_inter.response.send_message(embed=result_embed, ephemeral=True)
-
-        finish_btn.callback = finish_callback
-        view.add_item(finish_btn)
-
-        # Reset button
-        reset_btn = discord.ui.Button(
-            label="🔄 Reset Tests",
-            style=discord.ButtonStyle.secondary
-        )
-
-        async def reset_callback(reset_inter):
-            if reset_inter.user.id != owner.id:
-                await reset_inter.response.send_message(
-                    "❌ Only the mission commander can reset tests.",
-                    ephemeral=True
-                )
-                return
-
-            user_answers.clear()
-            completed_tests.clear()
-            await reset_inter.response.send_message(
-                "🔄 **Test results cleared**\nYou can now re-run all tests with fresh parameters.",
-                ephemeral=True
-            )
-
-        reset_btn.callback = reset_callback
-        view.add_item(reset_btn)
-
-        # Create test interface embed
-        test_embed = discord.Embed(
-            title=f"🧪 Pre-Flight Testing: {ship_name}",
+    def create_start_embed(self) -> discord.Embed:
+        """Create initial start embed"""
+        embed = discord.Embed(
+            title="🚀 SpaceX Starship Mission Simulator",
             description=(
-                f"**Commander:** {owner.display_name}\n\n"
-                f"Complete all **{len(tests)} critical tests** below, then calculate mission success probability.\n\n"
-                f"**Progress:** {get_progress_bar(0, len(tests))}"
+                f"**Mission Commander:** {self.owner.display_name}\n\n"
+                "Ready to evaluate Starship mission readiness?\n\n"
+                "**This simulator will:**\n"
+                "• Guide you through 5 critical pre-flight tests\n"
+                "• Calculate realistic success probability\n"
+                "• Provide detailed mission analysis\n"
+                "• Generate professional recommendations\n\n"
+                "Click **Begin Mission Setup** to start!"
+            ),
+            color=discord.Color.dark_blue()
+        )
+        embed.set_footer(text="SpaceX Mission Control • Boca Chica, Texas")
+        return embed
+
+    def create_test_embed(self) -> discord.Embed:
+        """Create test interface embed"""
+        embed = discord.Embed(
+            title=f"🧪 Pre-Flight Testing: {self.ship_name}",
+            description=(
+                f"**Mission Commander:** {self.owner.display_name}\n"
+                f"**Test Campaign Status:** {len(self.completed_tests)}/{len(TESTS)} Complete\n\n"
+                f"**Progress:** {self.get_progress_bar()}\n\n"
+                "Select outcomes for each critical test system below."
             ),
             color=discord.Color.blue()
         )
 
-        test_embed.add_field(
-            name="📋 Test Suite Overview",
-            value="\n".join(f"• {test}" for test in tests),
-            inline=False
+        # Add test overview
+        test_list = ""
+        for i, test in enumerate(TESTS):
+            status = "⏳"
+            if test['name'] in self.completed_tests:
+                result = self.test_results[test['name']]
+                status = {"success": "✅", "partial": "⚠️", "failure": "❌"}[result]
+            test_list += f"{status} {test['emoji']} **{test['name']}**\n"
+
+        embed.add_field(name="📋 Test Systems", value=test_list, inline=True)
+
+        # Add completion status
+        if len(self.completed_tests) == len(TESTS):
+            embed.add_field(name="🎯 Status", value="✅ **All tests complete!**\nReady for mission analysis.",
+                            inline=True)
+        else:
+            remaining = len(TESTS) - len(self.completed_tests)
+            embed.add_field(name="🎯 Status", value=f"⏳ **{remaining} tests remaining**\nSelect test outcomes below.",
+                            inline=True)
+
+        return embed
+
+    def create_results_embed(self, success_rate: int) -> discord.Embed:
+        """Create results analysis embed"""
+        # Determine confidence level
+        if success_rate >= 80:
+            confidence = "🟢 HIGH CONFIDENCE"
+            color = discord.Color.green()
+            message = "Excellent test results indicate strong mission success probability!"
+            recommendations = "✅ Mission is GO for launch\n✅ All systems performing nominally\n✅ Proceed with full confidence"
+        elif success_rate >= 60:
+            confidence = "🟡 MODERATE CONFIDENCE"
+            color = discord.Color.gold()
+            message = "Good test results with some areas requiring attention."
+            recommendations = "⚠️ Mission approved with monitoring\n⚠️ Review partial success systems\n⚠️ Enhanced pre-flight checks recommended"
+        elif success_rate >= 40:
+            confidence = "🟠 LOW CONFIDENCE"
+            color = discord.Color.orange()
+            message = "Mixed results indicate elevated mission risk factors."
+            recommendations = "⚠️ Consider mission delay for improvements\n⚠️ Address failed test systems\n⚠️ Additional testing strongly recommended"
+        else:
+            confidence = "🔴 CRITICAL CONCERNS"
+            color = discord.Color.red()
+            message = "Poor test results present significant mission risks."
+            recommendations = "🛑 Mission delay strongly recommended\n🛑 Critical system failures must be resolved\n🛑 Complete test campaign restart required"
+
+        # Count results
+        results = list(self.test_results.values())
+        success_count = results.count('success')
+        partial_count = results.count('partial')
+        failure_count = results.count('failure')
+
+        embed = discord.Embed(
+            title=f"📊 Mission Analysis: {self.ship_name}",
+            description=(
+                f"**Test Campaign:** Complete ✅\n"
+                f"**Mission Confidence:** {confidence}\n"
+                f"**Success Probability:** `{success_rate}%`\n\n"
+                f"*{message}*"
+            ),
+            color=color
         )
 
-        test_embed.set_footer(text="Select test outcomes from the dropdowns below")
-
-        return test_embed, view
-
-    # Simple start view - just ship name then straight to testing
-    class StartView(discord.ui.View):
-        def __init__(self, owner: discord.User):
-            super().__init__(timeout=180)
-            self.owner = owner
-
-        @discord.ui.button(
-            label="Begin Simulation",
-            style=discord.ButtonStyle.primary,
-            emoji="🚀"
+        # Test summary
+        embed.add_field(
+            name="📈 Results Summary",
+            value=(
+                f"🟢 **Complete Success:** {success_count}\n"
+                f"🟡 **Partial Success:** {partial_count}\n"
+                f"🔴 **Test Failures:** {failure_count}"
+            ),
+            inline=True
         )
-        async def start_simulation(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != self.owner.id:
-                await interaction.response.send_message(
-                    "This simulation was started by someone else. Use the command to start your own!",
-                    ephemeral=True
-                )
-                return
 
-            # Ask for ship name
+        # Detailed breakdown
+        test_details = ""
+        result_emojis = {"success": "✅", "partial": "⚠️", "failure": "❌"}
+        for test in TESTS:
+            result = self.test_results[test['name']]
+            emoji = result_emojis[result]
+            test_details += f"{emoji} {test['name']}\n"
+
+        embed.add_field(name="🔬 Test Breakdown", value=test_details, inline=True)
+        embed.add_field(name="📋 Recommendations", value=recommendations, inline=False)
+
+        embed.set_footer(
+            text=f"Analysis by {self.owner.display_name} • Mission Control",
+            icon_url=self.owner.display_avatar.url if self.owner.display_avatar else None
+        )
+
+        return embed
+
+    async def start_setup(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
             await interaction.response.send_message(
-                "🚀 **Please provide your ship designation** (e.g., S38, IFT-6):",
-                ephemeral=True
-            )
+                "This simulation belongs to someone else. Use the command to start your own!", ephemeral=True)
+            return
 
-            def check(msg):
-                return msg.author.id == self.owner.id and msg.channel.id == interaction.channel_id
+        modal = ShipNameModal(self)
+        await interaction.response.send_modal(modal)
 
-            try:
-                # Wait for ship name
-                ship_msg = await bot.wait_for('message', check=check, timeout=60.0)
-                ship_name = ship_msg.content.strip() or "Starship"
-
-                # Go straight to testing interface
-                test_embed, test_view = create_test_interface(ship_name, self.owner)
-                await interaction.followup.send(embed=test_embed, view=test_view, ephemeral=True)
-
-            except asyncio.TimeoutError:
-                await interaction.followup.send(
-                    "⏰ **Timeout:** No response received. Please run the command again.",
-                    ephemeral=True
-                )
-
-        @discord.ui.button(
-            label="About",
-            style=discord.ButtonStyle.secondary,
-            emoji="ℹ️"
+    async def show_info(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="ℹ️ Starship Mission Simulator",
+            description=(
+                "Realistic pre-flight testing simulation for SpaceX Starship missions.\n\n"
+                "**How it works:**\n"
+                "1️⃣ Enter your ship designation\n"
+                "2️⃣ Complete all 5 critical test evaluations\n"
+                "3️⃣ Receive calculated success probability\n"
+                "4️⃣ Get professional mission recommendations\n\n"
+                "**Test Systems:**\n"
+                "🛡️ **Heat Shield** - Thermal protection integrity\n"
+                "⛽ **Propellant** - Fuel system pressure validation\n"
+                "🚀 **RCS Thrusters** - Reaction control functionality\n"
+                "🔥 **Engine** - Main engine performance testing\n"
+                "✈️ **Flight Controls** - Aerodynamic surface systems\n\n"
+                "**Scoring:** Success=3pts, Partial=1pt, Failure=0pts\n"
+                "**Realism:** Includes complexity modifiers and randomization"
+            ),
+            color=discord.Color.blurple()
         )
-        async def show_info(self, interaction: discord.Interaction, button: discord.ui.Button):
-            info_embed = discord.Embed(
-                title="Starship Mission Simulator",
-                description=(
-                    "This simulation evaluates Starship mission readiness based on "
-                    "critical pre-flight test results.\n\n"
-                    "**How it works:**\n"
-                    "1. Enter your ship designation\n"
-                    "2. Complete all 5 critical test evaluations\n"
-                    "3. Receive calculated success probability\n"
-                    "4. Get mission recommendations\n\n"
-                    "**Test Categories:**\n"
-                    "Heat Shield, Propulsion, Maneuvering, Engine, Flight Control"
-                ),
-                color=discord.Color.blurple()
-            )
-            info_embed.set_footer(text="For entertainment purposes")
-            await interaction.response.send_message(embed=info_embed, ephemeral=True)
+        embed.set_footer(text="For entertainment and educational purposes")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # Send initial embed
-    start_embed = discord.Embed(
-        title="SpaceX Starship Mission Simulator",
-        description=(
-            f"**Mission Commander:** {ctx.author.display_name}\n\n"
-            f"Ready to simulate a Starship mission? This simulator will:\n\n"
-            f"• Evaluate 5 critical pre-flight tests\n"
-            f"• Calculate success probability\n"
-            f"• Provide detailed mission analysis\n"
-            f"• Award participation points\n\n"
-            f"Click **Begin Simulation** to start!"
-        ),
-        color=discord.Color.dark_blue()
-    )
+    async def calculate_results(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the mission commander can calculate results.", ephemeral=True)
+            return
 
-    start_embed.set_footer(text="SpaceX Mission Control • Boca Chica, Texas")
+        if len(self.completed_tests) != len(TESTS):
+            await interaction.response.send_message("❌ Complete all tests before calculating results.", ephemeral=True)
+            return
 
-    await ctx.send(embed=start_embed, view=StartView(owner=ctx.author))
+        # Calculate success rate
+        base_scores = {"success": 3, "partial": 1, "failure": 0}
+        score = sum(base_scores[result] for result in self.test_results.values())
+        max_score = len(TESTS) * 3
+        base_rate = int((score / max_score) * 100)
+
+        # Add complexity modifier
+        complexity = random.randint(-8, 12)
+        final_rate = max(5, min(95, base_rate + complexity))
+
+        # Switch to results view
+        embed = self.create_results_embed(final_rate)
+        self.clear_items()
+        self.add_results_components()
+        self.results_shown = True
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def reset_tests(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the mission commander can reset tests.", ephemeral=True)
+            return
+
+        self.test_results.clear()
+        self.completed_tests.clear()
+
+        # Recreate test interface
+        embed = self.create_test_embed()
+        self.clear_items()
+        self.add_test_components()
+
+        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.followup.send("🔄 **All tests reset** - Begin testing with fresh parameters.", ephemeral=True)
+
+    async def new_test_campaign(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the mission commander can start a new test campaign.",
+                                                    ephemeral=True)
+            return
+
+        # Reset to test interface with same ship
+        self.test_results.clear()
+        self.completed_tests.clear()
+        self.results_shown = False
+
+        embed = self.create_test_embed()
+        self.clear_items()
+        self.add_test_components()
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def new_mission(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the mission commander can start a new mission.",
+                                                    ephemeral=True)
+            return
+
+        # Reset everything
+        self.ship_name = None
+        self.setup_complete = False
+        self.test_results.clear()
+        self.completed_tests.clear()
+        self.results_shown = False
+
+        embed = self.create_start_embed()
+        self.clear_items()
+        self.add_setup_components()
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
+@bot.command(name="predict")
+async def starship_mission(ctx):
+    """🚀 Launch Starship Mission Simulator - Complete pre-flight testing and mission analysis"""
+
+    view = StarshipSimulator(ctx.author)
+    embed = view.create_start_embed()
+
+    await ctx.send(embed=embed, view=view)
 
 
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
