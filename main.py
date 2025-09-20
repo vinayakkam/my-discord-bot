@@ -1,7 +1,8 @@
 from keep_alive import keep_alive
 keep_alive()
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
+from typing import Dict, Set
 import logging
 from dotenv import load_dotenv
 import os
@@ -29,9 +30,6 @@ async def on_ready():
     await bot.tree.sync(guild=GUILD)  # instant for this server
     print(f"✅ Synced slash commands to {GUILD_ID}")
     print(f"Logged in as {bot.user}")
-
-import discord
-from discord.ext import commands
 
 # Dictionary mapping guild (server) IDs to their welcome channel IDs
 welcome_channels = {
@@ -1091,6 +1089,7 @@ async def starship(ctx):
     )
 
 
+
 TESTS = [
     {"name": "Heat Shield Tile Test", "desc": "Tests thermal protection system integrity", "emoji": "🛡️"},
     {"name": "Propellant Tank Pressure Test", "desc": "Validates fuel system pressure handling", "emoji": "⛽"},
@@ -1136,6 +1135,7 @@ class TestSelectDropdown(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        # Restrict who can interact
         if interaction.user.id != self.parent_view.owner_id:
             await interaction.response.send_message(
                 "❌ Only the mission commander can input test results.",
@@ -1156,16 +1156,24 @@ class TestSelectDropdown(discord.ui.Select):
 
         self.placeholder = f"{result_emoji[result]} {self.test_info['name']} - {result_labels[result]}"
 
-        # Status messages
+        # Update progress and calculate button state
+        progress = self.parent_view.get_progress_bar()
+        self.parent_view.update_calculate_button()
+
+        # Try to edit the original message so the view updates visually
+        try:
+            if getattr(self.parent_view, "message", None):
+                await self.parent_view.message.edit(view=self.parent_view)
+        except Exception:
+            # ignore errors editing (permissions, race)
+            pass
+
+        # Status message for the user (ephemeral)
         status_messages = {
             "success": f"✅ **{test_name}** completed successfully!",
             "partial": f"⚠️ **{test_name}** completed with minor issues.",
             "failure": f"❌ **{test_name}** failed - critical issues detected."
         }
-
-        # Update progress and buttons
-        progress = self.parent_view.get_progress_bar()
-        self.parent_view.update_calculate_button()
 
         await interaction.response.send_message(
             f"{status_messages[result]}\n\n"
@@ -1183,6 +1191,7 @@ class StarshipPredictor(discord.ui.View):
         self.ship_name = ship_name
         self.user_answers: Dict[str, str] = {}
         self.completed_tests: Set[str] = set()
+        self.message: discord.Message | None = None
 
         # Add all test selects
         for i in range(len(TESTS)):
@@ -1205,6 +1214,9 @@ class StarshipPredictor(discord.ui.View):
         )
         reset_btn.callback = self.reset_tests
         self.add_item(reset_btn)
+
+        # ensure button label correct at start
+        self.update_calculate_button()
 
     def get_progress_bar(self) -> str:
         """Generate progress bar string"""
@@ -1304,7 +1316,7 @@ class StarshipPredictor(discord.ui.View):
         test_details = ""
         result_emojis = {"success": "✅", "partial": "⚠️", "failure": "❌"}
         for test in TESTS:
-            result = self.user_answers[test['name']]
+            result = self.user_answers.get(test['name'], "failure")
             test_details += f"{result_emojis[result]} {test['name']}\n"
 
         result_embed.add_field(
@@ -1332,6 +1344,7 @@ class StarshipPredictor(discord.ui.View):
             icon_url=self.owner.display_avatar.url if self.owner.display_avatar else None
         )
 
+        # Send results (ephemeral to owner)
         await interaction.response.send_message(embed=result_embed, ephemeral=True)
 
     async def reset_tests(self, interaction: discord.Interaction):
@@ -1345,13 +1358,20 @@ class StarshipPredictor(discord.ui.View):
         self.user_answers.clear()
         self.completed_tests.clear()
 
-        # Reset all dropdowns
+        # Reset all dropdowns placeholders
         for item in self.children:
             if isinstance(item, TestSelectDropdown):
                 test_info = item.test_info
                 item.placeholder = f"{test_info['emoji']} {test_info['name']}"
 
         self.update_calculate_button()
+
+        # Edit the message view if present
+        try:
+            if getattr(self, "message", None):
+                await self.message.edit(view=self)
+        except Exception:
+            pass
 
         await interaction.response.send_message(
             "🔄 **Test results cleared**\nYou can now re-run all tests with fresh parameters.",
@@ -1377,48 +1397,56 @@ class StartView(discord.ui.View):
             )
             return
 
-        # Ask for ship name
-        await interaction.response.send_message(
-            "🚀 **Please provide your ship designation** (e.g., S38, IFT-6):",
-            ephemeral=True
-        )
-
-        def check(msg):
-            return msg.author.id == self.owner.id and msg.channel.id == interaction.channel_id
-
-        try:
-            # Wait for ship name
-            ship_msg = await bot.wait_for('message', check=check, timeout=60.0)
-            ship_name = ship_msg.content.strip() or "Starship"
-
-            # Go straight to testing interface
-            test_embed = discord.Embed(
-                title=f"🧪 Pre-Flight Testing: {ship_name}",
-                description=(
-                    f"**Commander:** {self.owner.display_name}\n\n"
-                    f"Complete all **{len(TESTS)} critical tests** below, then calculate mission success probability.\n\n"
-                    f"**Progress:** [░░░░░░░░░░] 0/{len(TESTS)} (0%)"
-                ),
-                color=discord.Color.blue()
+        # Open a modal to capture ship name
+        class ShipNameModal(discord.ui.Modal, title="🚀 Enter Ship Designation"):
+            ship_name = discord.ui.TextInput(
+                label="Ship Name (e.g., S38)",
+                placeholder="S38",
+                max_length=30,
+                required=True
             )
 
-            test_overview = "\n".join(f"• {test['emoji']} {test['name']}" for test in TESTS)
-            test_embed.add_field(
-                name="📋 Test Suite Overview",
-                value=test_overview,
-                inline=False
-            )
+            async def on_submit(self_modal, modal_interaction: discord.Interaction):
+                # Ensure only owner used the modal
+                if modal_interaction.user.id != self.owner.id:
+                    await modal_interaction.response.send_message("This modal isn't for you.", ephemeral=True)
+                    return
 
-            test_embed.set_footer(text="Select test outcomes from the dropdowns below")
+                ship_name = self_modal.ship_name.value.strip() or "Starship"
 
-            test_view = StarshipPredictor(self.owner, ship_name)
-            await interaction.followup.send(embed=test_embed, view=test_view, ephemeral=True)
+                # Build the test overview embed and view
+                test_embed = discord.Embed(
+                    title=f"🧪 Pre-Flight Testing: {ship_name}",
+                    description=(
+                        f"**Commander:** {self.owner.display_name}\n\n"
+                        f"Complete all **{len(TESTS)} critical tests** below, then calculate mission success probability.\n\n"
+                        f"**Progress:** [░░░░░░░░░░] 0/{len(TESTS)} (0%)"
+                    ),
+                    color=discord.Color.blue()
+                )
 
-        except asyncio.TimeoutError:
-            await interaction.followup.send(
-                "⏰ **Timeout:** No response received. Please run the command again.",
-                ephemeral=True
-            )
+                test_overview = "\n".join(f"• {test['emoji']} {test['name']}" for test in TESTS)
+                test_embed.add_field(
+                    name="📋 Test Suite Overview",
+                    value=test_overview,
+                    inline=False
+                )
+                test_embed.set_footer(text="Select test outcomes from the dropdowns below")
+
+                test_view = StarshipPredictor(self.owner, ship_name)
+
+                # Send the test UI publicly so the owner can interact (adjust ephemeral if you want private)
+                await modal_interaction.response.send_message(embed=test_embed, view=test_view, ephemeral=False)
+
+                # obtain the message object that was created (original_response)
+                try:
+                    msg = await modal_interaction.original_response()
+                    test_view.message = msg
+                except Exception:
+                    test_view.message = None
+
+        # send the modal to the user
+        await interaction.response.send_modal(ShipNameModal())
 
     @discord.ui.button(
         label="About",
@@ -1454,8 +1482,6 @@ async def predict(ctx):
     """
     Simplified Starship mission simulation - straight to testing interface
     """
-
-    # Send initial embed
     start_embed = discord.Embed(
         title="SpaceX Starship Mission Simulator",
         description=(
@@ -1473,7 +1499,6 @@ async def predict(ctx):
     start_embed.set_footer(text="SpaceX Mission Control • Boca Chica, Texas")
 
     await ctx.send(embed=start_embed, view=StartView(owner=ctx.author))
-
 
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
 
