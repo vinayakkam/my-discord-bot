@@ -2577,16 +2577,15 @@ async def games(ctx):
 
 # Master ID (can run command in ANY server)
 MASTER_ID = 814791086114865233  # replace with your master ID
-
-# Map of user_id → guild_id (users tied to one specific server)
-USER_SERVER_MAP = {
-    1210475350119813120: 814791086114865233,
-    1397218218535424090: 1085236492571529287,# user tied to server A
-    # add more here like: user_id: guild_id
+# Allowed guilds with multiple users per server
+# guild_id : [user_id1, user_id2, ...]
+GUILD_USER_MAP = {
+    1210475350119813120: [814791086114865233],  # server A allowed users
+    1397218218535424090: [1085236492571529287, 948973975353057341, 1418946895816167475, 1343933090191376446],  # server B allowed users
 }
 
-# Allowed guilds
-ALLOWED_GUILDS = [1397218218535424090, 1210475350119813120]  # all servers where command can be used
+# Allowed guilds list derived from keys
+ALLOWED_GUILDS = list(GUILD_USER_MAP.keys())
 
 @bot.command(name="timeout")
 async def timeout(ctx, member: discord.Member, hours: int = 24):
@@ -2596,6 +2595,7 @@ async def timeout(ctx, member: discord.Member, hours: int = 24):
         return
 
     author_id = ctx.author.id
+    guild_id = ctx.guild.id
 
     # Case 1: Master running the command at all
     if author_id == MASTER_ID:
@@ -2607,12 +2607,10 @@ async def timeout(ctx, member: discord.Member, hours: int = 24):
         await ctx.send("👑 You can’t timeout my father!")
         return
 
-    # Check if user is tied to this server
-    if author_id not in USER_SERVER_MAP:
-        await ctx.send("❌ You are not linked to any server for this command.")
-        return
-    if USER_SERVER_MAP[author_id] != ctx.guild.id:
-        await ctx.send("❌ You can only run this command in your linked server.")
+    # Check if author is allowed in this server
+    allowed_users_for_guild = GUILD_USER_MAP.get(guild_id, [])
+    if author_id not in allowed_users_for_guild:
+        await ctx.send("❌ You are not allowed to use this command in this server.")
         return
 
     try:
