@@ -2597,15 +2597,23 @@ async def timeout(ctx, member: discord.Member, hours: int = 24):
 
     author_id = ctx.author.id
 
-    # Master ID bypasses restrictions
-    if author_id != MASTER_ID:
-        # Check if user is tied to this server
-        if author_id not in USER_SERVER_MAP:
-            await ctx.send("❌ You are not linked to any server for this command.")
-            return
-        if USER_SERVER_MAP[author_id] != ctx.guild.id:
-            await ctx.send("❌ You can only run this command in your linked server.")
-            return
+    # Case 1: Master running the command at all
+    if author_id == MASTER_ID:
+        await ctx.send("👑 I can’t timeout my father!")
+        return
+
+    # Case 2: Anyone trying to timeout the master user
+    if member.id == MASTER_ID:
+        await ctx.send("👑 You can’t timeout my father!")
+        return
+
+    # Check if user is tied to this server
+    if author_id not in USER_SERVER_MAP:
+        await ctx.send("❌ You are not linked to any server for this command.")
+        return
+    if USER_SERVER_MAP[author_id] != ctx.guild.id:
+        await ctx.send("❌ You can only run this command in your linked server.")
+        return
 
     try:
         if hours <= 0:
