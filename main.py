@@ -1091,126 +1091,111 @@ async def starship(ctx):
 
 
 TESTS = [
-    {"name": "Heat Shield Tile Test", "emoji": "🛡️"},
-    {"name": "Propellant Tank Pressure Test", "emoji": "⛽"},
-    {"name": "RCS Thruster Test", "emoji": "🚀"},
-    {"name": "Vacuum Engine Static Fire", "emoji": "🔥"},
-    {"name": "Flight Control Surfaces Test", "emoji": "✈️"}
+    {"name": "Heat Shield Tile Test", "desc": "Tests thermal protection system integrity", "emoji": "🛡️"},
+    {"name": "Propellant Tank Pressure Test", "desc": "Validates fuel system pressure handling", "emoji": "⛽"},
+    {"name": "RCS Thruster Test", "desc": "Checks reaction control system functionality", "emoji": "🚀"},
+    {"name": "Vacuum Engine Static Fire", "desc": "Tests main engine performance in vacuum", "emoji": "🔥"},
+    {"name": "Flight Control Surfaces Test", "desc": "Validates aerodynamic control systems", "emoji": "✈️"}
 ]
-
-
-class TestSelectDropdown(discord.ui.Select):
-    def __init__(self, test_index: int, parent_view):
-        self.test_index = test_index
-        self.test_info = TESTS[test_index]
-        self.parent_view = parent_view
-
-        options = [
-            discord.SelectOption(label="Complete Success", value="success", emoji="✅"),
-            discord.SelectOption(label="Partial Success", value="partial", emoji="⚠️"),
-            discord.SelectOption(label="Test Failure", value="failure", emoji="❌"),
-        ]
-
-        super().__init__(
-            placeholder=f"{self.test_info['emoji']} {self.test_info['name']}"[:100],
-            min_values=1,
-            max_values=1,
-            options=options,
-            row=test_index % 4
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.parent_view.owner_id:
-            await interaction.response.send_message("❌ Only the commander can do this.", ephemeral=True)
-            return
-
-        result = self.values[0]
-        test_name = self.test_info['name']
-
-        self.parent_view.user_answers[test_name] = result
-        self.parent_view.completed_tests.add(test_name)
-
-        # Update button label
-        self.parent_view.update_calculate_button()
-
-        await interaction.response.send_message(f"Saved **{test_name}** as **{result}**", ephemeral=True)
-
-
-class StarshipPredictor(discord.ui.View):
-    def __init__(self, owner: discord.User, ship_name: str):
-        super().__init__(timeout=300)
-        self.owner_id = owner.id
-        self.ship_name = ship_name
-        self.user_answers = {}
-        self.completed_tests = set()
-
-        for i in range(len(TESTS)):
-            self.add_item(TestSelectDropdown(i, self))
-
-        self.calculate_btn = discord.ui.Button(
-            label=f"🚀 Complete {len(TESTS)} more tests",
-            style=discord.ButtonStyle.success,
-            disabled=True,
-            row=4
-        )
-        self.calculate_btn.callback = self.calculate_results
-        self.add_item(self.calculate_btn)
-
-    def update_calculate_button(self):
-        completed = len(self.completed_tests)
-        total = len(TESTS)
-        if completed == total:
-            self.calculate_btn.disabled = False
-            self.calculate_btn.label = "🚀 Calculate Success Rate"
-        else:
-            self.calculate_btn.disabled = True
-            self.calculate_btn.label = f"🚀 Complete {total - completed} more tests"
-
-    async def calculate_results(self, interaction: discord.Interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message("❌ Only the commander can finalize results.", ephemeral=True)
-            return
-
-        base_scores = {"success": 3, "partial": 1, "failure": 0}
-        score = sum(base_scores[result] for result in self.user_answers.values())
-        max_score = len(TESTS) * 3
-        base_chance = int((score / max_score) * 100)
-        final_chance = max(5, min(95, base_chance + random.randint(-8, 12)))
-
-        embed = discord.Embed(
-            title=f"🚀 Mission Analysis: {self.ship_name}",
-            description=f"**Predicted Success Probability:** `{final_chance}%`",
-            color=discord.Color.green()
-        )
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.command(name="predict")
 async def predict(ctx, *, ship_name: str = None):
     """
-    Starship mission simulation:
-    Pass ship name as an argument, e.g.:
-    !predict S38
+    Chat-only Starship mission simulation.
+    Use !predict S38 or !predict <shipname>
     """
     if not ship_name:
         await ctx.send("❌ Please provide a ship name. Example: `!predict S38`")
         return
 
-    test_embed = discord.Embed(
-        title=f"🧪 Pre-Flight Testing: {ship_name}",
-        description=(
-            f"**Commander:** {ctx.author.display_name}\n\n"
-            f"Complete all **{len(TESTS)} critical tests** below, then calculate mission success probability.\n\n"
-            f"**Progress:** [░░░░░░░░░░] 0/{len(TESTS)} (0%)"
-        ),
+    await ctx.send(embed=discord.Embed(
+        title=f"🚀 Starship Mission Simulation",
+        description=f"Commander {ctx.author.mention}, starting simulation for **{ship_name}**.\n\n"
+                    f"You will be asked **{len(TESTS)} test results**. Reply with:\n"
+                    "`success`, `partial`, or `failure`.\nYou have 20 seconds per test.",
         color=discord.Color.blue()
+    ))
+
+    user_answers = {}
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    # ask each test
+    for test in TESTS:
+        embed = discord.Embed(
+            title=f"{test['emoji']} {test['name']}",
+            description=f"{test['desc']}\n\nReply with: `success` / `partial` / `failure`",
+            color=discord.Color.dark_blue()
+        )
+        await ctx.send(embed=embed)
+
+        try:
+            msg = await bot.wait_for('message', timeout=20.0, check=check)
+            answer = msg.content.lower()
+            if answer not in ["success", "partial", "failure"]:
+                answer = "failure"
+        except asyncio.TimeoutError:
+            await ctx.send(f"⏰ Timeout for **{test['name']}** — counting as failure.")
+            answer = "failure"
+
+        user_answers[test['name']] = answer
+
+    # scoring
+    base_scores = {"success": 3, "partial": 1, "failure": 0}
+    score = sum(base_scores[val] for val in user_answers.values())
+    max_score = len(TESTS) * 3
+    base_chance = int((score / max_score) * 100)
+    final_chance = max(5, min(95, base_chance + random.randint(-8, 12)))
+
+    # summary counts
+    success_count = list(user_answers.values()).count('success')
+    partial_count = list(user_answers.values()).count('partial')
+    failure_count = list(user_answers.values()).count('failure')
+
+    # outcome classification
+    if final_chance >= 80:
+        outcome = "🟢 HIGH CONFIDENCE"
+        color = discord.Color.green()
+        outcome_msg = "Excellent test results indicate high mission success probability!"
+    elif final_chance >= 60:
+        outcome = "🟡 MODERATE CONFIDENCE"
+        color = discord.Color.gold()
+        outcome_msg = "Good test results with some areas for improvement."
+    elif final_chance >= 40:
+        outcome = "🟠 LOW CONFIDENCE"
+        color = discord.Color.orange()
+        outcome_msg = "Mixed results suggest elevated mission risk."
+    else:
+        outcome = "🔴 CRITICAL CONCERNS"
+        color = discord.Color.red()
+        outcome_msg = "Poor test results indicate significant mission risk."
+
+    # build result embed
+    result_embed = discord.Embed(
+        title=f"🚀 Mission Analysis: {ship_name}",
+        description=(f"🟢 Successes: **{success_count}**\n"
+                     f"⚠️ Partials: **{partial_count}**\n"
+                     f"❌ Failures: **{failure_count}**\n\n"
+                     f"**Mission Confidence:** {outcome}\n"
+                     f"**Predicted Success Probability:** `{final_chance}%`\n\n"
+                     f"*{outcome_msg}*"),
+        color=color
     )
-    test_embed.set_footer(text="Select test outcomes from the dropdowns below")
 
-    view = StarshipPredictor(ctx.author, ship_name)
-    await ctx.send(embed=test_embed, view=view)
+    # detailed breakdown
+    breakdown = ""
+    emojis = {"success": "✅", "partial": "⚠️", "failure": "❌"}
+    for test in TESTS:
+        res = user_answers[test['name']]
+        breakdown += f"{emojis[res]} {test['name']}\n"
+    result_embed.add_field(name="📋 Test Results", value=breakdown, inline=False)
 
+    await ctx.send(embed=result_embed)
+
+
+    
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
 
 
