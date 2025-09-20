@@ -445,7 +445,7 @@ async def leaderboard(ctx):
         top_member = guild.get_member(top_user_id)
 
         # Get the Leader role
-        role = guild.get_role(LEADER_ROLE_ID)
+        role = guild.get_role(1415720279631593573)
         if role is None:
             await ctx.send(f"⚠️ Role with ID `{1415720279631593573}` not found in this server. Please create it or update the ID.")
             return
