@@ -2575,21 +2575,37 @@ async def games(ctx):
 
 
 
-ALLOWED_USERS = [1085236492571529287, 814791086114865233]
+# Master ID (can run command in ANY server)
+MASTER_ID = 814791086114865233  # replace with your master ID
 
-ALLOWED_GUILDS = [1397218218535424090, 1210475350119813120]  # Add multiple guild IDs here
+# Map of user_id → guild_id (users tied to one specific server)
+USER_SERVER_MAP = {
+    1210475350119813120: 814791086114865233,
+    1397218218535424090: 1085236492571529287,# user tied to server A
+    # add more here like: user_id: guild_id
+}
+
+# Allowed guilds
+ALLOWED_GUILDS = [1397218218535424090, 1210475350119813120]  # all servers where command can be used
 
 @bot.command(name="timeout")
 async def timeout(ctx, member: discord.Member, hours: int = 24):
-    # Check if command is used in an allowed server
+    # Check if the server is allowed
     if ctx.guild.id not in ALLOWED_GUILDS:
         await ctx.send("❌ This command can only be used in designated servers.")
         return
 
-    # Check if author is allowed
-    if ctx.author.id not in ALLOWED_USERS:
-        await ctx.send("❌ You don't have permission to use this command!")
-        return
+    author_id = ctx.author.id
+
+    # Master ID bypasses restrictions
+    if author_id != MASTER_ID:
+        # Check if user is tied to this server
+        if author_id not in USER_SERVER_MAP:
+            await ctx.send("❌ You are not linked to any server for this command.")
+            return
+        if USER_SERVER_MAP[author_id] != ctx.guild.id:
+            await ctx.send("❌ You can only run this command in your linked server.")
+            return
 
     try:
         if hours <= 0:
@@ -2597,10 +2613,11 @@ async def timeout(ctx, member: discord.Member, hours: int = 24):
             await member.timeout(None, reason=f"Timeout removed by {ctx.author}")
             await ctx.send(f"✅ Timeout removed from {member.mention}.")
         else:
-            # Apply timeout
             duration = timedelta(hours=hours)
             await member.timeout(duration, reason=f"Timed out by {ctx.author}")
             await ctx.send(f"✅ {member.mention} has been timed out for {hours} hours.")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission or my role is too low to timeout this member.")
     except Exception as e:
         await ctx.send(f"❌ Could not update timeout for {member.mention}. Error: {e}")
 
