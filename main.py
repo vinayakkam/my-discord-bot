@@ -2589,6 +2589,7 @@ class TrollView(discord.ui.View):
 
 def build_troll_embed(troller, target):
     """Creates a colorful funny embed."""
+    target=1357772900916138219
     troll_titles = [
         "Breaking News 📰", "🤣 Meme Alert", "🚀 NASA Update",
         "🔥 Hot Gossip", "📡 Incoming Transmission"
