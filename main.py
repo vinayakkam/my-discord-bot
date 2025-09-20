@@ -1195,7 +1195,7 @@ async def predict(ctx, *, ship_name: str = None):
     await ctx.send(embed=result_embed)
 
 
-    
+
 player_states = {}  # user_id -> {fuel, food, research, turns, active}
 
 
@@ -1386,158 +1386,119 @@ rocket_design_states = {}
 
 @bot.command(name="rocketdesign")
 async def rocketdesign(ctx):
-    """Start the Rocket Design Quiz with Discord UI."""
-
-    # Default state
-    rocket_design_states[ctx.author.id] = {
-        "engine": None,
-        "tank": None,
-        "payload": None
-    }
-
-    # --- View Class ---
-    class RocketDesignView(discord.ui.View):
-        def __init__(self):
-            super().__init__(timeout=120)
-
-            # Engine dropdown
-            self.add_item(discord.ui.Select(
-                placeholder="Choose Engine",
-                min_values=1,
-                max_values=1,
-                options=[
-                    discord.SelectOption(label="Raptor (high thrust)", value="Raptor"),
-                    discord.SelectOption(label="Merlin (balanced)", value="Merlin"),
-                    discord.SelectOption(label="Ion Drive (efficient, low thrust)", value="Ion Drive")
-                ],
-                custom_id="engine"
-            ))
-
-            # Tank dropdown
-            self.add_item(discord.ui.Select(
-                placeholder="Choose Tank Size",
-                min_values=1,
-                max_values=1,
-                options=[
-                    discord.SelectOption(label="Large Tank (more fuel)", value="Large"),
-                    discord.SelectOption(label="Medium Tank", value="Medium"),
-                    discord.SelectOption(label="Small Tank (lighter)", value="Small")
-                ],
-                custom_id="tank"
-            ))
-
-            # Payload dropdown
-            self.add_item(discord.ui.Select(
-                placeholder="Choose Payload",
-                min_values=1,
-                max_values=1,
-                options=[
-                    discord.SelectOption(label="Satellite", value="Satellite"),
-                    discord.SelectOption(label="Crew Capsule", value="Crew Capsule"),
-                    discord.SelectOption(label="Heavy Cargo", value="Heavy Cargo")
-                ],
-                custom_id="payload"
-            ))
-
-            # Submit Button
-            submit_button = discord.ui.Button(label="Submit Design 🚀", style=discord.ButtonStyle.green)
-            submit_button.callback = self.submit
-            self.add_item(submit_button)
-
-        async def interaction_check(self, interaction: discord.Interaction) -> bool:
-            # Restrict to command invoker
-            return interaction.user.id == ctx.author.id
-
-        async def on_select(self, interaction: discord.Interaction):
-            # Called when a dropdown changes (we handle below individually)
-            pass
-
-        async def submit(self, interaction: discord.Interaction):
-            # Read the values from the view items
-            engine = None
-            tank = None
-            payload = None
-            for item in self.children:
-                if isinstance(item, discord.ui.Select):
-                    if item.custom_id == "engine" and item.values:
-                        engine = item.values[0]
-                    elif item.custom_id == "tank" and item.values:
-                        tank = item.values[0]
-                    elif item.custom_id == "payload" and item.values:
-                        payload = item.values[0]
-
-            # Check all chosen
-            if not (engine and tank and payload):
-                await interaction.response.send_message(
-                    "⚠️ Please select **Engine**, **Tank**, and **Payload** before submitting.",
-                    ephemeral=True
-                )
-                return
-
-            # Compute success chance
-            success_chance = 50
-
-            # Engine effect
-            if engine == "Raptor":
-                success_chance += 15
-            elif engine == "Ion Drive":
-                success_chance -= 10
-
-            # Tank effect
-            if tank == "Large":
-                success_chance += 10
-            elif tank == "Small":
-                success_chance -= 5
-
-            # Payload effect
-            if payload == "Heavy Cargo":
-                success_chance -= 15
-            elif payload == "Satellite":
-                success_chance += 5
-
-            # Launch result
-            result = random.randint(1, 100)
-            if result <= success_chance:
-                points = 2
-                try:
-                    add_score(ctx.author.id, points)
-                    total = scores.get(str(ctx.author.id), 0)
-                except Exception:
-                    total = "?"
-                embed = discord.Embed(
-                    title="✅ Launch Successful!",
-                    description=(
-                        f"Your rocket launched successfully!\n\n"
-                        f"**Engine:** {engine}\n"
-                        f"**Tank:** {tank}\n"
-                        f"**Payload:** {payload}\n\n"
-                        f"You earned **{points} points**.\nTotal points: **{total}**"
-                    ),
-                    color=discord.Color.green()
-                )
-            else:
-                embed = discord.Embed(
-                    title="💥 Launch Failed",
-                    description=(
-                        f"Your rocket failed to launch.\n\n"
-                        f"**Engine:** {engine}\n"
-                        f"**Tank:** {tank}\n"
-                        f"**Payload:** {payload}\n\n"
-                        f"Better luck next time!"
-                    ),
-                    color=discord.Color.red()
-                )
-
-            await interaction.response.edit_message(embed=embed, view=None)
-            rocket_design_states.pop(ctx.author.id, None)
-
-    embed = discord.Embed(
+    """
+    Chat-based Rocket Design Quiz (no UI).
+    """
+    await ctx.send(embed=discord.Embed(
         title="🚀 Rocket Design Quiz",
-        description="Choose your **Engine**, **Tank**, and **Payload** using the dropdowns below, then click **Submit Design 🚀**.",
+        description=("Welcome Commander!\n"
+                     "We'll design your rocket step by step.\n"
+                     "Reply to each question within 20 seconds."),
         color=discord.Color.orange()
-    )
+    ))
 
-    await ctx.send(embed=embed, view=RocketDesignView())
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    # 1️⃣ Engine
+    await ctx.send(embed=discord.Embed(
+        title="Step 1: Choose Engine",
+        description=("Options:\n"
+                     "- `Raptor` (high thrust)\n"
+                     "- `Merlin` (balanced)\n"
+                     "- `Ion Drive` (efficient, low thrust)\n\n"
+                     "Type your choice exactly."),
+        color=discord.Color.blue()
+    ))
+    try:
+        msg = await bot.wait_for('message', timeout=20.0, check=check)
+        engine = msg.content.strip().title()
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Timeout. Rocket design cancelled.")
+        return
+
+    # 2️⃣ Tank
+    await ctx.send(embed=discord.Embed(
+        title="Step 2: Choose Tank Size",
+        description=("Options:\n"
+                     "- `Large` (more fuel)\n"
+                     "- `Medium`\n"
+                     "- `Small` (lighter)\n\n"
+                     "Type your choice exactly."),
+        color=discord.Color.blue()
+    ))
+    try:
+        msg = await bot.wait_for('message', timeout=20.0, check=check)
+        tank = msg.content.strip().title()
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Timeout. Rocket design cancelled.")
+        return
+
+    # 3️⃣ Payload
+    await ctx.send(embed=discord.Embed(
+        title="Step 3: Choose Payload",
+        description=("Options:\n"
+                     "- `Satellite`\n"
+                     "- `Crew Capsule`\n"
+                     "- `Heavy Cargo`\n\n"
+                     "Type your choice exactly."),
+        color=discord.Color.blue()
+    ))
+    try:
+        msg = await bot.wait_for('message', timeout=20.0, check=check)
+        payload = msg.content.strip().title()
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Timeout. Rocket design cancelled.")
+        return
+
+    # Compute success chance
+    success_chance = 50
+
+    # Engine effect
+    if engine == "Raptor":
+        success_chance += 15
+    elif engine == "Ion Drive":
+        success_chance -= 10
+
+    # Tank effect
+    if tank == "Large":
+        success_chance += 10
+    elif tank == "Small":
+        success_chance -= 5
+
+    # Payload effect
+    if payload == "Heavy Cargo":
+        success_chance -= 15
+    elif payload == "Satellite":
+        success_chance += 5
+
+    # Launch result
+    result = random.randint(1, 100)
+    if result <= success_chance:
+        points = 2
+        add_score(ctx.author.id, points)
+        total = scores.get(ctx.author.id, 0)
+        embed = discord.Embed(
+            title="✅ Launch Successful!",
+            description=(f"Your rocket launched successfully!\n\n"
+                         f"**Engine:** {engine}\n"
+                         f"**Tank:** {tank}\n"
+                         f"**Payload:** {payload}\n\n"
+                         f"You earned **{points} points**.\nTotal points: **{total}**"),
+            color=discord.Color.green()
+        )
+    else:
+        embed = discord.Embed(
+            title="💥 Launch Failed",
+            description=(f"Your rocket failed to launch.\n\n"
+                         f"**Engine:** {engine}\n"
+                         f"**Tank:** {tank}\n"
+                         f"**Payload:** {payload}\n\n"
+                         f"Better luck next time!"),
+            color=discord.Color.red()
+        )
+
+    await ctx.send(embed=embed)
 
 
 # Booster Catch Game
