@@ -2571,8 +2571,6 @@ async def games(ctx):
 
     await ctx.send(embed=embed)
 #trolling
-HARDCODED_USER_ID = 1357772900916138219  # Replace with the user ID you want to troll
-
 class TrollView(discord.ui.View):
     """Interactive view with a button to troll again."""
     def __init__(self, ctx, member):
@@ -2588,7 +2586,6 @@ class TrollView(discord.ui.View):
             return
         embed = build_troll_embed(self.ctx.author, self.member)
         await interaction.response.send_message(embed=embed, view=TrollView(self.ctx, self.member))
-
 
 def build_troll_embed(troller, target):
     """Creates a colorful funny embed."""
@@ -2620,21 +2617,18 @@ def build_troll_embed(troller, target):
     embed.set_footer(text=f"Trolled by {troller.display_name}")
     return embed
 
-
 @bot.command(name="troll")
-async def troll(ctx):
+async def troll(ctx, member: discord.Member = None):
     """
-    Harmlessly trolls the hardcoded user with a funny embed + button to troll again.
-    Usage: !troll
+    Harmlessly trolls a user with a funny embed + button to troll again.
+    Usage: !troll @user
     """
-    member = ctx.guild.get_member(HARDCODED_USER_ID)
     if member is None:
-        await ctx.send("⚠️ Could not find the member to troll in this server.")
+        await ctx.send("⚠️ You need to mention someone to troll.")
         return
 
     embed = build_troll_embed(ctx.author, member)
     await ctx.send(embed=embed, view=TrollView(ctx, member))
-
 
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
