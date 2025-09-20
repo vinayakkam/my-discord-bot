@@ -2570,6 +2570,65 @@ async def games(ctx):
     )
 
     await ctx.send(embed=embed)
+#trolling
+class TrollView(discord.ui.View):
+    """Interactive view with a button to troll again."""
+    def __init__(self, ctx, member):
+        super().__init__(timeout=60)
+        self.ctx = ctx
+        self.member = member
+
+    @discord.ui.button(label="🤣 Troll Again!", style=discord.ButtonStyle.danger, emoji="🎯")
+    async def troll_again(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Only the original troller can press
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("⚠️ Only the original troller can press this!", ephemeral=True)
+            return
+        embed = build_troll_embed(self.ctx.author, self.member)
+        await interaction.response.send_message(embed=embed, view=TrollView(self.ctx, self.member))
+
+def build_troll_embed(troller, target):
+    """Creates a colorful funny embed."""
+    troll_titles = [
+        "Breaking News 📰", "🤣 Meme Alert", "🚀 NASA Update",
+        "🔥 Hot Gossip", "📡 Incoming Transmission"
+    ]
+    troll_phrases = [
+        f"{target.mention} tried to open a push door by pulling for 5 minutes 🚪😂",
+        f"Scientists confirm {target.mention} invented the square wheel 🛞🤯",
+        f"{target.mention} still looking for the ‘Any’ key on the keyboard ⌨️🤦",
+        f"New study finds {target.mention} is 99% made of coffee ☕⚡",
+        f"{target.mention} tried to install RAM by downloading it 📥💾"
+    ]
+    troll_gifs = [
+        "https://media.tenor.com/qVP8xW6iErQAAAAC/troll-face.gif",
+        "https://media.tenor.com/PFSRITVEAo0AAAAC/laughing-minions.gif",
+        "https://media.tenor.com/kLxYqBS0co8AAAAC/troll-dance.gif",
+        "https://media.tenor.com/4E4i0epWsVcAAAAC/troll.gif",
+        "https://media.tenor.com/XRLFOrPjsccAAAAC/troll-smile.gif"
+    ]
+    embed = discord.Embed(
+        title=random.choice(troll_titles),
+        description=random.choice(troll_phrases),
+        color=discord.Color.random()
+    )
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.set_image(url=random.choice(troll_gifs))
+    embed.set_footer(text=f"Trolled by {troller.display_name}")
+    return embed
+
+@bot.command(name="troll")
+async def troll(ctx, member: discord.Member = None):
+    """
+    Harmlessly trolls a user with a funny embed + button to troll again.
+    Usage: !troll @user
+    """
+    if member is None:
+        await ctx.send("⚠️ You need to mention someone to troll.")
+        return
+
+    embed = build_troll_embed(ctx.author, member)
+    await ctx.send(embed=embed, view=TrollView(ctx, member))
 
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
