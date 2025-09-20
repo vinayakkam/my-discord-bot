@@ -400,75 +400,57 @@ async def guess(ctx):
 async def leaderboard(ctx):
     """
     Show the leaderboard for this server and auto-assign Leader role.
-    - Displays server name and icon
-    - Shows player avatars and medals
-    - Automatically creates a 'Leaderboard Leader' role if missing
+    - Displays server name in header
+    - Shows player avatars
+    - Assigns Leader role to the top scorer in this server
     """
 
+    # Filter only scores of members in the current server
     guild = ctx.guild
-
-    # Filter scores only for members in this server
-    guild_scores = {
-        uid: pts for uid, pts in scores.items() if guild.get_member(int(uid))
-    }
+    guild_member_ids = [member.id for member in guild.members]
+    guild_scores = {uid: pts for uid, pts in scores.items() if int(uid) in guild_member_ids}
 
     if not guild_scores:
         await ctx.send("⚠️ No scores available for this server yet.")
         return
 
-    # Sort and get top 10
+    # Sort scores (highest first)
     sorted_scores = sorted(guild_scores.items(), key=lambda x: x[1], reverse=True)
     top_10 = sorted_scores[:10]
 
-    # Ensure Leader role exists (use LEADER_ROLE_ID if present, else create role)
-    role = guild.get_role(LEADER_ROLE_ID)
-    if role is None:
-        try:
-            role = await guild.create_role(
-                name="Leaderboard Leader",
-                colour=discord.Color.gold(),
-                reason="Auto-created for leaderboard leader"
-            )
-            await ctx.send(f"✅ Created role **{role.name}** automatically.")
-        except discord.Forbidden:
-            await ctx.send("⚠️ I don’t have permission to create roles.")
-            return
-
     # Beautify leaderboard text
-    medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7  # Top 3 get medals
-    leaderboard_lines = []
-
+    leaderboard_text = ""
     for i, (user_id, score) in enumerate(top_10, start=1):
         member = guild.get_member(int(user_id))
-        if member:
-            medal = medals[i - 1] if i <= len(medals) else "🏅"
+        if member:  # Only display if still in server
             avatar_url = member.display_avatar.url
-            leaderboard_lines.append(
-                f"{medal} [{member.display_name}]({avatar_url}) — **{score}** points"
-            )
+            leaderboard_text += f"**{i}.** [{member.display_name}]({avatar_url}) — **{score}** points\n"
 
-    leaderboard_text = "\n".join(leaderboard_lines)
-
-    # Build embed
     embed = discord.Embed(
         title=f"🏆 Leaderboard — {guild.name}",
         description=leaderboard_text,
         color=discord.Color.gold()
     )
+
+    # Thumbnail as server icon
     if guild.icon:
         embed.set_thumbnail(url=guild.icon.url)
 
-    embed.set_footer(text=f"Total participants: {len(guild_scores)}")
-
     await ctx.send(embed=embed)
 
-    # Handle Leader role assignment automatically
+    # 🟩 Handle Leader role assignment automatically in this server
     try:
-        # Get top user
+        # Get the top user ID
         top_user_id = int(sorted_scores[0][0])
         top_member = guild.get_member(top_user_id)
 
-        # Remove the role from everyone else first
+        # Get the Leader role
+        role = guild.get_role(LEADER_ROLE_ID)
+        if role is None:
+            await ctx.send(f"⚠️ Role with ID `{1415720279631593573}` not found in this server. Please create it or update the ID.")
+            return
+
+        # Remove role from everyone else
         for member in guild.members:
             if role in member.roles and member.id != top_user_id:
                 try:
@@ -477,7 +459,7 @@ async def leaderboard(ctx):
                     await ctx.send("⚠️ I lack permission to remove roles from some members.")
                     return
 
-        # Add role to top player
+        # Add role to the top player if not already
         if top_member and role not in top_member.roles:
             try:
                 await top_member.add_roles(role)
@@ -486,7 +468,6 @@ async def leaderboard(ctx):
                 await ctx.send("⚠️ I lack permission to add roles.")
     except Exception as e:
         await ctx.send(f"⚠️ Error assigning Leader role: `{e}`")
-
 
 
 
