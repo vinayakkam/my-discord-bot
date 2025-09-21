@@ -397,6 +397,16 @@ async def guess(ctx):
 # -----------------------------------
 # 5️⃣ Scoreboard Commands
 # -----------------------------------
+LEADER_ROLE_MAP = {
+    1411425019434766499: 1415720279631593573,  # Server 1 -> Leader Role ID
+    1210475350119813120: 1418973555953238057,
+    1397218218535424090: 1419273410122612737# Server 2 -> Leader Role ID
+    # Add more servers and their leader role IDs here
+    # 1234567890123456789: 9876543210987654321,  # Server 3 -> Leader Role ID
+    # 5555555555555555555: 4444444444444444444,  # Server 4 -> Leader Role ID
+}
+
+
 @bot.command(name="leaderboard")
 async def leaderboard(ctx):
     """
@@ -404,71 +414,326 @@ async def leaderboard(ctx):
     - Displays server name in header
     - Shows player avatars
     - Assigns Leader role to the top scorer in this server
+    - Uses server-specific Leader role mapping
     """
 
     # Filter only scores of members in the current server
     guild = ctx.guild
+    guild_id = guild.id
     guild_member_ids = [member.id for member in guild.members]
     guild_scores = {uid: pts for uid, pts in scores.items() if int(uid) in guild_member_ids}
 
     if not guild_scores:
-        await ctx.send("⚠️ No scores available for this server yet.")
+        no_scores_embed = discord.Embed(
+            title="📊 Leaderboard",
+            description="⚠️ No scores available for this server yet.\n\nStart playing games to appear on the leaderboard!",
+            color=discord.Color.orange()
+        )
+        if guild.icon:
+            no_scores_embed.set_thumbnail(url=guild.icon.url)
+        no_scores_embed.add_field(name="Available Games", value="`!trivia` • `!unscramble`", inline=False)
+        await ctx.send(embed=no_scores_embed)
         return
 
     # Sort scores (highest first)
     sorted_scores = sorted(guild_scores.items(), key=lambda x: x[1], reverse=True)
     top_10 = sorted_scores[:10]
 
-    # Beautify leaderboard text
+    # Beautify leaderboard text with medals and formatting
     leaderboard_text = ""
+    medal_emojis = ["🥇", "🥈", "🥉"]
+
     for i, (user_id, score) in enumerate(top_10, start=1):
         member = guild.get_member(int(user_id))
         if member:  # Only display if still in server
-            avatar_url = member.display_avatar.url
-            leaderboard_text += f"**{i}.** [{member.display_name}]({avatar_url}) — **{score}** points\n"
+            # Use medal emojis for top 3, numbers for the rest
+            if i <= 3:
+                position_indicator = medal_emojis[i - 1]
+            else:
+                position_indicator = f"**{i}.**"
+
+            # Add crown emoji for the leader
+            leader_indicator = " 👑" if i == 1 else ""
+
+            leaderboard_text += f"{position_indicator} **{member.display_name}**{leader_indicator} — **{score:,}** point{'s' if score != 1 else ''}\n"
 
     embed = discord.Embed(
         title=f"🏆 Leaderboard — {guild.name}",
         description=leaderboard_text,
-        color=discord.Color.gold()
+        color=discord.Color.gold(),
+        timestamp=ctx.message.created_at
     )
+
+    # Add server stats
+    total_players = len(guild_scores)
+    total_points = sum(guild_scores.values())
+    embed.add_field(name="📈 Server Stats",
+                    value=f"**{total_players}** player{'s' if total_players != 1 else ''}\n**{total_points:,}** total points",
+                    inline=True)
+
+    # Show if leader role assignment is configured
+    leader_role_id = LEADER_ROLE_MAP.get(guild_id)
+    if leader_role_id:
+        leader_role = guild.get_role(leader_role_id)
+        role_status = "✅ Configured" if leader_role else "❌ Role not found"
+    else:
+        role_status = "❌ Not configured"
+
+    embed.add_field(name="👑 Leader Role", value=role_status, inline=True)
+    embed.add_field(name="🎮 Games", value="`!trivia` • `!unscramble`", inline=True)
 
     # Thumbnail as server icon
     if guild.icon:
         embed.set_thumbnail(url=guild.icon.url)
 
+    embed.set_footer(text=f"Requested by {ctx.author.name}")
+
     await ctx.send(embed=embed)
 
     # 🟩 Handle Leader role assignment automatically in this server
+    if guild_id not in LEADER_ROLE_MAP:
+        info_embed = discord.Embed(
+            title="ℹ️ Leader Role Not Configured",
+            description=f"This server doesn't have a Leader role configured.\n\nTo set up automatic leader role assignment, add server ID `{guild_id}` to the role mapping.",
+            color=discord.Color.blue()
+        )
+        info_embed.add_field(name="Server ID", value=f"`{guild_id}`", inline=True)
+        info_embed.add_field(name="Current Leader", value=f"{guild.get_member(int(sorted_scores[0][0])).mention}",
+                             inline=True)
+        await ctx.send(embed=info_embed)
+        return
+
     try:
+        # Get the configured Leader role ID for this server
+        leader_role_id = LEADER_ROLE_MAP[guild_id]
+
         # Get the top user ID
         top_user_id = int(sorted_scores[0][0])
         top_member = guild.get_member(top_user_id)
 
         # Get the Leader role
-        role = guild.get_role(1415720279631593573)
+        role = guild.get_role(leader_role_id)
         if role is None:
-            await ctx.send(f"⚠️ Role with ID `{1415720279631593573}` not found in this server. Please create it or update the ID.")
+            error_embed = discord.Embed(
+                title="❌ Leader Role Error",
+                description=f"Leader role with ID `{leader_role_id}` not found in **{guild.name}**.",
+                color=discord.Color.red()
+            )
+            error_embed.add_field(name="Server ID", value=f"`{guild_id}`", inline=True)
+            error_embed.add_field(name="Expected Role ID", value=f"`{leader_role_id}`", inline=True)
+            error_embed.add_field(name="Solution", value="Create the role or update the role mapping", inline=False)
+            await ctx.send(embed=error_embed)
             return
 
-        # Remove role from everyone else
+        # Track role changes
+        role_removed_from = []
+        role_assignment_failed = False
+
+        # Remove role from everyone else who has it
         for member in guild.members:
             if role in member.roles and member.id != top_user_id:
                 try:
-                    await member.remove_roles(role)
+                    await member.remove_roles(role, reason="No longer the leaderboard leader")
+                    role_removed_from.append(member.display_name)
                 except discord.Forbidden:
-                    await ctx.send("⚠️ I lack permission to remove roles from some members.")
+                    error_embed = discord.Embed(
+                        title="❌ Permission Error",
+                        description="I lack permission to remove the Leader role from some members.",
+                        color=discord.Color.red()
+                    )
+                    error_embed.add_field(name="Required Permission", value="Manage Roles", inline=True)
+                    error_embed.add_field(name="Role Position", value="Bot role must be higher than Leader role",
+                                          inline=True)
+                    await ctx.send(embed=error_embed)
                     return
+                except Exception as e:
+                    print(f"Error removing role from {member.name}: {e}")
 
-        # Add role to the top player if not already
+        # Add role to the top player if not already assigned
         if top_member and role not in top_member.roles:
             try:
-                await top_member.add_roles(role)
-                await ctx.send(f"🏅 {top_member.mention} is now the **Leaderboard Leader** for **{guild.name}**!")
+                await top_member.add_roles(role, reason="New leaderboard leader")
+
+                # Success message
+                success_embed = discord.Embed(
+                    title="👑 New Leader Crowned!",
+                    description=f"🎉 {top_member.mention} is now the **{role.name}** of **{guild.name}**!",
+                    color=discord.Color.gold(),
+                    timestamp=ctx.message.created_at
+                )
+                success_embed.add_field(name="🏆 Score", value=f"{sorted_scores[0][1]:,} points", inline=True)
+                success_embed.add_field(name="🎯 Role", value=role.mention, inline=True)
+
+                if role_removed_from:
+                    success_embed.add_field(
+                        name="📋 Role Updates",
+                        value=f"Role removed from: {', '.join(role_removed_from[:3])}" +
+                              (f" and {len(role_removed_from) - 3} others" if len(role_removed_from) > 3 else ""),
+                        inline=False
+                    )
+
+                success_embed.set_thumbnail(url=top_member.display_avatar.url)
+                await ctx.send(embed=success_embed)
+
             except discord.Forbidden:
-                await ctx.send("⚠️ I lack permission to add roles.")
+                error_embed = discord.Embed(
+                    title="❌ Permission Error",
+                    description="I lack permission to assign the Leader role.",
+                    color=discord.Color.red()
+                )
+                error_embed.add_field(name="Required Permission", value="Manage Roles", inline=True)
+                error_embed.add_field(name="Role Hierarchy", value="Bot role must be higher than Leader role",
+                                      inline=True)
+                error_embed.add_field(name="Current Leader",
+                                      value=f"{top_member.mention} ({sorted_scores[0][1]:,} points)", inline=False)
+                await ctx.send(embed=error_embed)
+            except Exception as e:
+                error_embed = discord.Embed(
+                    title="❌ Unexpected Error",
+                    description=f"Failed to assign Leader role: `{str(e)}`",
+                    color=discord.Color.red()
+                )
+                await ctx.send(embed=error_embed)
+
+        elif top_member and role in top_member.roles:
+            # Leader already has the role
+            already_leader_embed = discord.Embed(
+                title="👑 Leader Confirmed",
+                description=f"{top_member.mention} remains the **{role.name}** of **{guild.name}**!",
+                color=discord.Color.green()
+            )
+            already_leader_embed.add_field(name="🏆 Score", value=f"{sorted_scores[0][1]:,} points", inline=True)
+            already_leader_embed.add_field(name="🎯 Status", value="Still leading!", inline=True)
+            already_leader_embed.set_thumbnail(url=top_member.display_avatar.url)
+
+            if role_removed_from:
+                already_leader_embed.add_field(
+                    name="📋 Role Updates",
+                    value=f"Role removed from: {', '.join(role_removed_from[:3])}" +
+                          (f" and {len(role_removed_from) - 3} others" if len(role_removed_from) > 3 else ""),
+                    inline=False
+                )
+
+            await ctx.send(embed=already_leader_embed)
+
     except Exception as e:
-        await ctx.send(f"⚠️ Error assigning Leader role: `{e}`")
+        error_embed = discord.Embed(
+            title="❌ Leader Role Assignment Failed",
+            description=f"An unexpected error occurred: `{str(e)}`",
+            color=discord.Color.red()
+        )
+        error_embed.add_field(name="Server", value=guild.name, inline=True)
+        error_embed.add_field(name="Leader Role ID", value=f"`{LEADER_ROLE_MAP.get(guild_id, 'Not configured')}`",
+                              inline=True)
+        await ctx.send(embed=error_embed)
+
+
+# Optional: Command to check/manage role mappings (Master only)
+@bot.command(name="role_mapping")
+async def role_mapping(ctx, action: str = None, server_id: int = None, role_id: int = None):
+    """Manage Leader role mappings. Usage: !role_mapping [list/add/remove] [server_id] [role_id]"""
+    author_id = int(ctx.author.id)
+
+    # Only master can manage role mappings
+    if author_id != MASTER_ID:
+        error_embed = discord.Embed(
+            title="❌ Access Denied",
+            description="Only the master user can manage role mappings.",
+            color=discord.Color.red()
+        )
+        return await ctx.send(embed=error_embed)
+
+    if action is None or action.lower() == "list":
+        # Show current mappings
+        mapping_embed = discord.Embed(
+            title="👑 Leader Role Mappings",
+            description="Current server → role mappings:",
+            color=discord.Color.blue()
+        )
+
+        if not LEADER_ROLE_MAP:
+            mapping_embed.description = "No role mappings configured."
+        else:
+            mapping_text = ""
+            for guild_id, role_id in LEADER_ROLE_MAP.items():
+                guild = bot.get_guild(guild_id)
+                guild_name = guild.name if guild else f"Unknown Server ({guild_id})"
+
+                if guild:
+                    role = guild.get_role(role_id)
+                    role_name = role.name if role else f"Unknown Role ({role_id})"
+                    status = "✅" if role else "❌"
+                else:
+                    role_name = f"Role ID: {role_id}"
+                    status = "❓"
+
+                mapping_text += f"{status} **{guild_name}**\n└ Role: {role_name} (`{role_id}`)\n\n"
+
+            mapping_embed.description = mapping_text
+
+        mapping_embed.set_footer(text="Use !role_mapping add [server_id] [role_id] to add mappings")
+        await ctx.send(embed=mapping_embed)
+
+    elif action.lower() == "add":
+        if server_id is None or role_id is None:
+            await ctx.send("❌ Usage: `!role_mapping add [server_id] [role_id]`")
+            return
+
+        LEADER_ROLE_MAP[server_id] = role_id
+
+        # Try to get server and role info
+        guild = bot.get_guild(server_id)
+        guild_name = guild.name if guild else f"Server ID: {server_id}"
+
+        if guild:
+            role = guild.get_role(role_id)
+            role_name = role.name if role else f"Role ID: {role_id}"
+            status = "✅ Valid" if role else "⚠️ Role not found"
+        else:
+            role_name = f"Role ID: {role_id}"
+            status = "⚠️ Server not accessible"
+
+        add_embed = discord.Embed(
+            title="✅ Role Mapping Added",
+            description=f"Added mapping for **{guild_name}**",
+            color=discord.Color.green()
+        )
+        add_embed.add_field(name="Server ID", value=f"`{server_id}`", inline=True)
+        add_embed.add_field(name="Role", value=role_name, inline=True)
+        add_embed.add_field(name="Status", value=status, inline=True)
+        await ctx.send(embed=add_embed)
+
+    elif action.lower() == "remove":
+        if server_id is None:
+            await ctx.send("❌ Usage: `!role_mapping remove [server_id]`")
+            return
+
+        if server_id in LEADER_ROLE_MAP:
+            removed_role_id = LEADER_ROLE_MAP.pop(server_id)
+            guild = bot.get_guild(server_id)
+            guild_name = guild.name if guild else f"Server ID: {server_id}"
+
+            remove_embed = discord.Embed(
+                title="🗑️ Role Mapping Removed",
+                description=f"Removed mapping for **{guild_name}**",
+                color=discord.Color.orange()
+            )
+            remove_embed.add_field(name="Server ID", value=f"`{server_id}`", inline=True)
+            remove_embed.add_field(name="Removed Role ID", value=f"`{removed_role_id}`", inline=True)
+            await ctx.send(embed=remove_embed)
+        else:
+            await ctx.send(f"❌ No mapping found for server ID `{server_id}`.")
+
+    else:
+        help_embed = discord.Embed(
+            title="❓ Role Mapping Help",
+            description="**Usage:** `!role_mapping [action] [parameters]`",
+            color=discord.Color.blue()
+        )
+        help_embed.add_field(name="📋 List Mappings", value="`!role_mapping list`", inline=False)
+        help_embed.add_field(name="➕ Add Mapping", value="`!role_mapping add [server_id] [role_id]`", inline=False)
+        help_embed.add_field(name="➖ Remove Mapping", value="`!role_mapping remove [server_id]`", inline=False)
+        await ctx.send(embed=help_embed)
 
 
 
