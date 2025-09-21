@@ -2775,7 +2775,8 @@ AUTOMOD_ENABLED_GUILDS = {
 
 # Users exempt from auto-moderation (in addition to master)
 AUTOMOD_EXEMPT_USERS = [
-    1085236492571529287,  # Master user
+    1085236492571529287,
+    814791086114865233,# Master user
     # Add other user IDs here who should be exempt
     # 123456789012345678,  # Example: Moderator 1
     # 987654321098765432,  # Example: Moderator 2
@@ -3067,6 +3068,7 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
     else:
         await ctx.send("❌ Invalid action. Use `add`, `remove`, or `list`.")
 
-        
+
+
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
