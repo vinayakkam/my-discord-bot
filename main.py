@@ -122,6 +122,15 @@ async def vent(ctx):
 async def explore(ctx):
     await ctx.send(f"Hey stop bothering me it will come soon™️")
 
+GUILD_IDS = [
+    1411425019434766499,  # Replace with your first guild ID
+    1397218218535424090,
+    1210475350119813120,# Replace with your second guild ID
+    # Add more guild IDs as needed
+]
+
+# Convert guild IDs to discord.Object instances
+GUILDS = [discord.Object(id=guild_id) for guild_id in GUILD_IDS]
 
 @bot.command(name="ping")
 async def ping(ctx):
@@ -150,7 +159,34 @@ async def ping(ctx):
     # Edit original response to show embed
     await message.edit(content=None, embed=embed)
 
-@bot.tree.command(name="ping", description="Check the bot's latency", guild=GUILD)
+@bot.tree.command(name="ping", description="Check the bot's latency")
+async def ping(interaction: discord.Interaction):
+    start = time.perf_counter()
+
+    # Send initial response
+    await interaction.response.send_message("🏓 Pong...")
+
+    end = time.perf_counter()
+    response_time = (end - start) * 1000  # ms
+    ws_latency = bot.latency * 1000       # WebSocket latency (ms)
+    micro_latency = (end - start) * 1000  # Processing latency (same as response_time here)
+
+    # Create embed
+    embed = discord.Embed(
+        title="pong! 🏓",
+        color=discord.Color.red()
+    )
+
+    embed.add_field(name="⏳ Time", value=f"{int(response_time)} ms", inline=False)
+    embed.add_field(name="✨ Micro", value=f"{int(micro_latency)} ms", inline=False)
+    embed.add_field(name="📡 WS", value=f"{int(ws_latency)} ms", inline=False)
+
+    embed.set_footer(text=f"{interaction.user} • {time.strftime('%I:%M %p')}")
+
+    # Edit original response to show embed
+    await interaction.edit_original_response(content=None, embed=embed)
+
+'''@bot.tree.command(name="ping", description="Check the bot's latency", guild=GUILD)
 async def ping(interaction: discord.Interaction):
     start = time.perf_counter()
 
@@ -175,7 +211,7 @@ async def ping(interaction: discord.Interaction):
     embed.set_footer(text=f"{interaction.user} • {time.strftime('%I:%M %p')}")
 
     # Edit original response to show embed
-    await interaction.edit_original_response(content=None, embed=embed)
+    await interaction.edit_original_response(content=None, embed=embed)'''
 
 # In-memory scoreboard: {user_id: score}
 scores = {}
