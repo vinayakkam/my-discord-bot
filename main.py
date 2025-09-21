@@ -2578,7 +2578,7 @@ MASTER_ID = 814791086114865233  # make sure this is an int, no quotes
 
 # Map of guild_id -> list of allowed user IDs (multiple users can access same server)
 GUILD_USER_MAP = {
-    1210475350119813120: [814791086114865233],  # Multiple users for server 1
+    1210475350119813120: [814791086114865233,827552324389175297],  # Multiple users for server 1
     1397218218535424090: [1085236492571529287, 948973975353057341, 1418946895816167475, 1343933090191376446, 1357772900916138219],  # Multiple users for server 2
     # You can add more servers with their allowed user lists
     # 1234567890123456789: [111111111111111111, 222222222222222222],  # Example server 3
@@ -2776,7 +2776,13 @@ AUTOMOD_ENABLED_GUILDS = {
 # Users exempt from auto-moderation (in addition to master)
 AUTOMOD_EXEMPT_USERS = [
     1085236492571529287,
-    814791086114865233,# Master user
+    814791086114865233,
+    948973975353057341,
+    1343933090191376446,
+    1418946895816167475,
+    1414168461172539454,
+    827552324389175297,
+    # Master user
     # Add other user IDs here who should be exempt
     # 123456789012345678,  # Example: Moderator 1
     # 987654321098765432,  # Example: Moderator 2
