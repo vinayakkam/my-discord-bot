@@ -2574,58 +2574,195 @@ async def games(ctx):
 #trolling
 
 
+MASTER_ID = 814791086114865233  # make sure this is an int, no quotes
 
-# Master ID (can run command in ANY server)
-MASTER_ID = 814791086114865233  # replace with your master ID
-# Allowed guilds with multiple users per server
-# guild_id : [user_id1, user_id2, ...]
+# Map of guild_id -> list of allowed user IDs (multiple users can access same server)
 GUILD_USER_MAP = {
-    1210475350119813120: [814791086114865233],  # server A allowed users
-    1397218218535424090: [1085236492571529287, 948973975353057341, 1418946895816167475, 1343933090191376446, 1357772900916138219],  # server B allowed users
+    1210475350119813120: [814791086114865233],  # Multiple users for server 1
+    1397218218535424090: [1085236492571529287, 948973975353057341, 1418946895816167475, 1343933090191376446, 1357772900916138219],  # Multiple users for server 2
+    # You can add more servers with their allowed user lists
+    # 1234567890123456789: [111111111111111111, 222222222222222222],  # Example server 3
 }
 
-# Allowed guilds list derived from keys
-ALLOWED_GUILDS = list(GUILD_USER_MAP.keys())
+ALLOWED_GUILDS = set(GUILD_USER_MAP.keys())
+
 
 @bot.command(name="timeout")
 async def timeout(ctx, member: discord.Member, hours: int = 24):
-    # Check if the server is allowed
-    if ctx.guild.id not in ALLOWED_GUILDS:
-        await ctx.send("❌ This command can only be used in designated servers.")
-        return
+    # Must be used in a guild (not DM)
+    if ctx.guild is None:
+        return await ctx.send("❌ This command must be used in a server (not DMs).")
 
-    author_id = ctx.author.id
-    guild_id = ctx.guild.id
+    author_id = int(ctx.author.id)
+    member_id = int(member.id)
+    guild_id = int(ctx.guild.id)
 
-    # Case 1: Master running the command at all
-    if author_id == MASTER_ID:
-        await ctx.send("👑 I can’t timeout my father!")
-        return
+    # DEBUG: uncomment if you want to see values in console for troubleshooting
+    # print(f"[timeout] author={author_id}, member={member_id}, guild={guild_id}, MASTER={MASTER_ID}")
 
-    # Case 2: Anyone trying to timeout the master user
-    if member.id == MASTER_ID:
-        await ctx.send("👑 You can’t timeout my father!")
-        return
+    # 1) First check if server is allowed
+    if guild_id not in ALLOWED_GUILDS:
+        error_embed = discord.Embed(
+            title="❌ Server Not Authorized",
+            description="This command can only be used in designated servers.",
+            color=0xff0000
+        )
+        return await ctx.send(embed=error_embed)
 
-    # Check if author is allowed in this server
-    allowed_users_for_guild = GUILD_USER_MAP.get(guild_id, [])
-    if author_id not in allowed_users_for_guild:
-        await ctx.send("❌ You are not allowed to use this command in this server.")
-        return
+    # 2) Check if author is allowed in this guild (except master)
+    allowed_users = GUILD_USER_MAP.get(guild_id, [])
+    if author_id != MASTER_ID and author_id not in allowed_users:
+        error_embed = discord.Embed(
+            title="❌ Access Denied",
+            description="You are not allowed to use this command in this server.",
+            color=0xff0000
+        )
+        error_embed.set_thumbnail(url=ctx.author.display_avatar.url)
+        return await ctx.send(embed=error_embed)
 
+    # 3) Block attempts to timeout the master user
+    if member_id == MASTER_ID:
+        master_embed = discord.Embed(
+            title="👑 Cannot Target Master",
+            description="You can't timeout the master!",
+            color=0xffd700  # Gold color
+        )
+        master_embed.set_thumbnail(url=member.display_avatar.url)
+        return await ctx.send(embed=master_embed)
+
+    # 4) Block master from timing out anyone (if you want this behavior)
+    # Remove this section if you want the master to be able to use the command
+
+    # 5) Perform timeout / remove timeout
     try:
         if hours <= 0:
-            # Remove timeout
             await member.timeout(None, reason=f"Timeout removed by {ctx.author}")
-            await ctx.send(f"✅ Timeout removed from {member.mention}.")
+
+            # Create embed for timeout removal
+            embed = discord.Embed(
+                title="🔓 Timeout Removed",
+                description=f"{member.mention} has been freed from timeout!",
+                color=0x00ff00,  # Green color
+                timestamp=ctx.message.created_at
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.add_field(name="User", value=f"{member.name}#{member.discriminator}", inline=True)
+            embed.add_field(name="Moderator", value=f"{ctx.author.mention}", inline=True)
+            embed.add_field(name="Server", value=f"{ctx.guild.name}", inline=False)
+            embed.set_footer(text=f"User ID: {member.id}")
+
+            await ctx.send(embed=embed)
+
         else:
+            # Discord has a maximum timeout of 28 days
+            max_hours = 28 * 24  # 28 days in hours
+            original_hours = hours
+            if hours > max_hours:
+                hours = max_hours
+
             duration = timedelta(hours=hours)
             await member.timeout(duration, reason=f"Timed out by {ctx.author}")
-            await ctx.send(f"✅ {member.mention} has been timed out for {hours} hours.")
-    except discord.Forbidden:
-        await ctx.send("❌ I don't have permission or my role is too low to timeout this member.")
-    except Exception as e:
-        await ctx.send(f"❌ Could not update timeout for {member.mention}. Error: {e}")
 
+            # Create embed for timeout
+            embed = discord.Embed(
+                title="🔇 User Timed Out",
+                description=f"{member.mention} has been placed in timeout",
+                color=0xff6b6b,  # Red color
+                timestamp=ctx.message.created_at
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.add_field(name="User", value=f"{member.name}#{member.discriminator}", inline=True)
+            embed.add_field(name="Duration", value=f"{hours} hours", inline=True)
+            embed.add_field(name="Moderator", value=f"{ctx.author.mention}", inline=True)
+
+            # Calculate when timeout ends
+            end_time = ctx.message.created_at + duration
+            embed.add_field(name="Ends At", value=f"<t:{int(end_time.timestamp())}:F>", inline=True)
+            embed.add_field(name="Server", value=f"{ctx.guild.name}", inline=True)
+            embed.add_field(name="​", value="​", inline=True)  # Empty field for spacing
+
+            embed.set_footer(text=f"User ID: {member.id}")
+
+            # Add warning if hours were capped
+            if original_hours > max_hours:
+                embed.add_field(
+                    name="⚠️ Note",
+                    value=f"Requested {original_hours} hours, but maximum is {max_hours} hours (28 days)",
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+    except discord.Forbidden:
+        error_embed = discord.Embed(
+            title="❌ Permission Error",
+            description="I don't have permission or my role is too low to timeout this member.",
+            color=0xff0000
+        )
+        error_embed.set_thumbnail(url=member.display_avatar.url)
+        await ctx.send(embed=error_embed)
+
+    except discord.HTTPException as e:
+        if e.status == 50013:  # Missing permissions
+            error_embed = discord.Embed(
+                title="❌ Permission Error",
+                description="I don't have the required permissions to timeout this member.",
+                color=0xff0000
+            )
+        else:
+            error_embed = discord.Embed(
+                title="❌ Discord API Error",
+                description=f"Discord API error: {e}",
+                color=0xff0000
+            )
+        error_embed.set_thumbnail(url=member.display_avatar.url)
+        await ctx.send(embed=error_embed)
+
+    except Exception as e:
+        error_embed = discord.Embed(
+            title="❌ Unexpected Error",
+            description=f"Could not update timeout for {member.mention}",
+            color=0xff0000
+        )
+        error_embed.add_field(name="Error Details", value=str(e), inline=False)
+        error_embed.set_thumbnail(url=member.display_avatar.url)
+        await ctx.send(embed=error_embed)
+
+
+# Optional: Add a command to check who can use timeout in current server
+@bot.command(name="timeout_users")
+async def timeout_users(ctx):
+    """Show which users can use the timeout command in this server"""
+    if ctx.guild is None:
+        return await ctx.send("❌ This command must be used in a server (not DMs).")
+
+    guild_id = int(ctx.guild.id)
+    author_id = int(ctx.author.id)
+
+    # Only allow master or authorized users to see this info
+    allowed_users = GUILD_USER_MAP.get(guild_id, [])
+    if author_id != MASTER_ID and author_id not in allowed_users:
+        return await ctx.send("❌ You are not allowed to use this command in this server.")
+
+    if guild_id not in ALLOWED_GUILDS:
+        return await ctx.send("❌ This server is not configured for timeout commands.")
+
+    user_mentions = []
+    for user_id in allowed_users:
+        try:
+            user = await bot.fetch_user(user_id)
+            user_mentions.append(f"• {user.mention} ({user.name})")
+        except:
+            user_mentions.append(f"• User ID: {user_id} (user not found)")
+
+    if user_mentions:
+        embed = discord.Embed(
+            title="Authorized Timeout Users",
+            description="\n".join(user_mentions),
+            color=0x00ff00
+        )
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("❌ No users are configured for this server.")
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
