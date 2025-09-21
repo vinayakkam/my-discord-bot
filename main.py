@@ -2886,105 +2886,186 @@ def add_score(user_id, points=1):
     scores[str(user_id)] = scores.get(str(user_id), 0) + points
     save_scores()
 
+
 @bot.command(name="games")
 async def games(ctx):
+    """Display a beautiful, comprehensive list of all available games."""
+
+    # Create main embed with gradient-like color and attractive styling
     embed = discord.Embed(
-        title="🎮 Mini-Game Bot — Full Games List",
-        description="Choose from fun mini-games below (points vary by difficulty):",
-        color=discord.Color.blurple()
+        title="🎮 Space Gaming Hub — Complete Game Collection",
+        description="**Welcome to the ultimate space-themed gaming experience!**\n\nChoose from our collection of mini-games, challenges, and simulations. Earn points, climb the leaderboard, and become the ultimate space commander!",
+        color=0x5865F2,  # Discord's blurple
+        timestamp=ctx.message.created_at
     )
 
-    # Quick play mini-games
-    embed.add_field(
-        name="🪨📄✂️ Rock Paper Scissors",
-        value="`!rps <rock|paper|scissors>` — Play with the bot. (+1 point if you win)",
-        inline=False
+    # Set thumbnail and author
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.set_author(name=f"Games requested by {ctx.author.display_name}", icon_url=ctx.author.display_avatar.url)
+
+    # Quick Play Games Section
+    quick_games = (
+        "🪨📄✂️ **Rock Paper Scissors** — `!rps`\n"
+        "├ Classic RPS battle with the bot\n"
+        "└ **Reward:** +1 point for victory\n\n"
+
+        "🪙 **Coin Flip** — `!coinflip`\n"
+        "├ Test your luck with a simple coin toss\n"
+        "└ **Reward:** +1 point for correct guess\n\n"
+
+        "🎲 **Dice Roll** — `!dice <guess> <sides>`\n"
+        "├ Roll dice and predict the outcome\n"
+        "└ **Reward:** +1 point for exact match\n\n"
+
+        "🔢 **Number Guess** — `!guess`\n"
+        "├ Guess a number between 1-10 in 15 seconds\n"
+        "└ **Reward:** +1 point for correct answer"
     )
+
     embed.add_field(
-        name="🪙 Coin Flip",
-        value="`!coinflip <heads|tails>` — Guess a coin flip. (+1 point if correct)",
-        inline=False
-    )
-    embed.add_field(
-        name="🎲 Dice Roll",
-        value="`!dice <guess> <sides>` — Roll dice (optional guess & sides). (+1 point if guess matches)",
-        inline=False
-    )
-    embed.add_field(
-        name="🔢 Number Guess",
-        value="`!guess` — Guess a number between 1 and 10 in 15s (+1 point if correct).",
+        name="⚡ Quick Play Games",
+        value=quick_games,
         inline=False
     )
 
-    # Trivia / quiz games
+    # Knowledge Games Section
+    knowledge_games = (
+        "🎓 **Space Trivia** — `!trivia`\n"
+        "├ Test your knowledge of space, planets, and the universe\n"
+        "├ Three difficulty levels: Easy (1pt) • Medium (2pts) • Hard (3pts)\n"
+        "└ **Features:** Interactive buttons, timed questions, detailed explanations\n\n"
+
+        "🔤 **Word Unscramble** — `!unscramble`\n"
+        "├ Unscramble words of varying difficulty\n"
+        "├ Categories: Simple words • Space terms • Technical vocabulary\n"
+        "└ **Rewards:** Easy (+1pt) • Medium (+2pts) • Hard (+3pts)\n\n"
+
+        "🧮 **Math Quiz** — `!mathquiz`\n"
+        "├ Solve random mathematical problems\n"
+        "└ **Reward:** +1 point for correct solution\n\n"
+
+        "7️⃣ **Rocket Design Quiz** — `!rocketdesign`\n"
+        "├ Choose engines, tank sizes, and staging\n"
+        "├ Design your own custom rocket configuration\n"
+        "└ **Rewards:** Success based on engineering choices"
+    )
+
     embed.add_field(
-        name="🎓 Trivia Quiz",
+        name="🧠 Knowledge & Puzzle Games",
+        value=knowledge_games,
+        inline=False
+    )
+
+    # Advanced Simulation Games Section
+    simulation_games = (
+        "🛰️ **Starship Mission** — `!mission`\n"
+        "├ Manage resources: Fuel, Food, and Research\n"
+        "├ Make strategic decisions to survive in space\n"
+        "└ **Rewards:** Points scale with survival turns\n\n"
+
+        "🪝 **Booster Catch Challenge** — `!catchbooster`\n"
+        "├ Position mechanical arms like Mechazilla\n"
+        "├ Time your catch with precision and accuracy\n"
+        "└ **Rewards:** Points based on reaction time & precision\n\n"
+
+        "🚀 **Starship Predictor** — `!starship`\n"
+        "├ Simulate full Starship launch (Booster + Ship)\n"
+        "├ Answer mission parameters and technical questions\n"
+        "└ **Rewards:** Success probability affects point multiplier\n\n"
+
+        "🚀 **Ship Simulation** — `!predict <shipname>`\n"
+        "├ Predict success for specific Starship vehicles\n"
+        "├ Choose ship name and mission parameters\n"
+        "└ **Rewards:** Based on prediction accuracy"
+    )
+
+    embed.add_field(
+        name="🚀 Advanced Simulations",
+        value=simulation_games,
+        inline=False
+    )
+
+    # Coming Soon Section
+    coming_soon = (
+        "🌌 **Galaxy Exploration** 🔜\n"
+        "├ Explore procedurally generated star systems\n"
+        "└ **Rewards:** Discover rare planets and phenomena\n\n"
+    )
+
+    embed.add_field(
+        name="🔮 Coming Soon",
+        value=coming_soon,
+        inline=False
+    )
+
+    # Stats and Leaderboard Section
+    stats_info = (
+        "🏆 **Leaderboard** — `!leaderboard`\n"
+        "├ View top 10 players in your server\n"
+        "├ Automatic Leader role assignment\n"
+        "└ Server-specific rankings with medals\n\n"
+
+        "📊 **Your Stats** — `!stats` *(Coming Soon)*\n"
+        "├ Personal gaming statistics\n"
+        "├ Game completion rates and streaks\n"
+        "└ Achievement progress tracking"
+    )
+
+    embed.add_field(
+        name="📈 Statistics & Rankings",
+        value=stats_info,
+        inline=False
+    )
+
+    # Game Categories Overview
+    embed.add_field(
+        name="🎯 Difficulty & Rewards",
         value=(
-            "Answer space-themed questions:\n"
-            "`!trivia`"
+            "**🟢 Easy Games:** +1 point • Quick and accessible\n"
+            "**🟡 Medium Games:** +2 points • Moderate challenge\n"
+            "**🔴 Hard Games:** +3 points • Expert level difficulty\n"
+            "**⭐ Bonus Rewards:** Performance-based scaling"
         ),
-        inline=False
+        inline=True
     )
+
     embed.add_field(
-        name="🧮 Math Quiz",
-        value="`!mathquiz` — Solve a random math question (+1 point if correct).",
-        inline=False
-    )
-    embed.add_field(
-        name="🔤 Word Unscramble",
+        name="🎮 Game Categories",
         value=(
-            "`!unscramble easy` — Easy words (+1 pt)\n"
-            "`!unscramble medium` — Moderate words (+2 pt)\n"
-            "`!unscramble hard` — Space/technical words (+3 pt)"
+            "**⚡ Quick Play:** Instant fun games\n"
+            "**🧠 Knowledge:** Test your brain power\n"
+            "**🚀 Simulations:** Complex challenges\n"
+            "**🏆 Competitive:** Leaderboard climbing"
         ),
-        inline=False
+        inline=True
     )
 
-    # Resource Management / Mission game
     embed.add_field(
-        name="🛰️ Starship Mission (Resource Management)",
+        name="💡 Pro Tips",
         value=(
-            "`!mission` — Start your mission and manage Fuel, Food, and Research.\n"
-            "Survive as many turns as possible to earn points!"
+            "• Play daily to climb the leaderboard\n"
+            "• Try different difficulties for variety\n"
+            "• Challenge friends to beat your scores\n"
+            "• Master hard games for maximum points"
         ),
-        inline=False
+        inline=True
     )
 
-    # Booster catching + Rocket building
-    embed.add_field(
-        name="🪝 Booster Catch Game (Complex)",
-        value="`!catchbooster` — Position the arms and time your catch like Mechazilla.io! Points scale with accuracy and reaction time.",
-        inline=False
-    )
-    embed.add_field(
-        name="7️⃣ Rocket Design Quiz",
-        value="(Coming Soon) Pick engines, tank size, and stage design to create your own rocket. Success chance based on your choices!",
-        inline=False
-    )
+    # Add server info if available
+    if ctx.guild:
+        embed.add_field(
+            name=f"🏠 Playing in {ctx.guild.name}",
+            value=f"**{len(ctx.guild.members)}** members • **{len([m for m in ctx.guild.members if not m.bot])}** humans",
+            inline=False
+        )
 
-    # Starship predictors
-    embed.add_field(
-        name="🚀 Starship Predictor (Booster+Ship)",
-        value="`!starship` — Answer quick questions to simulate SpaceX Starship full launch success chance.",
-        inline=False
-    )
-    embed.add_field(
-        name="🚀 Starship Ship Simulation (Ship only)",
-        value="`!predict` — Predict launch success chance for a specific Starship **ship only** (asks for ship name).",
-        inline=False
-    )
-
-    # Leaderboard
-    embed.add_field(
-        name="🏆 Leaderboard",
-        value="`!leaderboard` — View the top 10 players and their total points.",
-        inline=False
-    )
-
+    # Footer with additional info
     embed.set_footer(
-        text="✅ Points: Easy +1 • Medium +2 • Hard +3 — stored in scores.json. Some games scale points based on performance!"
+        text="🌟 All progress saved automatically • Use !help for command details • New games added regularly!",
+        icon_url=ctx.bot.user.display_avatar.url if ctx.bot.user else None
     )
 
+    # Send the main embed
     await ctx.send(embed=embed)
 #trolling
 
