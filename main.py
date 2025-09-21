@@ -3571,7 +3571,7 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
     else:
         await ctx.send("❌ Invalid action. Use `add`, `remove`, or `list`.")
 
-@bot.command(name="boom")
+@bot.command(name="bigboom")
 async def gif(ctx):
     """Send an embed with a GIF."""
     embed = discord.Embed(
