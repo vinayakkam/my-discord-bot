@@ -132,7 +132,7 @@ GUILD_IDS = [
 # Convert guild IDs to discord.Object instances
 GUILDS = [discord.Object(id=guild_id) for guild_id in GUILD_IDS]
 
-@bot.tree.command(name="ping", description="Check the bot's latency", guilds=GUILDS)
+@bot.tree.command(name="ping", description="Check the bot's latency")
 async def ping(interaction: discord.Interaction):
     start = time.perf_counter()
 
