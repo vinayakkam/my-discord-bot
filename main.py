@@ -3575,8 +3575,8 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
 async def gif(ctx):
     """Send an embed with a GIF."""
     embed = discord.Embed(
-        title="**BOOM**",
-        description="Here is your Boom!",
+        title="**Big BOOM**",
+        description="Here is your Big Boom!",
         color=discord.Color.blurple()
     )
     embed.set_image(url="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExb2s4enRlejRsMjRqOHgxcXVpYXlsbGxpMDNiMG5mMXhkdWo1NmdrMyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Ctv4yNLNfSpPd704nO/giphy.gif")
