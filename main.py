@@ -1998,7 +1998,7 @@ class CatchGameView(discord.ui.View):
             self.update_button_states()
             await interaction.response.defer()
 
-    @discord.ui.button(label='🥢 CATCH!', style=discord.ButtonStyle.success, emoji='🤏')
+    @discord.ui.button(label='CATCH!', style=discord.ButtonStyle.success, emoji='🥢')
     async def catch_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user == self.game.ctx.author:
             self.game.handle_action('catch')
