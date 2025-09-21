@@ -476,76 +476,128 @@ async def leaderboard(ctx):
 # 60 Space Trivia Questions (20 each difficulty)
 TRIVIA_QUESTIONS = {
     "easy": [
-        {"question": "Which planet is closest to the Sun?", "options": ["Mercury", "Venus", "Earth"], "answer": "Mercury"},
-        {"question": "Which planet is known as the Red Planet?", "options": ["Mars", "Venus", "Jupiter"], "answer": "Mars"},
-        {"question": "What galaxy is Earth located in?", "options": ["Milky Way", "Andromeda", "Triangulum"], "answer": "Milky Way"},
-        {"question": "Which planet has rings visible from Earth?", "options": ["Saturn", "Jupiter", "Neptune"], "answer": "Saturn"},
-        {"question": "Which planet has the Great Red Spot?", "options": ["Jupiter", "Mars", "Saturn"], "answer": "Jupiter"},
-        {"question": "What is the smallest planet in our solar system?", "options": ["Mercury", "Mars", "Venus"], "answer": "Mercury"},
-        {"question": "What is the Sun mostly made of?", "options": ["Hydrogen", "Oxygen", "Helium"], "answer": "Hydrogen"},
-        {"question": "Which planet is famous for its rings?", "options": ["Saturn", "Uranus", "Neptune"], "answer": "Saturn"},
-        {"question": "Which is the third planet from the Sun?", "options": ["Earth", "Venus", "Mars"], "answer": "Earth"},
+        {"question": "Which planet is closest to the Sun?", "options": ["Mercury", "Venus", "Earth"],
+         "answer": "Mercury"},
+        {"question": "Which planet is known as the Red Planet?", "options": ["Mars", "Venus", "Jupiter"],
+         "answer": "Mars"},
+        {"question": "What galaxy is Earth located in?", "options": ["Milky Way", "Andromeda", "Triangulum"],
+         "answer": "Milky Way"},
+        {"question": "Which planet has rings visible from Earth?", "options": ["Saturn", "Jupiter", "Neptune"],
+         "answer": "Saturn"},
+        {"question": "Which planet has the Great Red Spot?", "options": ["Jupiter", "Mars", "Saturn"],
+         "answer": "Jupiter"},
+        {"question": "What is the smallest planet in our solar system?", "options": ["Mercury", "Mars", "Venus"],
+         "answer": "Mercury"},
+        {"question": "What is the Sun mostly made of?", "options": ["Hydrogen", "Oxygen", "Helium"],
+         "answer": "Hydrogen"},
+        {"question": "Which planet is famous for its rings?", "options": ["Saturn", "Uranus", "Neptune"],
+         "answer": "Saturn"},
+        {"question": "Which is the third planet from the Sun?", "options": ["Earth", "Venus", "Mars"],
+         "answer": "Earth"},
         {"question": "Which is the hottest planet?", "options": ["Venus", "Mercury", "Mars"], "answer": "Venus"},
-        {"question": "What is the Moon’s gravitational pull compared to Earth?", "options": ["1/6th", "1/2", "1/10th"], "answer": "1/6th"},
-        {"question": "Which planet rotates on its side?", "options": ["Uranus", "Neptune", "Venus"], "answer": "Uranus"},
-        {"question": "Which planet has the fastest rotation?", "options": ["Jupiter", "Saturn", "Earth"], "answer": "Jupiter"},
-        {"question": "What’s the name of Earth’s only natural satellite?", "options": ["Moon", "Phobos", "Europa"], "answer": "Moon"},
+        {"question": "What is the Moon's gravitational pull compared to Earth?", "options": ["1/6th", "1/2", "1/10th"],
+         "answer": "1/6th"},
+        {"question": "Which planet rotates on its side?", "options": ["Uranus", "Neptune", "Venus"],
+         "answer": "Uranus"},
+        {"question": "Which planet has the fastest rotation?", "options": ["Jupiter", "Saturn", "Earth"],
+         "answer": "Jupiter"},
+        {"question": "What's the name of Earth's only natural satellite?", "options": ["Moon", "Phobos", "Europa"],
+         "answer": "Moon"},
         {"question": "Which planet has Olympus Mons?", "options": ["Mars", "Earth", "Venus"], "answer": "Mars"},
         {"question": "How many planets are in the Solar System?", "options": ["8", "9", "7"], "answer": "8"},
-        {"question": "Which planet has a day longer than its year?", "options": ["Venus", "Mercury", "Mars"], "answer": "Venus"},
-        {"question": "Who was the first human in space?", "options": ["Yuri Gagarin", "Neil Armstrong", "Buzz Aldrin"], "answer": "Yuri Gagarin"},
+        {"question": "Which planet has a day longer than its year?", "options": ["Venus", "Mercury", "Mars"],
+         "answer": "Venus"},
+        {"question": "Who was the first human in space?", "options": ["Yuri Gagarin", "Neil Armstrong", "Buzz Aldrin"],
+         "answer": "Yuri Gagarin"},
         {"question": "What is the name of our star?", "options": ["Sun", "Sirius", "Proxima"], "answer": "Sun"},
-        {"question": "What do we call a large rock in space?", "options": ["Asteroid", "Comet", "Meteor"], "answer": "Asteroid"},
+        {"question": "What do we call a large rock in space?", "options": ["Asteroid", "Comet", "Meteor"],
+         "answer": "Asteroid"},
     ],
     "medium": [
-        {"question": "Which planet has the most moons?", "options": ["Saturn", "Jupiter", "Neptune"], "answer": "Saturn"},
-        {"question": "What’s the name of the first artificial satellite?", "options": ["Sputnik 1", "Explorer 1", "Vostok 1"], "answer": "Sputnik 1"},
-        {"question": "Which planet is tilted at 98 degrees?", "options": ["Uranus", "Neptune", "Saturn"], "answer": "Uranus"},
+        {"question": "Which planet has the most moons?", "options": ["Saturn", "Jupiter", "Neptune"],
+         "answer": "Saturn"},
+        {"question": "What's the name of the first artificial satellite?",
+         "options": ["Sputnik 1", "Explorer 1", "Vostok 1"], "answer": "Sputnik 1"},
+        {"question": "Which planet is tilted at 98 degrees?", "options": ["Uranus", "Neptune", "Saturn"],
+         "answer": "Uranus"},
         {"question": "How many planets have rings?", "options": ["4", "2", "1"], "answer": "4"},
-        {"question": "Which dwarf planet is in the asteroid belt?", "options": ["Ceres", "Pluto", "Eris"], "answer": "Ceres"},
-        {"question": "Which planet has the fastest winds?", "options": ["Neptune", "Saturn", "Mars"], "answer": "Neptune"},
-        {"question": "Which space telescope launched in 1990?", "options": ["Hubble", "Kepler", "Chandra"], "answer": "Hubble"},
-        {"question": "What’s the largest planet?", "options": ["Jupiter", "Saturn", "Neptune"], "answer": "Jupiter"},
-        {"question": "What’s the coldest planet?", "options": ["Neptune", "Uranus", "Pluto"], "answer": "Neptune"},
-        {"question": "Which mission first landed humans on the Moon?", "options": ["Apollo 11", "Apollo 12", "Apollo 10"], "answer": "Apollo 11"},
-        {"question": "Which planet has methane lakes?", "options": ["Titan (moon)", "Mars", "Venus"], "answer": "Titan (moon)"},
-        {"question": "What’s the name of Mars’ largest moon?", "options": ["Phobos", "Deimos", "Europa"], "answer": "Phobos"},
-        {"question": "What does NASA stand for?", "options": ["National Aeronautics and Space Administration", "National Aerospace and Space Association", "New Aeronautics Space Agency"], "answer": "National Aeronautics and Space Administration"},
-        {"question": "Which probe left the solar system first?", "options": ["Voyager 1", "Voyager 2", "Pioneer 10"], "answer": "Voyager 1"},
-        {"question": "What’s the densest planet?", "options": ["Earth", "Jupiter", "Venus"], "answer": "Earth"},
-        {"question": "Which planet has the tallest known mountain?", "options": ["Mars", "Venus", "Mercury"], "answer": "Mars"},
-        {"question": "What’s the most common type of star?", "options": ["Red Dwarf", "White Dwarf", "Blue Giant"], "answer": "Red Dwarf"},
-        {"question": "What’s the boundary of a black hole called?", "options": ["Event Horizon", "Singularity", "Accretion Disk"], "answer": "Event Horizon"},
-        {"question": "What is the main gas of Neptune?", "options": ["Hydrogen", "Methane", "Oxygen"], "answer": "Methane"},
-        {"question": "Which planet’s day is about 10 hours long?", "options": ["Jupiter", "Mars", "Saturn"], "answer": "Jupiter"},
+        {"question": "Which dwarf planet is in the asteroid belt?", "options": ["Ceres", "Pluto", "Eris"],
+         "answer": "Ceres"},
+        {"question": "Which planet has the fastest winds?", "options": ["Neptune", "Saturn", "Mars"],
+         "answer": "Neptune"},
+        {"question": "Which space telescope launched in 1990?", "options": ["Hubble", "Kepler", "Chandra"],
+         "answer": "Hubble"},
+        {"question": "What's the largest planet?", "options": ["Jupiter", "Saturn", "Neptune"], "answer": "Jupiter"},
+        {"question": "What's the coldest planet?", "options": ["Neptune", "Uranus", "Pluto"], "answer": "Neptune"},
+        {"question": "Which mission first landed humans on the Moon?",
+         "options": ["Apollo 11", "Apollo 12", "Apollo 10"], "answer": "Apollo 11"},
+        {"question": "Which planet has methane lakes?", "options": ["Titan (moon)", "Mars", "Venus"],
+         "answer": "Titan (moon)"},
+        {"question": "What's the name of Mars' largest moon?", "options": ["Phobos", "Deimos", "Europa"],
+         "answer": "Phobos"},
+        {"question": "What does NASA stand for?",
+         "options": ["National Aeronautics and Space Administration", "National Aerospace and Space Association",
+                     "New Aeronautics Space Agency"], "answer": "National Aeronautics and Space Administration"},
+        {"question": "Which probe left the solar system first?", "options": ["Voyager 1", "Voyager 2", "Pioneer 10"],
+         "answer": "Voyager 1"},
+        {"question": "What's the densest planet?", "options": ["Earth", "Jupiter", "Venus"], "answer": "Earth"},
+        {"question": "Which planet has the tallest known mountain?", "options": ["Mars", "Venus", "Mercury"],
+         "answer": "Mars"},
+        {"question": "What's the most common type of star?", "options": ["Red Dwarf", "White Dwarf", "Blue Giant"],
+         "answer": "Red Dwarf"},
+        {"question": "What's the boundary of a black hole called?",
+         "options": ["Event Horizon", "Singularity", "Accretion Disk"], "answer": "Event Horizon"},
+        {"question": "What is the main gas of Neptune?", "options": ["Hydrogen", "Methane", "Oxygen"],
+         "answer": "Methane"},
+        {"question": "Which planet's day is about 10 hours long?", "options": ["Jupiter", "Mars", "Saturn"],
+         "answer": "Jupiter"},
     ],
     "hard": [
-        {"question": "Which moon has the highest albedo (reflectivity)?", "options": ["Enceladus", "Europa", "Ganymede"], "answer": "Enceladus"},
-        {"question": "What’s the average distance from Earth to the Sun?", "options": ["1 AU", "93 million miles", "Both"], "answer": "Both"},
-        {"question": "Which planet has a hexagon-shaped storm?", "options": ["Saturn", "Jupiter", "Neptune"], "answer": "Saturn"},
-        {"question": "What’s the densest moon?", "options": ["Io", "Europa", "Titan"], "answer": "Io"},
-        {"question": "Which spacecraft carried the Golden Record?", "options": ["Voyager", "Pioneer", "New Horizons"], "answer": "Voyager"},
-        {"question": "What’s the most volcanically active body?", "options": ["Io", "Earth", "Venus"], "answer": "Io"},
-        {"question": "How long does sunlight take to reach Earth?", "options": ["8 minutes", "5 minutes", "10 minutes"], "answer": "8 minutes"},
-        {"question": "Which exoplanet was the first discovered?", "options": ["51 Pegasi b", "Kepler-22b", "Proxima b"], "answer": "51 Pegasi b"},
-        {"question": "What’s the approximate age of the Universe?", "options": ["13.8 billion years", "10 billion years", "15 billion years"], "answer": "13.8 billion years"},
-        {"question": "What’s the smallest exoplanet discovered (as of now)?", "options": ["Kepler-37b", "Proxima b", "TRAPPIST-1d"], "answer": "Kepler-37b"},
-        {"question": "Which star is closest to our Solar System?", "options": ["Proxima Centauri", "Alpha Centauri A", "Barnard’s Star"], "answer": "Proxima Centauri"},
-        {"question": "What’s at the center of the Milky Way?", "options": ["Black Hole", "Neutron Star", "Dark Matter Cloud"], "answer": "Black Hole"},
-        {"question": "What element powers the Sun?", "options": ["Hydrogen fusion", "Helium fusion", "Oxygen burning"], "answer": "Hydrogen fusion"},
-        {"question": "Which mission landed on Titan?", "options": ["Huygens", "Viking", "New Horizons"], "answer": "Huygens"},
-        {"question": "Which planet has a moon called Triton?", "options": ["Neptune", "Uranus", "Saturn"], "answer": "Neptune"},
-        {"question": "Which galaxy is colliding with the Milky Way?", "options": ["Andromeda", "Triangulum", "Whirlpool"], "answer": "Andromeda"},
-        {"question": "Which type of star explodes as a supernova?", "options": ["Massive Star", "Brown Dwarf", "Red Dwarf"], "answer": "Massive Star"},
-        {"question": "What’s the approximate escape velocity from Earth?", "options": ["11.2 km/s", "7.9 km/s", "15 km/s"], "answer": "11.2 km/s"},
-        {"question": "Which moon has a subsurface ocean beneath its ice crust?", "options": ["Europa", "Enceladus", "Callisto"], "answer": "Europa"},
-        {"question": "What’s the name of the region of icy bodies beyond Neptune?", "options": ["Kuiper Belt", "Oort Cloud", "Asteroid Belt"], "answer": "Kuiper Belt"},
+        {"question": "Which moon has the highest albedo (reflectivity)?",
+         "options": ["Enceladus", "Europa", "Ganymede"], "answer": "Enceladus"},
+        {"question": "What's the average distance from Earth to the Sun?",
+         "options": ["1 AU", "93 million miles", "Both"], "answer": "Both"},
+        {"question": "Which planet has a hexagon-shaped storm?", "options": ["Saturn", "Jupiter", "Neptune"],
+         "answer": "Saturn"},
+        {"question": "What's the densest moon?", "options": ["Io", "Europa", "Titan"], "answer": "Io"},
+        {"question": "Which spacecraft carried the Golden Record?", "options": ["Voyager", "Pioneer", "New Horizons"],
+         "answer": "Voyager"},
+        {"question": "What's the most volcanically active body?", "options": ["Io", "Earth", "Venus"], "answer": "Io"},
+        {"question": "How long does sunlight take to reach Earth?", "options": ["8 minutes", "5 minutes", "10 minutes"],
+         "answer": "8 minutes"},
+        {"question": "Which exoplanet was the first discovered?", "options": ["51 Pegasi b", "Kepler-22b", "Proxima b"],
+         "answer": "51 Pegasi b"},
+        {"question": "What's the approximate age of the Universe?",
+         "options": ["13.8 billion years", "10 billion years", "15 billion years"], "answer": "13.8 billion years"},
+        {"question": "What's the smallest exoplanet discovered (as of now)?",
+         "options": ["Kepler-37b", "Proxima b", "TRAPPIST-1d"], "answer": "Kepler-37b"},
+        {"question": "Which star is closest to our Solar System?",
+         "options": ["Proxima Centauri", "Alpha Centauri A", "Barnard's Star"], "answer": "Proxima Centauri"},
+        {"question": "What's at the center of the Milky Way?",
+         "options": ["Black Hole", "Neutron Star", "Dark Matter Cloud"], "answer": "Black Hole"},
+        {"question": "What element powers the Sun?", "options": ["Hydrogen fusion", "Helium fusion", "Oxygen burning"],
+         "answer": "Hydrogen fusion"},
+        {"question": "Which mission landed on Titan?", "options": ["Huygens", "Viking", "New Horizons"],
+         "answer": "Huygens"},
+        {"question": "Which planet has a moon called Triton?", "options": ["Neptune", "Uranus", "Saturn"],
+         "answer": "Neptune"},
+        {"question": "Which galaxy is colliding with the Milky Way?",
+         "options": ["Andromeda", "Triangulum", "Whirlpool"], "answer": "Andromeda"},
+        {"question": "Which type of star explodes as a supernova?",
+         "options": ["Massive Star", "Brown Dwarf", "Red Dwarf"], "answer": "Massive Star"},
+        {"question": "What's the approximate escape velocity from Earth?",
+         "options": ["11.2 km/s", "7.9 km/s", "15 km/s"], "answer": "11.2 km/s"},
+        {"question": "Which moon has a subsurface ocean beneath its ice crust?",
+         "options": ["Europa", "Enceladus", "Callisto"], "answer": "Europa"},
+        {"question": "What's the name of the region of icy bodies beyond Neptune?",
+         "options": ["Kuiper Belt", "Oort Cloud", "Asteroid Belt"], "answer": "Kuiper Belt"},
     ],
 }
 
 LETTERS = ["A", "B", "C"]
 
-class DifficultyDropdown(discord.ui.Select):
+
+class TriviaDifficultyDropdown(discord.ui.Select):
     def __init__(self, ctx):
         self.ctx = ctx
         options = [
@@ -563,14 +615,14 @@ class DifficultyDropdown(discord.ui.Select):
         difficulty = self.values[0].lower()
         await interaction.response.defer()  # acknowledge
 
-        await interaction.message.edit(content=f"🎲 Loading {difficulty.capitalize()} question…", view=None)
+        await interaction.edit_original_response(content=f"🎲 Loading {difficulty.capitalize()} question…", view=None)
         await send_trivia_question(self.ctx, difficulty)
 
 
-class DifficultyView(discord.ui.View):
+class TriviaDifficultyView(discord.ui.View):
     def __init__(self, ctx, timeout=60):
         super().__init__(timeout=timeout)
-        self.add_item(DifficultyDropdown(ctx))
+        self.add_item(TriviaDifficultyDropdown(ctx))
 
 
 class AnswerButtons(discord.ui.View):
@@ -612,45 +664,66 @@ class AnswerButton(discord.ui.Button):
 
         await view.disable_all(interaction)  # disables buttons immediately
 
+        # Create difficulty color mapping
+        difficulty_colors = {
+            "easy": discord.Color.green(),
+            "medium": discord.Color.orange(),
+            "hard": discord.Color.red()
+        }
+
         if chosen == correct_letter:
             add_score(interaction.user.id, points)
             total = scores.get(str(interaction.user.id), 0)
             result_embed = discord.Embed(
                 title="✅ Correct!",
-                description=f"You answered **{chosen}) {chosen_answer}** — +{points} point(s)!\n"
-                            f"Total points: **{total}**",
-                color=discord.Color.green())
+                description=f"**{chosen}) {chosen_answer}**\n\n+{points} point{'s' if points > 1 else ''}!\nTotal points: **{total}**",
+                color=discord.Color.green()
+            )
+            result_embed.set_thumbnail(url=interaction.user.display_avatar.url)
         else:
             result_embed = discord.Embed(
-                title="❌ Wrong",
-                description=f"You answered **{chosen}) {chosen_answer}**.\n"
-                            f"Correct answer: **{correct_letter}) {q['answer']}**.",
-                color=discord.Color.red())
+                title="❌ Wrong Answer",
+                description=f"You chose: **{chosen}) {chosen_answer}**\nCorrect answer: **{correct_letter}) {q['answer']}**",
+                color=discord.Color.red()
+            )
+            result_embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
-        # Edit original question embed but keep question text
-        question_embed = interaction.message.embeds[0]
-        question_embed.add_field(name="Result", value=result_embed.description, inline=False)
-        await interaction.message.edit(embed=question_embed, view=PlayAgainView(view.ctx))
+        # Add question info to result
+        result_embed.add_field(name="Question", value=q['question'], inline=False)
+        result_embed.add_field(name="Difficulty", value=f"{view.difficulty.upper()}", inline=True)
+        result_embed.add_field(name="Points Value", value=f"{points} point{'s' if points > 1 else ''}", inline=True)
+        result_embed.set_footer(text=f"Trivia game for {view.ctx.author.name}")
+
+        await interaction.response.edit_message(embed=result_embed, view=TriviaPlayAgainView(view.ctx))
 
 
-class PlayAgainView(discord.ui.View):
+class TriviaPlayAgainView(discord.ui.View):
     def __init__(self, ctx):
         super().__init__(timeout=60)
         self.ctx = ctx
-        self.add_item(PlayAgainButton(ctx))
+        self.add_item(TriviaPlayAgainButton(ctx))
 
 
-class PlayAgainButton(discord.ui.Button):
+class TriviaPlayAgainButton(discord.ui.Button):
     def __init__(self, ctx):
         self.ctx = ctx
-        super().__init__(label="Play Again", style=discord.ButtonStyle.success)
+        super().__init__(label="Play Again", style=discord.ButtonStyle.success, emoji="🔄")
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user != self.ctx.author:
             await interaction.response.send_message("❌ This is not your trivia session.", ephemeral=True)
             return
-        await interaction.response.defer()
-        await interaction.message.edit(content="🎯 Select a difficulty to start trivia:", embed=None, view=DifficultyView(self.ctx))
+
+        # Create new difficulty selection embed
+        embed = discord.Embed(
+            title="🎓 Space Trivia Challenge",
+            description="**Welcome back to Space Trivia!**\n\nChoose your difficulty level:\n\n🟩 **Easy** - Basic space knowledge (1 point)\n🟨 **Medium** - Intermediate space facts (2 points)\n🟥 **Hard** - Advanced space science (3 points)",
+            color=discord.Color.blurple()
+        )
+        embed.set_thumbnail(url=self.ctx.author.display_avatar.url)
+        embed.add_field(name="🚀 Ready for another challenge?", value="Select your difficulty below!", inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=TriviaDifficultyView(self.ctx))
 
 
 async def send_trivia_question(ctx, difficulty):
@@ -663,12 +736,28 @@ async def send_trivia_question(ctx, difficulty):
                            if O.lower() == q["answer"].lower()), None)
     points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
 
-    question_text = f"**[{difficulty.upper()} — {points} point(s)]**\n\n{q['question']}\n\n" + \
-                    "\n".join([f"{L}) {O}" for L, O in letter_to_option.items()])
+    # Create difficulty color mapping
+    difficulty_colors = {
+        "easy": discord.Color.green(),
+        "medium": discord.Color.orange(),
+        "hard": discord.Color.red()
+    }
 
-    embed = discord.Embed(title="🎓 Space Trivia Time!",
-                          description=question_text,
-                          color=discord.Color.teal())
+    question_text = f"**Difficulty: {difficulty.upper()} ({points} point{'s' if points > 1 else ''})**\n\n{q['question']}\n\n" + \
+                    "\n".join([f"**{L})** {O}" for L, O in letter_to_option.items()])
+
+    embed = discord.Embed(
+        title="🎓 Space Trivia Question",
+        description=question_text,
+        color=difficulty_colors[difficulty]
+    )
+
+    embed.add_field(name="⏰ Time Limit", value="30 seconds", inline=True)
+    embed.add_field(name="📊 Points", value=f"+{points} if correct", inline=True)
+    embed.add_field(name="🎮 Player", value=ctx.author.mention, inline=True)
+
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.set_footer(text=f"Trivia for {ctx.author.name}")
 
     view = AnswerButtons(ctx, correct_letter, points, letter_to_option, q, difficulty)
     await ctx.send(embed=embed, view=view)
@@ -678,7 +767,18 @@ async def send_trivia_question(ctx, difficulty):
 @bot.command(name="trivia")
 async def trivia(ctx):
     """Launch the trivia UI."""
-    await ctx.send("🎯 Select a difficulty to start trivia:", view=DifficultyView(ctx))
+    embed = discord.Embed(
+        title="🎓 Space Trivia Challenge",
+        description="**Welcome to Space Trivia!**\n\nTest your knowledge of space, planets, and the universe!\n\n🟩 **Easy** - Basic space knowledge (1 point)\n🟨 **Medium** - Intermediate space facts (2 points)\n🟥 **Hard** - Advanced space science (3 points)",
+        color=discord.Color.blurple()
+    )
+
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.add_field(name="🚀 How to Play", value="Select difficulty → Answer the question → Earn points!", inline=False)
+    embed.add_field(name="⏰ Time Limit", value="30 seconds per question", inline=True)
+    embed.add_field(name="🎮 Your Game", value=f"Started by {ctx.author.mention}", inline=True)
+
+    await ctx.send(embed=embed, view=TriviaDifficultyView(ctx))
 
 
 
