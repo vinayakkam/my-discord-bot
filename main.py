@@ -860,15 +860,17 @@ class UnscrambleModal(discord.ui.Modal, title="Unscramble the Word"):
             total = scores.get(str(self.ctx.author.id), 0)
             embed = discord.Embed(
                 title="✅ Correct!",
-                description=f"You unscrambled it! +{self.points} point(s)\nTotal points: **{total}**",
+                description=f"You unscrambled it! **{self.word.upper()}**\n\n+{self.points} point(s)\nTotal points: **{total}**",
                 color=discord.Color.green()
             )
+            embed.set_thumbnail(url=self.ctx.author.display_avatar.url)
         else:
             embed = discord.Embed(
                 title="❌ Wrong",
-                description=f"The correct word was **{self.word}**.",
+                description=f"The correct word was **{self.word.upper()}**.\nBetter luck next time!",
                 color=discord.Color.red()
             )
+            embed.set_thumbnail(url=self.ctx.author.display_avatar.url)
         await interaction.response.edit_message(embed=embed, view=None)
 
 
@@ -893,9 +895,10 @@ class UnscrambleView(discord.ui.View):
             if self.message:
                 timeout_embed = discord.Embed(
                     title="⏳ Timeout",
-                    description="You took too long to answer.",
-                    color=discord.Color.red()
+                    description=f"You took too long to answer!\nThe correct word was **{self.word.upper()}**",
+                    color=discord.Color.orange()
                 )
+                timeout_embed.set_thumbnail(url=self.ctx.author.display_avatar.url)
                 await self.message.edit(embed=timeout_embed, view=None)
         except Exception:
             pass
@@ -913,13 +916,13 @@ class DifficultyDropdown(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This dropdown isn’t for you.", ephemeral=True)
+            await interaction.response.send_message("This dropdown isn't for you.", ephemeral=True)
             return
 
         difficulty = self.values[0].lower()
         points = 1 if difficulty == "easy" else 2 if difficulty == "medium" else 3
 
-        # pick a word
+        # Pick a word
         word, scrambled = None, None
         attempts = 0
         while attempts < 60:
@@ -930,34 +933,81 @@ class DifficultyDropdown(discord.ui.Select):
                 scrambled = s
                 break
             attempts += 1
+
         if not scrambled:  # fallback
             word = random.choice(UNSCRAMBLE_WORDS[difficulty])
             scrambled = ''.join(random.sample(word, len(word)))
 
+        # Create difficulty color mapping
+        difficulty_colors = {
+            "easy": discord.Color.green(),
+            "medium": discord.Color.orange(),
+            "hard": discord.Color.red()
+        }
+
         embed = discord.Embed(
             title="🔤 Word Unscramble",
-            description=f"**[{difficulty.upper()} — {points} point(s)]**\n\nUnscramble this word: **{scrambled}**",
-            color=discord.Color.purple()
+            description=f"**Difficulty: {difficulty.upper()} ({points} point{'s' if points > 1 else ''})**\n\nUnscramble this word:\n\n**`{scrambled.upper()}`**\n\n*Click the button below to submit your answer!*",
+            color=difficulty_colors[difficulty]
         )
+
+        embed.add_field(name="🎯 Word Length", value=f"{len(word)} letters", inline=True)
+        embed.add_field(name="⏰ Time Limit", value="60 seconds", inline=True)
+        embed.add_field(name="📊 Points", value=f"+{points} if correct", inline=True)
+
+        embed.set_thumbnail(url=self.ctx.author.display_avatar.url)
+        embed.set_footer(text=f"Game for {self.ctx.author.name}")
+
+        # Create the view and edit the message
         view = UnscrambleView(self.ctx, word, points)
-        view.message = await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+        # Get the message object after editing
+        try:
+            view.message = await interaction.original_response()
+        except:
+            # Fallback: try to get message from followup
+            view.message = interaction.message
 
 
 class DifficultyView(discord.ui.View):
     def __init__(self, ctx):
         super().__init__(timeout=30)
+        self.ctx = ctx
         self.add_item(DifficultyDropdown(ctx))
+
+    async def on_timeout(self):
+        try:
+            timeout_embed = discord.Embed(
+                title="⏳ Selection Timeout",
+                description="You took too long to select a difficulty level.",
+                color=discord.Color.orange()
+            )
+            # This will only work if we stored the message reference
+            # We'll handle this in the command
+        except Exception:
+            pass
 
 
 @bot.command(name="unscramble")
 async def unscramble(ctx):
     """Start the unscramble game with a difficulty dropdown."""
     embed = discord.Embed(
-        title="🔤 Word Unscramble",
-        description="Pick your difficulty below:",
+        title="🔤 Word Unscramble Game",
+        description="**Welcome to the Word Unscramble Challenge!**\n\nChoose your difficulty level below:\n\n🟩 **Easy** - Simple words (1 point)\n🟨 **Medium** - Moderate words (2 points)\n🟥 **Hard** - Difficult words (3 points)",
         color=discord.Color.blurple()
     )
-    await ctx.send(embed=embed, view=DifficultyView(ctx))
+
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.add_field(name="📝 How to Play", value="Select difficulty → Unscramble the word → Earn points!", inline=False)
+    embed.add_field(name="⏰ Time Limit", value="60 seconds per word", inline=True)
+    embed.add_field(name="🎮 Your Game", value=f"Started by {ctx.author.mention}", inline=True)
+
+    view = DifficultyView(ctx)
+    message = await ctx.send(embed=embed, view=view)
+
+    # Store message reference for timeout handling
+    view.message = message
 
 @bot.command(name="starship")
 async def starship(ctx):
