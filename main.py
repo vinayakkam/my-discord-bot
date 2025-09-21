@@ -3067,4 +3067,6 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
     else:
         await ctx.send("❌ Invalid action. Use `add`, `remove`, or `list`.")
 
+        
+
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
