@@ -118,6 +118,37 @@ async def catch(ctx):
 async def vent(ctx):
     await ctx.send(f"I am venting whieeeeee 💨💨💨")
 
+@bot.command()
+async def explore(ctx):
+    await ctx.send(f"Hey stop bothering me it will come soon™️")
+
+@bot.command(name="ping")
+async def ping(interaction: discord.Interaction):
+    start = time.perf_counter()
+
+    # Send initial response
+    await interaction.response.send_message("🏓 Pong...", ephemeral=True)
+
+    end = time.perf_counter()
+    response_time = (end - start) * 1000  # ms
+    ws_latency = bot.latency * 1000       # WebSocket latency (ms)
+    micro_latency = (end - start) * 1000  # Processing latency (same as response_time here)
+
+    # Create embed
+    embed = discord.Embed(
+        title="pong! 🏓",
+        color=discord.Color.red()
+    )
+
+    embed.add_field(name="⏳ Time", value=f"{int(response_time)} ms", inline=False)
+    embed.add_field(name="✨ Micro", value=f"{int(micro_latency)} ms", inline=False)
+    embed.add_field(name="📡 WS", value=f"{int(ws_latency)} ms", inline=False)
+
+    embed.set_footer(text=f"{interaction.user} • {time.strftime('%I:%M %p')}")
+
+    # Edit original response to show embed
+    await interaction.edit_original_response(content=None, embed=embed)
+
 @bot.tree.command(name="ping", description="Check the bot's latency", guild=GUILD)
 async def ping(interaction: discord.Interaction):
     start = time.perf_counter()
@@ -1967,7 +1998,7 @@ class CatchGameView(discord.ui.View):
             self.update_button_states()
             await interaction.response.defer()
 
-    @discord.ui.button(label='🤏 CATCH!', style=discord.ButtonStyle.success, emoji='🤏')
+    @discord.ui.button(label='🥢 CATCH!', style=discord.ButtonStyle.success, emoji='🤏')
     async def catch_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user == self.game.ctx.author:
             self.game.handle_action('catch')
