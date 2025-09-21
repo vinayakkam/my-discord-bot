@@ -2765,4 +2765,306 @@ async def timeout_users(ctx):
     else:
         await ctx.send("❌ No users are configured for this server.")
 
+
+AUTOMOD_ENABLED_GUILDS = {
+    1210475350119813120: True,  # Server 1 - automod enabled
+    1397218218535424090: True,  # Server 2 - automod enabled
+    # Add more servers here as needed
+    # 1234567890123456789: False,  # Example: Server 3 - automod disabled
+}
+
+# Users exempt from auto-moderation (in addition to master)
+AUTOMOD_EXEMPT_USERS = [
+    1085236492571529287,  # Master user
+    # Add other user IDs here who should be exempt
+    # 123456789012345678,  # Example: Moderator 1
+    # 987654321098765432,  # Example: Moderator 2
+]
+
+
+# Auto-moderation: N-word detection and timeout
+@bot.event
+async def on_message(message):
+    # Don't moderate bots or DMs
+    if message.author.bot or message.guild is None:
+        return
+
+    guild_id = int(message.guild.id)
+    author_id = int(message.author.id)
+
+    # Check if auto-moderation is enabled for this server
+    if not AUTOMOD_ENABLED_GUILDS.get(guild_id, False):
+        # Process commands and return if automod is disabled
+        await bot.process_commands(message)
+        return
+
+    # Don't timeout exempt users (master + any others you specify)
+    if author_id in AUTOMOD_EXEMPT_USERS:
+        # Process commands and return if user is exempt
+        await bot.process_commands(message)
+        return
+
+    # List of N-word variations to detect (case insensitive)
+    n_word_variations = [
+        'nigger', 'nigga', 'n1gger', 'n1gga', 'nig ger', 'nig ga',
+        'n-word', 'nword', 'n word', 'nigg3r', 'nigg4', 'n!gger',
+        'n!gga', 'niqqer', 'niqqa', 'niggеr', 'niggа'  # Some with special characters
+    ]
+
+    # Check if message contains any variation
+    message_content = message.content.lower().replace(' ', '').replace('-', '').replace('_', '')
+
+    detected_word = None
+    for word in n_word_variations:
+        clean_word = word.lower().replace(' ', '').replace('-', '').replace('_', '')
+        if clean_word in message_content:
+            detected_word = word
+            break
+
+    if detected_word:
+        try:
+            # Delete the message first
+            await message.delete()
+
+            # Timeout the user for 24 hours
+            duration = timedelta(hours=24)
+            await message.author.timeout(duration, reason="Auto-moderation: Inappropriate language detected")
+
+            # Create embed for auto-timeout
+            embed = discord.Embed(
+                title="🚫 Auto-Moderation Activated",
+                description=f"{message.author.mention} has been automatically sanctioned",
+                color=0xff2b2b,  # Dark red for auto-moderation
+                timestamp=message.created_at
+            )
+            embed.set_thumbnail(url=message.author.display_avatar.url)
+            embed.add_field(name="👤 User", value=f"{message.author.name}#{message.author.discriminator}", inline=True)
+            embed.add_field(name="⏰ Duration", value="24 hours", inline=True)
+            embed.add_field(name="📝 Violation", value="Inappropriate language", inline=True)
+
+            # Calculate when timeout ends
+            end_time = message.created_at + duration
+            embed.add_field(name="🔚 Ends At", value=f"<t:{int(end_time.timestamp())}:F>", inline=True)
+            embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
+            embed.add_field(name="🤖 System", value="Auto-Moderation", inline=True)
+
+            embed.set_footer(text=f"User ID: {message.author.id} | Message auto-deleted")
+
+            # Send the embed to the channel where the violation occurred
+            await message.channel.send(embed=embed)
+
+            print(
+                f"[AUTO-MOD] User {message.author.name}#{message.author.discriminator} ({message.author.id}) timed out in {message.guild.name} for inappropriate language")
+
+        except discord.Forbidden:
+            # If bot can't timeout, just delete the message and send a warning
+            warning_embed = discord.Embed(
+                title="⚠️ Auto-Moderation Alert",
+                description=f"{message.author.mention} used inappropriate language, but I lack timeout permissions.",
+                color=0xff9900,
+                timestamp=message.created_at
+            )
+            warning_embed.set_thumbnail(url=message.author.display_avatar.url)
+            warning_embed.add_field(name="⚡ Action Needed", value="Manual moderation required", inline=False)
+            warning_embed.add_field(name="🔍 Detected", value="Inappropriate language", inline=True)
+            warning_embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
+            await message.channel.send(embed=warning_embed)
+
+        except Exception as e:
+            print(f"[AUTO-MOD ERROR] Failed to moderate {message.author.name}: {e}")
+            # Still delete the message even if timeout fails
+            try:
+                if not message.flags.ephemeral:  # Only delete if message still exists
+                    await message.delete()
+            except:
+                pass
+
+    # Always process commands after checking the message
+    await bot.process_commands(message)
+
+
+# Command to manage auto-moderation settings
+@bot.command(name="automod")
+async def manage_automod(ctx, action: str = None, server_id: int = None):
+    """Manage auto-moderation settings. Usage: !automod [status/enable/disable] [server_id]"""
+    if ctx.guild is None:
+        return await ctx.send("❌ This command must be used in a server (not DMs).")
+
+    author_id = int(ctx.author.id)
+    current_guild_id = int(ctx.guild.id)
+
+    # Only master can manage automod settings
+    if author_id != MASTER_ID:
+        error_embed = discord.Embed(
+            title="❌ Access Denied",
+            description="Only the master user can manage auto-moderation settings.",
+            color=0xff0000
+        )
+        error_embed.set_thumbnail(url=ctx.author.display_avatar.url)
+        return await ctx.send(embed=error_embed)
+
+    # If no action specified, show current status
+    if action is None or action.lower() == "status":
+        target_guild = server_id if server_id else current_guild_id
+        is_enabled = AUTOMOD_ENABLED_GUILDS.get(target_guild, False)
+
+        status_embed = discord.Embed(
+            title="🤖 Auto-Moderation Status",
+            color=0x00ff00 if is_enabled else 0xff6b6b
+        )
+
+        # Show status for current server or specified server
+        if server_id:
+            try:
+                guild_name = bot.get_guild(server_id).name if bot.get_guild(server_id) else f"Server ID: {server_id}"
+                status_embed.add_field(name="🏠 Server", value=guild_name, inline=False)
+            except:
+                status_embed.add_field(name="🏠 Server", value=f"Server ID: {server_id}", inline=False)
+        else:
+            status_embed.add_field(name="🏠 Current Server", value=ctx.guild.name, inline=False)
+
+        status_embed.add_field(name="📊 Status", value="🟢 **ENABLED**" if is_enabled else "🔴 **DISABLED**", inline=True)
+        status_embed.add_field(name="⏰ Timeout Duration", value="24 hours", inline=True)
+        status_embed.add_field(name="🛡️ Protected Users", value=f"{len(AUTOMOD_EXEMPT_USERS)} exempt", inline=True)
+
+        # Show all configured servers
+        enabled_servers = [guild_id for guild_id, enabled in AUTOMOD_ENABLED_GUILDS.items() if enabled]
+        disabled_servers = [guild_id for guild_id, enabled in AUTOMOD_ENABLED_GUILDS.items() if not enabled]
+
+        if enabled_servers:
+            status_embed.add_field(name="🟢 Enabled Servers", value=f"{len(enabled_servers)} servers", inline=True)
+        if disabled_servers:
+            status_embed.add_field(name="🔴 Disabled Servers", value=f"{len(disabled_servers)} servers", inline=True)
+
+        status_embed.set_footer(text="Use !automod enable/disable [server_id] to change settings")
+        return await ctx.send(embed=status_embed)
+
+    # Enable or disable automod
+    target_guild = server_id if server_id else current_guild_id
+
+    if action.lower() == "enable":
+        AUTOMOD_ENABLED_GUILDS[target_guild] = True
+        action_embed = discord.Embed(
+            title="✅ Auto-Moderation Enabled",
+            description=f"Auto-moderation has been **enabled** for server ID: {target_guild}",
+            color=0x00ff00,
+            timestamp=ctx.message.created_at
+        )
+        action_embed.add_field(name="⚡ Takes Effect", value="Immediately", inline=True)
+        action_embed.add_field(name="🎯 Target", value="Inappropriate language", inline=True)
+        action_embed.add_field(name="⏰ Punishment", value="24-hour timeout", inline=True)
+
+    elif action.lower() == "disable":
+        AUTOMOD_ENABLED_GUILDS[target_guild] = False
+        action_embed = discord.Embed(
+            title="🔴 Auto-Moderation Disabled",
+            description=f"Auto-moderation has been **disabled** for server ID: {target_guild}",
+            color=0xff6b6b,
+            timestamp=ctx.message.created_at
+        )
+        action_embed.add_field(name="⚡ Takes Effect", value="Immediately", inline=True)
+        action_embed.add_field(name="📝 Note", value="Manual moderation only", inline=True)
+        action_embed.add_field(name="🔄 Re-enable", value="Use !automod enable", inline=True)
+
+    else:
+        help_embed = discord.Embed(
+            title="❓ Auto-Mod Command Help",
+            description="**Usage:** `!automod [action] [server_id]`",
+            color=0x3498db
+        )
+        help_embed.add_field(name="📊 Check Status", value="`!automod status`", inline=False)
+        help_embed.add_field(name="🟢 Enable", value="`!automod enable [server_id]`", inline=True)
+        help_embed.add_field(name="🔴 Disable", value="`!automod disable [server_id]`", inline=True)
+        help_embed.add_field(name="💡 Examples", value="`!automod enable 123456789`\n`!automod status`", inline=False)
+        return await ctx.send(embed=help_embed)
+
+    action_embed.set_footer(text=f"Changed by {ctx.author.name}")
+    await ctx.send(embed=action_embed)
+
+
+# Command to manage exempt users
+@bot.command(name="automod_exempt")
+async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
+    """Manage users exempt from auto-moderation. Usage: !automod_exempt [add/remove/list] [user_id]"""
+    author_id = int(ctx.author.id)
+
+    # Only master can manage exempt users
+    if author_id != MASTER_ID:
+        error_embed = discord.Embed(
+            title="❌ Access Denied",
+            description="Only the master user can manage auto-moderation exemptions.",
+            color=0xff0000
+        )
+        return await ctx.send(embed=error_embed)
+
+    if action is None or action.lower() == "list":
+        exempt_embed = discord.Embed(
+            title="🛡️ Auto-Moderation Exempt Users",
+            color=0x3498db
+        )
+
+        exempt_list = []
+        for user_id in AUTOMOD_EXEMPT_USERS:
+            try:
+                user = await bot.fetch_user(user_id)
+                if user_id == MASTER_ID:
+                    exempt_list.append(f"👑 {user.mention} ({user.name}) - **Master**")
+                else:
+                    exempt_list.append(f"🛡️ {user.mention} ({user.name})")
+            except:
+                exempt_list.append(f"❓ User ID: {user_id} (user not found)")
+
+        if exempt_list:
+            exempt_embed.description = "\n".join(exempt_list)
+        else:
+            exempt_embed.description = "No exempt users configured"
+
+        exempt_embed.set_footer(text="Use !automod_exempt add/remove [user_id] to modify")
+        return await ctx.send(embed=exempt_embed)
+
+    if user_id is None:
+        return await ctx.send("❌ Please provide a user ID. Usage: `!automod_exempt [add/remove] [user_id]`")
+
+    if action.lower() == "add":
+        if user_id not in AUTOMOD_EXEMPT_USERS:
+            AUTOMOD_EXEMPT_USERS.append(user_id)
+            try:
+                user = await bot.fetch_user(user_id)
+                user_display = f"{user.name}#{user.discriminator}"
+            except:
+                user_display = f"User ID: {user_id}"
+
+            add_embed = discord.Embed(
+                title="✅ User Added to Exemption List",
+                description=f"**{user_display}** is now exempt from auto-moderation",
+                color=0x00ff00
+            )
+            await ctx.send(embed=add_embed)
+        else:
+            await ctx.send("❌ User is already exempt from auto-moderation.")
+
+    elif action.lower() == "remove":
+        if user_id == MASTER_ID:
+            return await ctx.send("❌ Cannot remove the master user from exemption list.")
+
+        if user_id in AUTOMOD_EXEMPT_USERS:
+            AUTOMOD_EXEMPT_USERS.remove(user_id)
+            try:
+                user = await bot.fetch_user(user_id)
+                user_display = f"{user.name}#{user.discriminator}"
+            except:
+                user_display = f"User ID: {user_id}"
+
+            remove_embed = discord.Embed(
+                title="🔴 User Removed from Exemption List",
+                description=f"**{user_display}** is no longer exempt from auto-moderation",
+                color=0xff6b6b
+            )
+            await ctx.send(embed=remove_embed)
+        else:
+            await ctx.send("❌ User is not in the exemption list.")
+
+    else:
+        await ctx.send("❌ Invalid action. Use `add`, `remove`, or `list`.")
+
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
