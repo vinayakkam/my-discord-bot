@@ -2947,6 +2947,7 @@ async def games(ctx):
         "7️⃣ **Rocket Design Quiz** — `!rocketdesign`\n"
         "├ Choose engines, tank sizes, and staging\n"
         "├ Design your own custom rocket configuration\n"
+        
         "└ **Rewards:** Success based on engineering choices"
     )
 
@@ -3570,7 +3571,18 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
     else:
         await ctx.send("❌ Invalid action. Use `add`, `remove`, or `list`.")
 
+@bot.command(name="boom")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="Here’s your GIF 🎉",
+        description="This is a cool GIF embedded in Discord!",
+        color=discord.Color.blurple()
+    )
+    embed.set_image(url="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExb2s4enRlejRsMjRqOHgxcXVpYXlsbGxpMDNiMG5mMXhkdWo1NmdrMyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Ctv4yNLNfSpPd704nO/giphy.gif")
+    # Replace with any GIF URL
 
+    await ctx.send(embed=embed)
 
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
