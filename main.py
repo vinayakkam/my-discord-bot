@@ -77,6 +77,17 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
+server_emojis = {
+    123456789012345678: {  # Replace with your actual server ID
+        "bash_emojis": [1414192630165667872, 1414188725163790336, 1414192628010061824],
+        "eq_emoji": 1414188725163790336,
+        "aa_emoji": 1414192630165667872,
+        "sheriff_emoji": 1414192628010061824
+    }
+    # Add more servers here if needed
+}
+
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -87,28 +98,16 @@ async def on_message(message):
         return
 
     content = message.content.lower()
-
-    # Server-specific emoji mappings - UPDATE WITH YOUR ACTUAL SERVER IDs
-    server_emojis = {
-        123456789012345678: {  # Replace with your actual server ID
-            "bash_emojis": [1414192630165667872, 1414188725163790336, 1414192628010061824],
-            "eq_emoji": 1414188725163790336,
-            "aa_emoji": 1414192630165667872,
-            "sheriff_emoji": 1414192628010061824
-        }
-        # Add more servers here if needed
-    }
-
     server_id = message.guild.id
 
     # Check for command triggers
-    if "!appbcbash" in content or "appbcbash" in content:
+    if "appbcbash" in content:
         await handle_bash_command(message, server_emojis.get(server_id))
-    elif "!appbceq" in content or "appbceq" in content:
+    elif "appbceq" in content:
         await handle_eq_command(message, server_emojis.get(server_id))
-    elif "!appbaa" in content or "appbaa" in content:
+    elif "appbaa" in content:
         await handle_aa_command(message, server_emojis.get(server_id))
-    elif "!appsheriff" in content or "appsheriff" in content:
+    elif "appsheriff" in content:
         await handle_sheriff_command(message, server_emojis.get(server_id))
 
     # Process other commands if you have them
@@ -214,34 +213,90 @@ async def get_emoji_safely(guild, emoji_id):
     return None
 
 
-# Alternative: If you prefer slash commands instead
+# Slash commands using bot.tree.command
 @bot.tree.command(name="appbcbash", description="React with bash emojis")
-async def slash_appbcbash(ctx):
-    await handle_bash_command(ctx.message if hasattr(ctx, 'message') else ctx,
-                              server_emojis.get(ctx.guild.id) if ctx.guild else None)
-    await ctx.respond("Reacted with bash emojis!", ephemeral=True)
+async def slash_appbcbash(interaction: discord.Interaction):
+    """Slash command for bash emojis"""
+    try:
+        # Get the message the interaction was on (if it's a context menu command)
+        # For regular slash commands, we'll react to the last message in the channel
+        messages = [msg async for msg in interaction.channel.history(limit=1)]
+        if messages:
+            target_message = messages[0]
+        else:
+            await interaction.response.send_message("No message found to react to!", ephemeral=True)
+            return
+
+        server_config = server_emojis.get(interaction.guild.id) if interaction.guild else None
+        await handle_bash_command(target_message, server_config)
+        await interaction.response.send_message("Added bash emojis!", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
 @bot.tree.command(name="appbceq", description="React with eq emoji")
-async def slash_appbceq(ctx):
-    await handle_eq_command(ctx.message if hasattr(ctx, 'message') else ctx,
-                            server_emojis.get(ctx.guild.id) if ctx.guild else None)
-    await ctx.respond("Reacted with eq emoji!", ephemeral=True)
+async def slash_appbceq(interaction: discord.Interaction):
+    """Slash command for eq emoji"""
+    try:
+        messages = [msg async for msg in interaction.channel.history(limit=1)]
+        if messages:
+            target_message = messages[0]
+        else:
+            await interaction.response.send_message("No message found to react to!", ephemeral=True)
+            return
+
+        server_config = server_emojis.get(interaction.guild.id) if interaction.guild else None
+        await handle_eq_command(target_message, server_config)
+        await interaction.response.send_message("Added eq emoji!", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
 @bot.tree.command(name="appbaa", description="React with aa emoji")
-async def slash_appbaa(ctx):
-    await handle_aa_command(ctx.message if hasattr(ctx, 'message') else ctx,
-                            server_emojis.get(ctx.guild.id) if ctx.guild else None)
-    await ctx.respond("Reacted with aa emoji!", ephemeral=True)
+async def slash_appbaa(interaction: discord.Interaction):
+    """Slash command for aa emoji"""
+    try:
+        messages = [msg async for msg in interaction.channel.history(limit=1)]
+        if messages:
+            target_message = messages[0]
+        else:
+            await interaction.response.send_message("No message found to react to!", ephemeral=True)
+            return
+
+        server_config = server_emojis.get(interaction.guild.id) if interaction.guild else None
+        await handle_aa_command(target_message, server_config)
+        await interaction.response.send_message("Added aa emoji!", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
 @bot.tree.command(name="appsheriff", description="React with sheriff emoji")
-async def slash_appsheriff(ctx):
-    await handle_sheriff_command(ctx.message if hasattr(ctx, 'message') else ctx,
-                                 server_emojis.get(ctx.guild.id) if ctx.guild else None)
-    await ctx.respond("Reacted with sheriff emoji!", ephemeral=True)
-    await bot.process_commands(message)
+async def slash_appsheriff(interaction: discord.Interaction):
+    """Slash command for sheriff emoji"""
+    try:
+        messages = [msg async for msg in interaction.channel.history(limit=1)]
+        if messages:
+            target_message = messages[0]
+        else:
+            await interaction.response.send_message("No message found to react to!", ephemeral=True)
+            return
+
+        server_config = server_emojis.get(interaction.guild.id) if interaction.guild else None
+        await handle_sheriff_command(target_message, server_config)
+        await interaction.response.send_message("Added sheriff emoji!", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+
+
+# Don't forget to sync the commands when the bot starts up
+@bot.event
+async def on_ready():
+    print(f'{bot.user} has logged in!')
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 @bot.command()
 async def hello(ctx):
     await ctx.send(f"Hello I am Launch Tower")
