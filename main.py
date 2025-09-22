@@ -82,31 +82,165 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Trigger → list of 3 custom emoji IDs
-    triggers = {
-        "appbcbash": [
-            1414192630165667872,
-            1414188725163790336,
-            1414192628010061824
-        ],
-        "appbceq": [1414188725163790336],
-        "appbaa": [1414192630165667872],
-        "appsheriff": [1414192628010061824]
-    }
+    # Don't respond to DMs
+    if not message.guild:
+        return
 
     content = message.content.lower()
-    for word, emoji_ids in triggers.items():
-        if word in content:
-            for emoji_id in emoji_ids:
-                emoji = bot.get_emoji(emoji_id)
-                if emoji:
-                    try:
-                        await message.add_reaction(emoji)
-                    except discord.Forbidden:
-                        print("Missing permission: Add Reactions or Read Message History")
-                    except discord.HTTPException:
-                        print(f"Could not react with emoji ID {emoji_id}")
 
+    # Server-specific emoji mappings - UPDATE WITH YOUR ACTUAL SERVER IDs
+    server_emojis = {
+        123456789012345678: {  # Replace with your actual server ID
+            "bash_emojis": [1414192630165667872, 1414188725163790336, 1414192628010061824],
+            "eq_emoji": 1414188725163790336,
+            "aa_emoji": 1414192630165667872,
+            "sheriff_emoji": 1414192628010061824
+        }
+        # Add more servers here if needed
+    }
+
+    server_id = message.guild.id
+
+    # Check for command triggers
+    if "!appbcbash" in content or "appbcbash" in content:
+        await handle_bash_command(message, server_emojis.get(server_id))
+    elif "!appbceq" in content or "appbceq" in content:
+        await handle_eq_command(message, server_emojis.get(server_id))
+    elif "!appbaa" in content or "appbaa" in content:
+        await handle_aa_command(message, server_emojis.get(server_id))
+    elif "!appsheriff" in content or "appsheriff" in content:
+        await handle_sheriff_command(message, server_emojis.get(server_id))
+
+    # Process other commands if you have them
+    await bot.process_commands(message)
+
+
+async def handle_bash_command(message, server_config):
+    """Handle the bash command"""
+    if server_config and "bash_emojis" in server_config:
+        # Try custom emojis
+        success = False
+        for emoji_id in server_config["bash_emojis"]:
+            emoji = await get_emoji_safely(message.guild, emoji_id)
+            if emoji:
+                try:
+                    await message.add_reaction(emoji)
+                    success = True
+                except Exception as e:
+                    print(f"Failed to add custom emoji {emoji_id}: {e}")
+
+        if not success:
+            await message.add_reaction("✅")
+    else:
+        # Default emojis for servers without custom setup
+        default_emojis = ["✅", "👍", "⭐"]
+        for emoji in default_emojis:
+            try:
+                await message.add_reaction(emoji)
+            except Exception as e:
+                print(f"Failed to add default emoji {emoji}: {e}")
+
+
+async def handle_eq_command(message, server_config):
+    """Handle the eq command"""
+    if server_config and "eq_emoji" in server_config:
+        emoji = await get_emoji_safely(message.guild, server_config["eq_emoji"])
+        if emoji:
+            try:
+                await message.add_reaction(emoji)
+                return
+            except Exception as e:
+                print(f"Failed to add custom emoji: {e}")
+
+    # Fallback to default
+    try:
+        await message.add_reaction("✅")
+    except Exception as e:
+        print(f"Failed to add fallback emoji: {e}")
+
+
+async def handle_aa_command(message, server_config):
+    """Handle the aa command"""
+    if server_config and "aa_emoji" in server_config:
+        emoji = await get_emoji_safely(message.guild, server_config["aa_emoji"])
+        if emoji:
+            try:
+                await message.add_reaction(emoji)
+                return
+            except Exception as e:
+                print(f"Failed to add custom emoji: {e}")
+
+    # Fallback to default
+    try:
+        await message.add_reaction("👍")
+    except Exception as e:
+        print(f"Failed to add fallback emoji: {e}")
+
+
+async def handle_sheriff_command(message, server_config):
+    """Handle the sheriff command"""
+    if server_config and "sheriff_emoji" in server_config:
+        emoji = await get_emoji_safely(message.guild, server_config["sheriff_emoji"])
+        if emoji:
+            try:
+                await message.add_reaction(emoji)
+                return
+            except Exception as e:
+                print(f"Failed to add custom emoji: {e}")
+
+    # Fallback to default
+    try:
+        await message.add_reaction("⭐")
+    except Exception as e:
+        print(f"Failed to add fallback emoji: {e}")
+
+
+async def get_emoji_safely(guild, emoji_id):
+    """Safely get an emoji, trying multiple methods"""
+    try:
+        # First try to find it in the current guild
+        for emoji in guild.emojis:
+            if emoji.id == emoji_id:
+                return emoji
+
+        # Then try bot.get_emoji (for emojis from other guilds the bot is in)
+        emoji = bot.get_emoji(emoji_id)
+        if emoji:
+            return emoji
+
+    except Exception as e:
+        print(f"Error getting emoji {emoji_id}: {e}")
+
+    return None
+
+
+# Alternative: If you prefer slash commands instead
+@bot.tree.command(name="appbcbash", description="React with bash emojis")
+async def slash_appbcbash(ctx):
+    await handle_bash_command(ctx.message if hasattr(ctx, 'message') else ctx,
+                              server_emojis.get(ctx.guild.id) if ctx.guild else None)
+    await ctx.respond("Reacted with bash emojis!", ephemeral=True)
+
+
+@bot.tree.command(name="appbceq", description="React with eq emoji")
+async def slash_appbceq(ctx):
+    await handle_eq_command(ctx.message if hasattr(ctx, 'message') else ctx,
+                            server_emojis.get(ctx.guild.id) if ctx.guild else None)
+    await ctx.respond("Reacted with eq emoji!", ephemeral=True)
+
+
+@bot.tree.command(name="appbaa", description="React with aa emoji")
+async def slash_appbaa(ctx):
+    await handle_aa_command(ctx.message if hasattr(ctx, 'message') else ctx,
+                            server_emojis.get(ctx.guild.id) if ctx.guild else None)
+    await ctx.respond("Reacted with aa emoji!", ephemeral=True)
+
+
+@bot.tree.command(name="appsheriff", description="React with sheriff emoji")
+async def slash_appsheriff(ctx):
+    await handle_sheriff_command(ctx.message if hasattr(ctx, 'message') else ctx,
+                                 server_emojis.get(ctx.guild.id) if ctx.guild else None)
+    await ctx.respond("Reacted with sheriff emoji!", ephemeral=True)
     await bot.process_commands(message)
 @bot.command()
 async def hello(ctx):
