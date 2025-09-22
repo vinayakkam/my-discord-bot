@@ -78,7 +78,7 @@ async def on_message(message):
 
 
 server_emojis = {
-    123456789012345678: {  # Replace with your actual server ID
+    1411425019434766499: {  # Replace with your actual server ID
         "bash_emojis": [1414192630165667872, 1414188725163790336, 1414192628010061824],
         "eq_emoji": 1414188725163790336,
         "aa_emoji": 1414192630165667872,
@@ -214,7 +214,7 @@ async def get_emoji_safely(guild, emoji_id):
 
 
 # Slash commands using bot.tree.command
-@bot.tree.command(name="appbcbash", description="React with bash emojis")
+@bot.tree.command(name="appbcbash", description="React with appbcbash emojis")
 async def slash_appbcbash(interaction: discord.Interaction):
     """Slash command for bash emojis"""
     try:
@@ -229,12 +229,12 @@ async def slash_appbcbash(interaction: discord.Interaction):
 
         server_config = server_emojis.get(interaction.guild.id) if interaction.guild else None
         await handle_bash_command(target_message, server_config)
-        await interaction.response.send_message("Added bash emojis!", ephemeral=True)
+        await interaction.response.send_message("Added appbcbash emojis!", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="appbceq", description="React with eq emoji")
+@bot.tree.command(name="appbceq", description="React with appbceq emoji")
 async def slash_appbceq(interaction: discord.Interaction):
     """Slash command for eq emoji"""
     try:
@@ -247,12 +247,12 @@ async def slash_appbceq(interaction: discord.Interaction):
 
         server_config = server_emojis.get(interaction.guild.id) if interaction.guild else None
         await handle_eq_command(target_message, server_config)
-        await interaction.response.send_message("Added eq emoji!", ephemeral=True)
+        await interaction.response.send_message("Added appbceq emoji!", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="appbaa", description="React with aa emoji")
+@bot.tree.command(name="appbaa", description="React with appbaa emoji")
 async def slash_appbaa(interaction: discord.Interaction):
     """Slash command for aa emoji"""
     try:
@@ -265,7 +265,7 @@ async def slash_appbaa(interaction: discord.Interaction):
 
         server_config = server_emojis.get(interaction.guild.id) if interaction.guild else None
         await handle_aa_command(target_message, server_config)
-        await interaction.response.send_message("Added aa emoji!", ephemeral=True)
+        await interaction.response.send_message("Added appbaa emoji!", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
