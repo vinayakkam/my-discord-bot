@@ -2912,7 +2912,7 @@ class EnhancedCatchGame:
         return embed
 
 
-@bot.tree.command(name="catchbooster")
+@bot.command(name="catchbooster")
 async def catchbooster(ctx):
     """Enhanced Mechzilla.io-style booster catching game with superior animations (fully integrated with scoring system)."""
 
@@ -3828,7 +3828,7 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
     else:
         await ctx.send("❌ Invalid action. Use `add`, `remove`, or `list`.")
 
-@bot.tree.command(name="bigboom")
+@bot.command(name="bigboom")
 async def gif(ctx):
     """Send an embed with a GIF."""
     embed = discord.Embed(
@@ -3842,7 +3842,7 @@ async def gif(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.tree.command(name="smallboom")
+@bot.command(name="smallboom")
 async def gif(ctx):
     """Send an embed with a GIF."""
     embed = discord.Embed(
