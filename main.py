@@ -3851,7 +3851,7 @@ async def gif(ctx):
         description="Here is your Small Boom!",
         color=discord.Color.blurple()
     )
-    embed.set_image(url="https/media.tenor.com/h38ZWgEMvy8AAAAe/starship-booster-7.png")
+    embed.set_image(url="https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcHB2czYwcjYyYzhsMHZhN3R2aWpkb3pqZ2ltYnNyaXFsM2Z6Z2Y1cyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/5Ckdv9YS6XUH7A3Vya/giphy.gif")
     # Replace with any GIF URL
 
     await ctx.send(embed=embed)
