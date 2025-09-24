@@ -3828,7 +3828,7 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
     else:
         await ctx.send("❌ Invalid action. Use `add`, `remove`, or `list`.")
 
-@bot.command(name="bigboom")
+@bot.tree.command(name="bigboom")
 async def gif(ctx):
     """Send an embed with a GIF."""
     embed = discord.Embed(
@@ -3841,6 +3841,19 @@ async def gif(ctx):
 
     await ctx.send(embed=embed)
 
+
+@bot.tree.command(name="smallboom")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="**Small BOOM**",
+        description="Here is your Small Boom!",
+        color=discord.Color.blurple()
+    )
+    embed.set_image(url="https://images-ext-1.discordapp.net/external/hhkUU729n4k5VkEtsm2K-9IqljNhxbUdK2fBBcYNt_4/https/media.tenor.com/h38ZWgEMvy8AAAAe/starship-booster-7.png")
+    # Replace with any GIF URL
+
+    await ctx.send(embed=embed)
 
 
 
