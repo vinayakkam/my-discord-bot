@@ -3851,12 +3851,23 @@ async def gif(ctx):
         description="Here is your Small Boom!",
         color=discord.Color.blurple()
     )
-    embed.set_image(url="https://images-ext-1.discordapp.net/external/hhkUU729n4k5VkEtsm2K-9IqljNhxbUdK2fBBcYNt_4/https/media.tenor.com/h38ZWgEMvy8AAAAe/starship-booster-7.png")
+    embed.set_image(url="https/media.tenor.com/h38ZWgEMvy8AAAAe/starship-booster-7.png")
     # Replace with any GIF URL
 
     await ctx.send(embed=embed)
 
+@bot.command(name="wish")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="**Shooting Stars**",
+        description="Wish whatever you want!",
+        color=discord.Color.blurple()
+    )
+    embed.set_image(url="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExZ29tNmVkMHA5NXc3dzh5NHVzejYzbjB4Z3M0NWx5Y2YzOHNwMzZjcCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/afhd72IpCFMiqGKReK/giphy.gif")
+    # Replace with any GIF URL
 
+    await ctx.send(embed=embed)
 
 
 
