@@ -2912,7 +2912,7 @@ class EnhancedCatchGame:
         return embed
 
 
-@bot.command(name="catchbooster")
+@bot.tree.command(name="catchbooster")
 async def catchbooster(ctx):
     """Enhanced Mechzilla.io-style booster catching game with superior animations (fully integrated with scoring system)."""
 
