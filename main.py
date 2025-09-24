@@ -1,6 +1,7 @@
 from keep_alive import keep_alive
 keep_alive()
 import discord
+from discord import ui, ButtonStyle, Interaction, Embed
 from discord.ext import commands
 from typing import Dict, Set
 import logging
@@ -11,6 +12,8 @@ import time
 import random
 import json
 import asyncio
+import math
+from typing import Dict, List, Tuple, Optional
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -307,9 +310,6 @@ async def catch(ctx):
 async def vent(ctx):
     await ctx.send(f"I am venting whieeeeee 💨💨💨")
 
-@bot.command()
-async def explore(ctx):
-    await ctx.send(f"Hey stop bothering me it will come soon™️")
 
 GUILD_IDS = [
     1411425019434766499,  # Replace with your first guild ID
@@ -3842,5 +3842,1186 @@ async def gif(ctx):
     await ctx.send(embed=embed)
 
 
+
+
+
+
+
+
+
+
+
+
+#galaxy keeper
+# Add these variables to your bot's global scope or class
+galaxy_user_data = {}  # Store per-user game state
+galaxy_active_sessions = {}  # Track active exploration sessions
+
+# Enhanced discovery rewards system
+galaxy_rewards = {
+    'rocky_planet': 15,
+    'gas_giant': 30,
+    'ocean_world': 75,
+    'desert_world': 35,
+    'ice_world': 40,
+    'volcanic_world': 50,
+    'crystal_world': 200,
+    'toxic_world': 25,
+    'ancient_ruins': 300,
+    'black_hole': 500,
+    'neutron_star': 400,
+    'pulsar': 350,
+    'wormhole': 750,
+    'alien_artifact': 1000,
+    'dyson_sphere': 1500,
+    'space_station': 150,
+    'asteroid_field': 20,
+    'nebula': 100,
+    'quasar': 800,
+    'supernova_remnant': 600,
+    'dark_matter_cloud': 900
+}
+
+# Enhanced emoji mappings
+galaxy_emojis = {
+    'ship': '🚀',
+    'star': '⭐',
+    'planet': '🪐',
+    'gas_giant': '🪐',
+    'ocean_world': '🌊',
+    'desert_world': '🏜️',
+    'ice_world': '❄️',
+    'volcanic_world': '🌋',
+    'crystal_world': '💎',
+    'toxic_world': '☢️',
+    'moon': '🌙',
+    'asteroid': '☄️',
+    'comet': '💫',
+    'black_hole': '🕳️',
+    'nebula': '🌌',
+    'fuel': '⛽',
+    'explored': '✅',
+    'unexplored': '❓',
+    'rare': '✨',
+    'legendary': '🌟',
+    'coordinates': '🗺️',
+    'scan': '🔭',
+    'energy': '⚡',
+    'shield': '🛡️',
+    'upgrade': '🔧',
+    'treasure': '💰'
+}
+
+# Ship upgrade system
+ship_upgrades = {
+    'fuel_efficiency': {'cost': 500, 'levels': 5, 'description': 'Reduces fuel consumption'},
+    'scanner_range': {'cost': 750, 'levels': 3, 'description': 'Increases scan range'},
+    'cargo_hold': {'cost': 1000, 'levels': 4, 'description': 'Increases resource storage'},
+    'shield_strength': {'cost': 1200, 'levels': 3, 'description': 'Protects from hazards'},
+    'warp_drive': {'cost': 2000, 'levels': 2, 'description': 'Unlocks long-range jumps'}
+}
+
+
+def get_galaxy_user_data(user_id: int):
+    """Get or create enhanced user data for galaxy exploration"""
+    if user_id not in galaxy_user_data:
+        galaxy_user_data[user_id] = {
+            'position': [0, 0],
+            'fuel': 100,
+            'max_fuel': 100,
+            'credits': 100,
+            'discovered_systems': set(),
+            'rare_discoveries': [],
+            'total_discoveries': 0,
+            'exploration_rank': 'Cadet',
+            'ship_upgrades': {upgrade: 0 for upgrade in ship_upgrades},
+            'resources': {'crystals': 0, 'metals': 0, 'energy': 0},
+            'achievements': set(),
+            'last_exploration': None,
+            'danger_encounters': 0,
+            'successful_explorations': 0
+        }
+    return galaxy_user_data[user_id]
+
+
+def calculate_exploration_rank(user_data):
+    """Calculate user's exploration rank based on achievements"""
+    discoveries = user_data['successful_explorations']
+    rare_finds = len(user_data['rare_discoveries'])
+
+    if discoveries >= 100 and rare_finds >= 20:
+        return 'Admiral'
+    elif discoveries >= 75 and rare_finds >= 15:
+        return 'Captain'
+    elif discoveries >= 50 and rare_finds >= 10:
+        return 'Commander'
+    elif discoveries >= 25 and rare_finds >= 5:
+        return 'Lieutenant'
+    elif discoveries >= 10:
+        return 'Ensign'
+    else:
+        return 'Cadet'
+
+
+def generate_enhanced_star_system(x: int, y: int):
+    """Generate an enhanced procedural star system"""
+    random.seed(hash((x, y)))  # Consistent generation
+
+    # Enhanced star types with rarity
+    star_types = [
+        ('Red Dwarf', 0.4), ('Yellow Star', 0.3), ('Blue Giant', 0.15),
+        ('White Dwarf', 0.08), ('Binary System', 0.05), ('Neutron Star', 0.015),
+        ('Pulsar', 0.004), ('Quasar', 0.001)
+    ]
+
+    # Weighted random selection
+    rand_val = random.random()
+    cumulative = 0
+    star_type = 'Red Dwarf'  # Default
+    for stype, weight in star_types:
+        cumulative += weight
+        if rand_val <= cumulative:
+            star_type = stype
+            break
+
+    # Generate planets (1-12 for larger systems)
+    base_planets = random.randint(1, 8)
+    if star_type in ['Blue Giant', 'Binary System']:
+        base_planets += random.randint(0, 4)  # Larger systems
+
+    planets = []
+    planet_types = [
+        ('Rocky Planet', 0.35), ('Gas Giant', 0.25), ('Ocean World', 0.15),
+        ('Desert World', 0.1), ('Ice World', 0.08), ('Volcanic World', 0.05),
+        ('Crystal World', 0.015), ('Toxic World', 0.005)
+    ]
+
+    for i in range(base_planets):
+        # Weighted planet generation
+        rand_val = random.random()
+        cumulative = 0
+        planet_type = 'Rocky Planet'
+        for ptype, weight in planet_types:
+            cumulative += weight
+            if rand_val <= cumulative:
+                planet_type = ptype
+                break
+
+        planet = {
+            'name': f"{planet_type} {chr(65 + i)}",
+            'type': planet_type,
+            'size': random.choice(['Tiny', 'Small', 'Medium', 'Large', 'Massive', 'Colossal']),
+            'moons': random.randint(0, 6),
+            'atmosphere': random.choice(['None', 'Thin', 'Dense', 'Toxic', 'Corrosive']),
+            'temperature': random.randint(-273, 1200),
+            'gravity': round(random.uniform(0.1, 3.5), 1),
+            'resources': random.choice(['None', 'Minerals', 'Crystals', 'Energy', 'Rare Metals']),
+            'habitability': random.choice(
+                ['Hostile', 'Marginal', 'Habitable', 'Paradise']) if planet_type == 'Rocky Planet' else 'Hostile'
+        }
+        planets.append(planet)
+
+    # Enhanced phenomena system with multiple categories
+    phenomena = []
+
+    # Common phenomena (40% chance)
+    if random.random() < 0.4:
+        common_phenomena = ['Asteroid Field', 'Comet Trail', 'Space Station', 'Mining Operation', 'Trade Route',
+                            'Nebula Fragment']
+        phenomena.append(random.choice(common_phenomena))
+
+    # Uncommon phenomena (20% chance)
+    if random.random() < 0.2:
+        uncommon_phenomena = ['Crystal Formation', 'Magnetic Storm', 'Ion Stream', 'Debris Field', 'Sensor Anomaly']
+        phenomena.append(random.choice(uncommon_phenomena))
+
+    # Rare phenomena (8% chance)
+    if random.random() < 0.08:
+        rare_phenomena = ['Ancient Ruins', 'Alien Artifact', 'Derelict Ship', 'Temporal Rift', 'Energy Cascade']
+        phenomena.append(random.choice(rare_phenomena))
+
+    # Epic phenomena (3% chance)
+    if random.random() < 0.03:
+        epic_phenomena = ['Black Hole', 'Wormhole', 'Supernova Remnant', 'Dark Matter Cloud']
+        phenomena.append(random.choice(epic_phenomena))
+
+    # Legendary phenomena (0.5% chance)
+    if random.random() < 0.005:
+        legendary_phenomena = ['Dyson Sphere', 'Galactic Anomaly', 'Ancient Gateway', 'Cosmic String']
+        phenomena.append(random.choice(legendary_phenomena))
+
+    # System hazards
+    hazards = []
+    if random.random() < 0.15:
+        hazard_types = ['Solar Flares', 'Radiation Storms', 'Gravitational Anomalies', 'Pirate Activity',
+                        'Unstable Orbits']
+        hazards.append(random.choice(hazard_types))
+
+    return {
+        'coordinates': (x, y),
+        'star_type': star_type,
+        'planets': planets,
+        'phenomena': phenomena,
+        'hazards': hazards,
+        'asteroid_belts': random.randint(0, 4),
+        'nebula_presence': random.random() < 0.3,
+        'danger_level': random.choice(['Safe', 'Low Risk', 'Moderate', 'Dangerous', 'Extreme', 'Lethal']),
+        'trade_value': random.randint(0, 1000) if random.random() < 0.2 else 0
+    }
+
+
+def create_enhanced_galaxy_map_embed(user_id: int, map_size: int = 9):
+    """Create enhanced galaxy map embed with larger size"""
+    user_data = get_galaxy_user_data(user_id)
+    pos = user_data['position']
+
+    # Update exploration rank
+    user_data['exploration_rank'] = calculate_exploration_rank(user_data)
+
+    embed = discord.Embed(
+        title=f"{galaxy_emojis['nebula']} Galaxy Map - Sector {pos[0] // 10}.{pos[1] // 10}",
+        description=f"**Commander:** {user_data['exploration_rank']}\n**Position:** `({pos[0]}, {pos[1]})`",
+        color=0x1a1a2e
+    )
+
+    # Create larger map (9x9 or 11x11 grid)
+    half_size = map_size // 2
+    map_str = ""
+
+    for y in range(pos[1] + half_size, pos[1] - half_size - 1, -1):
+        row = ""
+        for x in range(pos[0] - half_size, pos[0] + half_size + 1):
+            if (x, y) == tuple(pos):
+                row += f"{galaxy_emojis['ship']}"
+            elif (x, y) in user_data['discovered_systems']:
+                # Different icons for different types of explored systems
+                system = generate_enhanced_star_system(x, y)
+                if system['phenomena'] and any(p in ['Dyson Sphere', 'Ancient Gateway'] for p in system['phenomena']):
+                    row += f"{galaxy_emojis['legendary']}"
+                elif system['phenomena'] and any(p in ['Black Hole', 'Wormhole'] for p in system['phenomena']):
+                    row += f"🌀"
+                elif system['trade_value'] > 500:
+                    row += f"{galaxy_emojis['treasure']}"
+                else:
+                    row += f"{galaxy_emojis['explored']}"
+            else:
+                # Show different unexplored system types
+                if (x + y) % 4 == 0:
+                    row += f"{galaxy_emojis['star']}"
+                elif (x + y) % 4 == 1:
+                    row += "✦"
+                elif (x + y) % 4 == 2:
+                    row += "⋆"
+                else:
+                    row += "✧"
+            row += " "
+        row += "\n"
+        map_str += row
+
+    embed.add_field(name="📍 Sector Map", value=f"```\n{map_str}```", inline=False)
+
+    # Enhanced stats layout
+    fuel_percentage = (user_data['fuel'] / user_data['max_fuel']) * 100
+    fuel_bar = '█' * int(fuel_percentage // 10) + '░' * (10 - int(fuel_percentage // 10))
+
+    embed.add_field(
+        name=f"{galaxy_emojis['fuel']} Fuel Tank",
+        value=f"{user_data['fuel']}/{user_data['max_fuel']}\n{fuel_bar}",
+        inline=True
+    )
+
+    embed.add_field(
+        name=f"{galaxy_emojis['treasure']} Credits",
+        value=f"{user_data['credits']:,}",
+        inline=True
+    )
+
+    embed.add_field(
+        name=f"{galaxy_emojis['explored']} Explored",
+        value=f"{len(user_data['discovered_systems'])} systems",
+        inline=True
+    )
+
+    # Resources
+    resources_text = f"{galaxy_emojis['crystal_world']} {user_data['resources']['crystals']} | "
+    resources_text += f"⚙️ {user_data['resources']['metals']} | "
+    resources_text += f"{galaxy_emojis['energy']} {user_data['resources']['energy']}"
+
+    embed.add_field(name="📦 Resources", value=resources_text, inline=False)
+
+    # Achievements
+    if user_data['rare_discoveries']:
+        rare_count = len(set(user_data['rare_discoveries']))
+        embed.add_field(
+            name=f"{galaxy_emojis['legendary']} Rare Discoveries",
+            value=f"{rare_count} unique phenomena found",
+            inline=True
+        )
+
+    embed.set_footer(text="Use buttons below to navigate • Long-range scanners available")
+    return embed
+
+
+class GalaxyNavigationView(ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.user_id = user_id
+
+    @ui.button(label='↖️', style=discord.ButtonStyle.secondary, row=0)
+    async def northwest(self, interaction: discord.Interaction, button: ui.Button):
+        await self.move_ship(interaction, -1, 1)
+
+    @ui.button(label='⬆️', style=discord.ButtonStyle.primary, row=0)
+    async def north(self, interaction: discord.Interaction, button: ui.Button):
+        await self.move_ship(interaction, 0, 1)
+
+    @ui.button(label='↗️', style=discord.ButtonStyle.secondary, row=0)
+    async def northeast(self, interaction: discord.Interaction, button: ui.Button):
+        await self.move_ship(interaction, 1, 1)
+
+    @ui.button(label='🔭 Scan', style=discord.ButtonStyle.success, row=0)
+    async def scan_system(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your ship!", ephemeral=True)
+            return
+
+        user_data = get_galaxy_user_data(self.user_id)
+        pos = user_data['position']
+        system = generate_enhanced_star_system(pos[0], pos[1])
+
+        embed = create_enhanced_system_scan_embed(system, self.user_id)
+        view = SystemExplorationView(self.user_id, system)
+
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    @ui.button(label='⬅️', style=discord.ButtonStyle.primary, row=1)
+    async def west(self, interaction: discord.Interaction, button: ui.Button):
+        await self.move_ship(interaction, -1, 0)
+
+    @ui.button(label='🏠 Base', style=discord.ButtonStyle.success, row=1)
+    async def return_home(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your ship!", ephemeral=True)
+            return
+
+        user_data = get_galaxy_user_data(self.user_id)
+        user_data['position'] = [0, 0]
+        user_data['fuel'] = user_data['max_fuel']  # Free refuel at base
+
+        embed = create_enhanced_galaxy_map_embed(self.user_id)
+        await interaction.response.edit_message(embed=embed, view=GalaxyNavigationView(self.user_id))
+
+    @ui.button(label='➡️', style=discord.ButtonStyle.primary, row=1)
+    async def east(self, interaction: discord.Interaction, button: ui.Button):
+        await self.move_ship(interaction, 1, 0)
+
+    @ui.button(label='↙️', style=discord.ButtonStyle.secondary, row=2)
+    async def southwest(self, interaction: discord.Interaction, button: ui.Button):
+        await self.move_ship(interaction, -1, -1)
+
+    @ui.button(label='⬇️', style=discord.ButtonStyle.primary, row=2)
+    async def south(self, interaction: discord.Interaction, button: ui.Button):
+        await self.move_ship(interaction, 0, -1)
+
+    @ui.button(label='↘️', style=discord.ButtonStyle.secondary, row=2)
+    async def southeast(self, interaction: discord.Interaction, button: ui.Button):
+        await self.move_ship(interaction, 1, -1)
+
+    @ui.button(label='⛽ Refuel', style=discord.ButtonStyle.danger, row=2)
+    async def refuel(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your ship!", ephemeral=True)
+            return
+
+        user_data = get_galaxy_user_data(self.user_id)
+        refuel_cost = max(10, (user_data['max_fuel'] - user_data['fuel']) // 2)
+
+        if user_data['credits'] < refuel_cost:
+            await interaction.response.send_message(
+                f"❌ Insufficient credits! Need {refuel_cost}, have {user_data['credits']}", ephemeral=True)
+            return
+
+        user_data['credits'] -= refuel_cost
+        user_data['fuel'] = user_data['max_fuel']
+
+        embed = discord.Embed(
+            title="⛽ Emergency Refuel Complete",
+            description=f"Fuel restored to {user_data['max_fuel']}%\nCost: {refuel_cost} credits",
+            color=0x00ff00
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True, delete_after=5)
+
+        # Update main view
+        main_embed = create_enhanced_galaxy_map_embed(self.user_id)
+        await interaction.edit_original_response(embed=main_embed, view=self)
+
+    @ui.button(label='📊 Stats', style=discord.ButtonStyle.success, row=2)
+    async def show_stats(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your ship!", ephemeral=True)
+            return
+
+        embed = create_enhanced_stats_embed(self.user_id, interaction.user)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def move_ship(self, interaction: discord.Interaction, dx: int, dy: int):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your ship!", ephemeral=True)
+            return
+
+        user_data = get_galaxy_user_data(self.user_id)
+
+        # Calculate fuel cost based on upgrades
+        fuel_efficiency = user_data['ship_upgrades']['fuel_efficiency']
+        base_cost = 8
+        fuel_cost = max(3, base_cost - fuel_efficiency)
+
+        if user_data['fuel'] < fuel_cost:
+            await interaction.response.send_message(f"❌ Insufficient fuel! Need {fuel_cost}, have {user_data['fuel']}",
+                                                    ephemeral=True)
+            return
+
+        user_data['position'][0] += dx
+        user_data['position'][1] += dy
+        user_data['fuel'] -= fuel_cost
+
+        # Random events during travel
+        if random.random() < 0.1:  # 10% chance
+            event_embed = await self.handle_travel_event(user_data)
+            if event_embed:
+                await interaction.followup.send(embed=event_embed, ephemeral=True)
+
+        embed = create_enhanced_galaxy_map_embed(self.user_id)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def handle_travel_event(self, user_data):
+        """Handle random events during travel"""
+        events = [
+            ('Asteroid debris collected!', 'resources', {'metals': random.randint(5, 15)}),
+            ('Energy surge detected!', 'resources', {'energy': random.randint(3, 10)}),
+            ('Space pirates avoided!', 'credits', random.randint(-20, -5)),
+            ('Trading convoy encountered!', 'credits', random.randint(10, 30)),
+            ('Fuel leak detected!', 'fuel', random.randint(-5, -2)),
+            ('Lucky find!', 'credits', random.randint(20, 50))
+        ]
+
+        event_text, event_type, reward = random.choice(events)
+
+        embed = discord.Embed(title="🌌 Space Event", description=event_text, color=0x9932cc)
+
+        if event_type == 'resources':
+            for resource, amount in reward.items():
+                user_data['resources'][resource] += amount
+                embed.add_field(name="Reward", value=f"+{amount} {resource.title()}", inline=False)
+        elif event_type == 'credits':
+            user_data['credits'] += reward
+            if reward > 0:
+                embed.add_field(name="Reward", value=f"+{reward} credits", inline=False)
+            else:
+                embed.add_field(name="Loss", value=f"{reward} credits", inline=False)
+        elif event_type == 'fuel':
+            user_data['fuel'] = max(0, user_data['fuel'] + reward)
+            embed.add_field(name="Effect", value=f"{reward} fuel", inline=False)
+
+        return embed
+
+    async def on_timeout(self):
+        # Disable all buttons when view times out
+        for item in self.children:
+            item.disabled = True
+
+
+class SystemExplorationView(ui.View):
+    def __init__(self, user_id: int, system):
+        super().__init__(timeout=180)
+        self.user_id = user_id
+        self.system = system
+
+    @ui.button(label='⚡ Explore System', style=discord.ButtonStyle.success, emoji='⚡')
+    async def explore_system(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your exploration mission!", ephemeral=True)
+            return
+
+        user_data = get_galaxy_user_data(self.user_id)
+        coords = tuple(user_data['position'])
+
+        if coords in user_data['discovered_systems']:
+            embed = discord.Embed(
+                title="⚠️ System Already Catalogued",
+                description="Your records show this system has been fully explored.",
+                color=0xff9900
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Handle hazards
+        if self.system['hazards'] and random.random() < 0.3:
+            hazard_result = await self.handle_hazard_encounter(user_data)
+            if hazard_result['failed']:
+                await interaction.response.send_message(embed=hazard_result['embed'], ephemeral=True)
+                return
+
+        # Calculate enhanced rewards
+        points, discoveries, resources = calculate_enhanced_discovery_rewards(self.system, self.user_id)
+
+        # Mark as discovered
+        user_data['discovered_systems'].add(coords)
+        user_data['successful_explorations'] += 1
+
+        # Add resources
+        for resource, amount in resources.items():
+            user_data['resources'][resource] += amount
+
+        # Add credits (convertible from points)
+        credits_earned = points // 2
+        user_data['credits'] += credits_earned
+
+        # Check for achievements
+        new_achievements = check_achievements(user_data)
+
+        # ADD POINTS TO YOUR EXISTING SCORING SYSTEM HERE:
+        # Example: add_score(self.user_id, points)
+
+        # Send enhanced results
+        result_embed = create_enhanced_exploration_result_embed(
+            self.system, points, discoveries, resources, credits_earned, self.user_id
+        )
+
+        if new_achievements:
+            result_embed.add_field(
+                name="🏆 New Achievements!",
+                value="\n".join([f"⭐ {achievement}" for achievement in new_achievements]),
+                inline=False
+            )
+
+        await interaction.response.edit_message(embed=result_embed, view=None)
+
+    async def handle_hazard_encounter(self, user_data):
+        """Handle hazard encounters during exploration"""
+        hazard = self.system['hazards'][0]
+        shield_level = user_data['ship_upgrades']['shield_strength']
+
+        # Calculate success chance based on shields
+        base_chance = 0.7
+        success_chance = min(0.95, base_chance + (shield_level * 0.1))
+
+        if random.random() < success_chance:
+            # Survived hazard
+            embed = discord.Embed(
+                title="⚠️ Hazard Encountered!",
+                description=f"**{hazard}** detected in system!\nYour shields held - exploration continues.",
+                color=0xffa500
+            )
+            return {'failed': False, 'embed': embed}
+        else:
+            # Failed to handle hazard
+            fuel_loss = random.randint(10, 25)
+            user_data['fuel'] = max(0, user_data['fuel'] - fuel_loss)
+            user_data['danger_encounters'] += 1
+
+            embed = discord.Embed(
+                title="💥 System Hazard!",
+                description=f"**{hazard}** caused significant damage!\nExploration aborted. Fuel lost: {fuel_loss}",
+                color=0xff0000
+            )
+            return {'failed': True, 'embed': embed}
+
+
+def create_enhanced_system_scan_embed(system, user_id: int):
+    """Create enhanced system scan embed"""
+    coords = system['coordinates']
+    user_data = get_galaxy_user_data(user_id)
+
+    embed = discord.Embed(
+        title=f"{galaxy_emojis['scan']} Deep System Scan",
+        description=f"**{system['star_type']}** • Coordinates: `({coords[0]}, {coords[1]})`",
+        color=0xffd700
+    )
+
+    # Enhanced star info with danger assessment
+    star_emoji = galaxy_emojis['star']
+    if 'Neutron' in system['star_type']:
+        star_emoji = '🌀'
+    elif 'Pulsar' in system['star_type']:
+        star_emoji = '💫'
+    elif 'Binary' in system['star_type']:
+        star_emoji = '⭐⭐'
+    elif 'Quasar' in system['star_type']:
+        star_emoji = '🌟'
+
+    danger_colors = {
+        'Safe': '🟢', 'Low Risk': '🟡', 'Moderate': '🟠',
+        'Dangerous': '🔴', 'Extreme': '🟣', 'Lethal': '⚫'
+    }
+
+    embed.add_field(
+        name=f"{star_emoji} Central Star",
+        value=f"**Type:** {system['star_type']}\n**Threat Level:** {danger_colors.get(system['danger_level'], '⚪')} {system['danger_level']}",
+        inline=True
+    )
+
+    # Enhanced planetary information
+    if system['planets']:
+        planet_summary = f"**{len(system['planets'])} planetary bodies detected**\n"
+
+        # Group planets by type
+        planet_counts = {}
+        valuable_planets = []
+
+        for planet in system['planets']:
+            ptype = planet['type']
+            planet_counts[ptype] = planet_counts.get(ptype, 0) + 1
+
+            if planet['resources'] in ['Crystals', 'Rare Metals', 'Energy']:
+                valuable_planets.append(f"🔸 {planet['name']} ({planet['resources']})")
+
+        # Show planet distribution
+        for ptype, count in list(planet_counts.items())[:4]:  # Show top 4 types
+            emoji = get_planet_emoji(ptype)
+            planet_summary += f"{emoji} {count}x {ptype}\n"
+
+        if len(planet_counts) > 4:
+            remaining = sum(list(planet_counts.values())[4:])
+            planet_summary += f"⚪ {remaining} other worlds\n"
+
+        embed.add_field(
+            name=f"{galaxy_emojis['planet']} Planetary Survey",
+            value=planet_summary,
+            inline=False
+        )
+
+        # Show valuable resources
+        if valuable_planets:
+            embed.add_field(
+                name="💎 Resource Deposits",
+                value="\n".join(valuable_planets[:3]),
+                inline=True
+            )
+
+    # Enhanced phenomena display
+    if system['phenomena']:
+        phenomena_str = ""
+        for phenomenon in system['phenomena']:
+            if phenomenon in ['Dyson Sphere', 'Ancient Gateway', 'Cosmic String']:
+                phenomena_str += f"{galaxy_emojis['legendary']} **{phenomenon}** ⚡LEGENDARY⚡\n"
+            elif phenomenon in ['Black Hole', 'Wormhole', 'Supernova Remnant']:
+                phenomena_str += f"🌀 **{phenomenon}** ✨EPIC✨\n"
+            elif phenomenon in ['Ancient Ruins', 'Alien Artifact', 'Temporal Rift']:
+                phenomena_str += f"{galaxy_emojis['rare']} **{phenomenon}** 💎RARE💎\n"
+            else:
+                phenomena_str += f"🔸 {phenomenon}\n"
+
+        embed.add_field(
+            name="✨ Anomalous Phenomena",
+            value=phenomena_str,
+            inline=False
+        )
+
+    # System hazards warning
+    if system['hazards']:
+        hazard_str = ""
+        for hazard in system['hazards']:
+            hazard_str += f"⚠️ **{hazard}**\n"
+
+        embed.add_field(
+            name="🚨 Navigation Hazards",
+            value=hazard_str + "\n*Shield upgrades recommended*",
+            inline=True
+        )
+
+    # Trade opportunities
+    if system['trade_value'] > 0:
+        embed.add_field(
+            name="💰 Trade Opportunities",
+            value=f"Estimated value: {system['trade_value']} credits",
+            inline=True
+        )
+
+    # Exploration requirements
+    scanner_range = user_data['ship_upgrades']['scanner_range']
+    exploration_difficulty = "Standard"
+
+    if system['danger_level'] in ['Extreme', 'Lethal']:
+        exploration_difficulty = "High-Risk Mission"
+    elif len(system['phenomena']) > 2:
+        exploration_difficulty = "Complex Survey"
+    elif system['hazards']:
+        exploration_difficulty = "Hazardous Environment"
+
+    embed.add_field(
+        name="🎯 Mission Classification",
+        value=f"**{exploration_difficulty}**\nScanner Level: {scanner_range + 1}",
+        inline=True
+    )
+
+    embed.set_footer(text="Click 'Explore System' to begin detailed survey mission")
+    return embed
+
+
+def get_planet_emoji(planet_type: str):
+    """Get appropriate emoji for planet type"""
+    type_map = {
+        'Rocky Planet': '🌍',
+        'Gas Giant': '🪐',
+        'Ocean World': '🌊',
+        'Desert World': '🏜️',
+        'Ice World': '❄️',
+        'Volcanic World': '🌋',
+        'Crystal World': '💎',
+        'Toxic World': '☢️'
+    }
+    return type_map.get(planet_type, '🪐')
+
+
+def calculate_enhanced_discovery_rewards(system, user_id: int):
+    """Calculate enhanced rewards for system exploration"""
+    total_points = 0
+    discoveries = []
+    resources = {'crystals': 0, 'metals': 0, 'energy': 0}
+    user_data = get_galaxy_user_data(user_id)
+
+    # Base multiplier based on danger level
+    danger_multipliers = {
+        'Safe': 1.0, 'Low Risk': 1.1, 'Moderate': 1.25,
+        'Dangerous': 1.5, 'Extreme': 2.0, 'Lethal': 3.0
+    }
+    multiplier = danger_multipliers.get(system['danger_level'], 1.0)
+
+    # Planet rewards with resource extraction
+    for planet in system['planets']:
+        planet_key = planet['type'].lower().replace(' ', '_')
+        base_points = galaxy_rewards.get(planet_key, 15)
+        points = int(base_points * multiplier)
+        total_points += points
+
+        emoji = get_planet_emoji(planet['type'])
+        discoveries.append(f"{emoji} {planet['name']} (+{points})")
+
+        # Resource extraction based on planet type and size
+        if planet['resources'] == 'Crystals':
+            crystals = random.randint(2, 8)
+            if planet['size'] in ['Large', 'Massive', 'Colossal']:
+                crystals += random.randint(2, 5)
+            resources['crystals'] += crystals
+        elif planet['resources'] == 'Rare Metals':
+            metals = random.randint(3, 12)
+            if planet['size'] in ['Large', 'Massive', 'Colossal']:
+                metals += random.randint(3, 8)
+            resources['metals'] += metals
+        elif planet['resources'] == 'Energy':
+            energy = random.randint(1, 6)
+            if planet['size'] in ['Large', 'Massive', 'Colossal']:
+                energy += random.randint(1, 4)
+            resources['energy'] += energy
+
+    # Enhanced phenomena rewards
+    for phenomenon in system['phenomena']:
+        phenomenon_key = phenomenon.lower().replace(' ', '_')
+        base_points = galaxy_rewards.get(phenomenon_key, 50)
+        points = int(base_points * multiplier)
+        total_points += points
+
+        # Add to rare discoveries tracking
+        rarity_level = ""
+        if phenomenon in ['Dyson Sphere', 'Ancient Gateway', 'Cosmic String']:
+            user_data['rare_discoveries'].append(phenomenon)
+            rarity_level = " ⚡LEGENDARY⚡"
+            # Bonus resources for legendary finds
+            resources['crystals'] += random.randint(10, 25)
+            resources['energy'] += random.randint(5, 15)
+        elif phenomenon in ['Black Hole', 'Wormhole', 'Supernova Remnant', 'Dark Matter Cloud']:
+            user_data['rare_discoveries'].append(phenomenon)
+            rarity_level = " ✨EPIC✨"
+            resources['energy'] += random.randint(3, 10)
+        elif phenomenon in ['Ancient Ruins', 'Alien Artifact', 'Temporal Rift']:
+            user_data['rare_discoveries'].append(phenomenon)
+            rarity_level = " 💎RARE💎"
+            resources['crystals'] += random.randint(2, 8)
+
+        discoveries.append(f"🌟 {phenomenon} (+{points}){rarity_level}")
+
+    # Asteroid belt resources
+    if system['asteroid_belts'] > 0:
+        belt_points = system['asteroid_belts'] * int(galaxy_rewards['asteroid_field'] * multiplier)
+        total_points += belt_points
+        belt_metals = system['asteroid_belts'] * random.randint(5, 15)
+        resources['metals'] += belt_metals
+        discoveries.append(f"{galaxy_emojis['asteroid']} {system['asteroid_belts']} Asteroid Fields (+{belt_points})")
+
+    # Nebula bonus
+    if system['nebula_presence']:
+        nebula_points = int(galaxy_rewards['nebula'] * multiplier)
+        total_points += nebula_points
+        resources['energy'] += random.randint(3, 8)
+        discoveries.append(f"{galaxy_emojis['nebula']} Nebula Formation (+{nebula_points})")
+
+    # First discovery bonus
+    if tuple(system['coordinates']) not in user_data['discovered_systems']:
+        first_discovery_bonus = int(total_points * 0.2)  # 20% bonus
+        total_points += first_discovery_bonus
+        discoveries.append(f"🏆 First Discovery Bonus (+{first_discovery_bonus})")
+
+    return total_points, discoveries, resources
+
+
+def create_enhanced_exploration_result_embed(system, points: int, discoveries, resources, credits_earned: int,
+                                             user_id: int):
+    """Create enhanced exploration result embed"""
+    coords = system['coordinates']
+    user_data = get_galaxy_user_data(user_id)
+
+    embed = discord.Embed(
+        title="🎉 Exploration Mission Complete!",
+        description=f"**{system['star_type']}** system at `({coords[0]}, {coords[1]})` fully catalogued",
+        color=0x00ff41
+    )
+
+    # Mission summary
+    embed.add_field(
+        name="📊 Mission Summary",
+        value=f"🏆 **{points:,}** exploration points\n💰 **{credits_earned:,}** credits earned\n🌍 **{len(system['planets'])}** worlds surveyed",
+        inline=False
+    )
+
+    # Resource haul
+    if any(resources.values()):
+        resource_text = ""
+        if resources['crystals'] > 0:
+            resource_text += f"💎 {resources['crystals']} Crystals\n"
+        if resources['metals'] > 0:
+            resource_text += f"⚙️ {resources['metals']} Metals\n"
+        if resources['energy'] > 0:
+            resource_text += f"⚡ {resources['energy']} Energy\n"
+
+        embed.add_field(
+            name="🛸 Resource Extraction",
+            value=resource_text,
+            inline=True
+        )
+
+    # Updated stats
+    embed.add_field(
+        name="📈 Career Progress",
+        value=f"🗺️ Systems: {len(user_data['discovered_systems'])}\n👑 Rank: {user_data['exploration_rank']}\n⭐ Rare Finds: {len(set(user_data['rare_discoveries']))}",
+        inline=True
+    )
+
+    # Show top discoveries
+    if discoveries:
+        discovery_text = "\n".join(discoveries[:6])  # Show first 6
+        if len(discoveries) > 6:
+            discovery_text += f"\n... and {len(discoveries) - 6} more discoveries!"
+
+        embed.add_field(name="🔬 Scientific Discoveries", value=discovery_text, inline=False)
+
+    # Special mission rewards
+    rare_count = len([d for d in discoveries if any(marker in d for marker in ["LEGENDARY", "EPIC", "RARE"])])
+    if rare_count > 0:
+        bonus_text = f"🌟 **{rare_count} rare phenomena documented!**\n"
+        if rare_count >= 3:
+            bonus_text += "🏅 **Triple Discovery Achievement!**\n"
+        elif rare_count >= 2:
+            bonus_text += "🥈 **Double Discovery Bonus!**\n"
+
+        embed.add_field(
+            name=f"{galaxy_emojis['legendary']} Special Recognition",
+            value=bonus_text,
+            inline=False
+        )
+
+    # Danger level completed
+    if system['danger_level'] in ['Dangerous', 'Extreme', 'Lethal']:
+        embed.add_field(
+            name="🎖️ Hazard Pay",
+            value=f"Completed **{system['danger_level']}** mission!\nBravery bonus applied to rewards",
+            inline=False
+        )
+
+    embed.set_footer(text="Continue exploring to unlock new ship upgrades and achievements!")
+    return embed
+
+
+def create_enhanced_stats_embed(user_id: int, discord_user):
+    """Create enhanced exploration statistics embed"""
+    user_data = get_galaxy_user_data(user_id)
+
+    embed = discord.Embed(
+        title=f"🌌 Commander Profile: {discord_user.display_name}",
+        description=f"**Rank:** {user_data['exploration_rank']} • **Service Record**",
+        color=0x9932cc
+    )
+
+    embed.set_thumbnail(url=discord_user.display_avatar.url)
+
+    # Current status
+    embed.add_field(
+        name=f"📍 Current Position",
+        value=f"`({user_data['position'][0]}, {user_data['position'][1]})`\nSector {user_data['position'][0] // 10}.{user_data['position'][1] // 10}",
+        inline=True
+    )
+
+    embed.add_field(
+        name=f"🚀 Ship Status",
+        value=f"⛽ Fuel: {user_data['fuel']}/{user_data['max_fuel']}\n🛡️ Shields: Level {user_data['ship_upgrades']['shield_strength'] + 1}",
+        inline=True
+    )
+
+    embed.add_field(
+        name=f"💰 Finances",
+        value=f"{user_data['credits']:,} credits",
+        inline=True
+    )
+
+    # Exploration achievements
+    exploration_text = f"🗺️ **{len(user_data['discovered_systems'])}** systems explored\n"
+    exploration_text += f"✅ **{user_data['successful_explorations']}** successful missions\n"
+    exploration_text += f"⚠️ **{user_data['danger_encounters']}** hazard encounters"
+
+    embed.add_field(
+        name="📊 Exploration Record",
+        value=exploration_text,
+        inline=False
+    )
+
+    # Resource inventory
+    resources_text = f"💎 {user_data['resources']['crystals']} Crystals\n"
+    resources_text += f"⚙️ {user_data['resources']['metals']} Rare Metals\n"
+    resources_text += f"⚡ {user_data['resources']['energy']} Energy Cells"
+
+    embed.add_field(
+        name="🛸 Cargo Hold",
+        value=resources_text,
+        inline=True
+    )
+
+    # Ship upgrades
+    if any(level > 0 for level in user_data['ship_upgrades'].values()):
+        upgrade_text = ""
+        for upgrade, level in user_data['ship_upgrades'].items():
+            if level > 0:
+                upgrade_name = upgrade.replace('_', ' ').title()
+                upgrade_text += f"🔧 {upgrade_name}: Level {level}\n"
+
+        embed.add_field(
+            name="⚡ Ship Upgrades",
+            value=upgrade_text,
+            inline=True
+        )
+
+    # Rare discoveries showcase
+    if user_data['rare_discoveries']:
+        rare_list = list(set(user_data['rare_discoveries']))[:8]  # Show unique discoveries
+        rare_categories = {
+            'legendary': [],
+            'epic': [],
+            'rare': []
+        }
+
+        for discovery in rare_list:
+            if discovery in ['Dyson Sphere', 'Ancient Gateway', 'Cosmic String']:
+                rare_categories['legendary'].append(discovery)
+            elif discovery in ['Black Hole', 'Wormhole', 'Supernova Remnant', 'Dark Matter Cloud']:
+                rare_categories['epic'].append(discovery)
+            else:
+                rare_categories['rare'].append(discovery)
+
+        discovery_text = ""
+        if rare_categories['legendary']:
+            discovery_text += f"⚡ **Legendary:** {len(rare_categories['legendary'])}\n"
+        if rare_categories['epic']:
+            discovery_text += f"✨ **Epic:** {len(rare_categories['epic'])}\n"
+        if rare_categories['rare']:
+            discovery_text += f"💎 **Rare:** {len(rare_categories['rare'])}\n"
+
+        discovery_text += f"\n**Total Unique:** {len(rare_list)}"
+
+        embed.add_field(
+            name=f"{galaxy_emojis['legendary']} Rare Phenomena Catalog",
+            value=discovery_text,
+            inline=False
+        )
+
+        # Show some specific discoveries
+        if rare_categories['legendary']:
+            embed.add_field(
+                name="🏆 Most Significant Discoveries",
+                value="\n".join([f"⚡ {item}" for item in rare_categories['legendary'][:3]]),
+                inline=True
+            )
+
+    embed.set_footer(text="Explore more systems to advance your rank and unlock new ship upgrades!")
+    return embed
+
+
+def check_achievements(user_data):
+    """Check for new achievements and add them to user data"""
+    new_achievements = []
+
+    achievements_to_check = [
+        ('First Steps', lambda: len(user_data['discovered_systems']) >= 1),
+        ('Explorer', lambda: len(user_data['discovered_systems']) >= 10),
+        ('Veteran Explorer', lambda: len(user_data['discovered_systems']) >= 50),
+        ('Master Explorer', lambda: len(user_data['discovered_systems']) >= 100),
+        ('Phenomenon Hunter', lambda: len(user_data['rare_discoveries']) >= 5),
+        ('Legendary Seeker', lambda: len(user_data['rare_discoveries']) >= 15),
+        ('Danger Seeker', lambda: user_data['danger_encounters'] >= 5),
+        ('Resource Baron', lambda: sum(user_data['resources'].values()) >= 100),
+        ('Wealthy Trader', lambda: user_data['credits'] >= 1000),
+        ('System Specialist', lambda: user_data['successful_explorations'] >= 25)
+    ]
+
+    for achievement_name, condition in achievements_to_check:
+        if achievement_name not in user_data['achievements'] and condition():
+            user_data['achievements'].add(achievement_name)
+            new_achievements.append(achievement_name)
+
+    return new_achievements
+
+
+# ========================================
+# ENHANCED BOT COMMANDS
+# ========================================
+
+@bot.command(name='galaxy', aliases=['explore', 'space'])
+async def enhanced_galaxy_command(ctx):
+    """Start enhanced galaxy exploration with UI buttons"""
+    user_id = ctx.author.id
+
+    embed = create_enhanced_galaxy_map_embed(user_id, map_size=11)  # Larger 11x11 map
+    view = GalaxyNavigationView(user_id)
+
+    message = await ctx.send(embed=embed, view=view)
+
+    # Welcome message for new explorers
+    user_data = get_galaxy_user_data(user_id)
+    if len(user_data['discovered_systems']) == 0:
+        welcome_embed = discord.Embed(
+            title="🌟 Welcome to Deep Space Exploration!",
+            description="You've been assigned a state-of-the-art exploration vessel. Your mission: map uncharted systems and discover rare phenomena.",
+            color=0x00ffff
+        )
+        welcome_embed.add_field(
+            name="🎯 Mission Objectives",
+            value="• Explore unknown star systems\n• Catalog rare phenomena\n• Extract valuable resources\n• Advance your explorer rank",
+            inline=False
+        )
+        welcome_embed.add_field(
+            name="🚀 Getting Started",
+            value="Use the navigation buttons to move through space. Click 🔭 **Scan** to analyze systems, then ⚡ **Explore** to begin detailed surveys.",
+            inline=False
+        )
+        await ctx.send(embed=welcome_embed, delete_after=30)
+
+
+@bot.command(name='scan', aliases=['system', 'probe'])
+async def enhanced_scan_system(ctx):
+    """Perform enhanced system scan with detailed analysis"""
+    user_id = ctx.author.id
+    user_data = get_galaxy_user_data(user_id)
+    pos = user_data['position']
+
+    system = generate_enhanced_star_system(pos[0], pos[1])
+    embed = create_enhanced_system_scan_embed(system, user_id)
+    view = SystemExplorationView(user_id, system)
+
+    await ctx.send(embed=embed, view=view)
+
+
+@bot.command(name='galaxystats', aliases=['gstats', 'profile', 'commander'])
+async def enhanced_galaxy_stats(ctx):
+    """Show comprehensive exploration statistics and achievements"""
+    user_id = ctx.author.id
+    embed = create_enhanced_stats_embed(user_id, ctx.author)
+    await ctx.send(embed=embed)
+
+
+'''@bot.command(name='shipyard', aliases=['upgrade', 'shop'])
+async def shipyard_command(ctx):
+    """Access ship upgrade system"""
+    user_id = ctx.author.id
+    user_data = get_galaxy_user_data(user_id)
+
+    embed = discord.Embed(
+        title="🔧 Deep Space Shipyard",
+        description="Upgrade your exploration vessel with advanced technology",
+        color=0x4169e1
+    )
+
+    embed.add_field(
+        name="💰 Available Credits",
+        value=f"{user_data['credits']:,}",
+        inline=False
+    )
+
+    upgrades_text = ""
+    for upgrade_name, upgrade_info in ship_upgrades.items():
+        current_level = user_data['ship_upgrades'][upgrade_name]
+        max_level = upgrade_info['levels']
+        cost = upgrade_info['cost'] * (current_level + 1)
+
+        if current_level < max_level:
+            status = f"Level {current_level}/{max_level} • Next: {cost:,} credits"
+        else:
+            status = f"Level {current_level}/{max_level} • **MAXED**"
+
+        upgrades_text += f"🔧 **{upgrade_name.replace('_', ' ').title()}**\n"
+        upgrades_text += f"   {upgrade_info['description']}\n"
+        upgrades_text += f"   {status}\n\n"
+
+    embed.add_field(name="Available Upgrades", value=upgrades_text, inline=False)
+    embed.set_footer(text="Use !upgrade <upgrade_name> to purchase upgrades")
+
+    await ctx.send(embed=embed)'''
+
+@bot.command(name='galacticleaderboard', aliases=['grankings', 'gtop'])
+async def galaxy_leaderboard_command(ctx):
+    """Show exploration leaderboards"""
+    if not galaxy_user_data:
+        await ctx.send("No exploration data available yet!")
+        return
+
+    embed = discord.Embed(
+        title="🏆 Deep Space Exploration Leaderboards",
+        color=0xffd700
+    )
+
+    # Top explorers by systems discovered
+    systems_leaders = sorted(
+        [(uid, data) for uid, data in galaxy_user_data.items()],
+        key=lambda x: len(x[1]['discovered_systems']),
+        reverse=True
+    )[:5]
+
+    systems_text = ""
+    for i, (user_id, data) in enumerate(systems_leaders):
+        try:
+            user = bot.get_user(user_id)
+            name = user.display_name if user else f"Commander #{user_id}"
+            systems_text += f"{i + 1}. {name} - {len(data['discovered_systems'])} systems\n"
+        except:
+            systems_text += f"{i + 1}. Commander #{user_id} - {len(data['discovered_systems'])} systems\n"
+
+    embed.add_field(name="🗺️ Most Systems Explored", value=systems_text or "No data", inline=True)
+
+    # Top rare discovery hunters
+    rare_leaders = sorted(
+        [(uid, data) for uid, data in galaxy_user_data.items()],
+        key=lambda x: len(x[1]['rare_discoveries']),
+        reverse=True
+    )[:5]
+
+    rare_text = ""
+    for i, (user_id, data) in enumerate(rare_leaders):
+        try:
+            user = bot.get_user(user_id)
+            name = user.display_name if user else f"Commander #{user_id}"
+            rare_text += f"{i + 1}. {name} - {len(data['rare_discoveries'])} rare finds\n"
+        except:
+            rare_text += f"{i + 1}. Commander #{user_id} - {len(data['rare_discoveries'])} rare finds\n"
+
+    embed.add_field(name="✨ Most Rare Discoveries", value=rare_text or "No data", inline=True)
+
+    await ctx.send(embed=embed)
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
