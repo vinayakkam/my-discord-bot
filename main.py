@@ -3911,7 +3911,44 @@ async def gif(ctx):
 
     await ctx.send(embed=embed)
 
+# Replace with your developer's Discord user ID
+DEV_USER_ID = 814791086114865233  # 🟩 put the actual ID here
 
+@bot.command(name="dev")
+async def dev(ctx):
+    """
+    Mention the developer with a beautiful embed.
+    Usage: !dev
+    """
+    dev_user = ctx.guild.get_member(DEV_USER_ID) or await bot.fetch_user(DEV_USER_ID)
+
+    if dev_user is None:
+        await ctx.send("⚠️ Developer not found.")
+        return
+
+    embed = discord.Embed(
+        title="👨‍💻 Developer",
+        description=f"Say hi to our amazing developer: {dev_user.mention} 🎉",
+        color=discord.Color.blurple()
+    )
+    embed.set_author(
+        name=dev_user.display_name,
+        icon_url=dev_user.display_avatar.url
+    )
+    embed.set_thumbnail(url=dev_user.display_avatar.url)
+
+    embed.add_field(
+        name="About",
+        value="💡 Creator of this awesome bot.\n🌟 Always improving and adding new features.",
+        inline=False
+    )
+
+    embed.set_footer(
+        text=f"Requested by {ctx.author.display_name}",
+        icon_url=ctx.author.display_avatar.url
+    )
+
+    await ctx.send(embed=embed)
 
 
 
