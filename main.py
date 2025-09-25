@@ -3917,6 +3917,7 @@ DEV_USER_ID = 814791086114865233  # 🟩 put the actual ID here
 class DevView(discord.ui.View):
     def __init__(self, dev_user):
         super().__init__(timeout=None)
+        self.dev_user = dev_user
 
         # Button to open profile
         self.add_item(discord.ui.Button(
@@ -3924,21 +3925,26 @@ class DevView(discord.ui.View):
             url=f"https://discord.com/users/{dev_user.id}"
         ))
 
-        # Button to DM the developer
-        self.add_item(discord.ui.Button(
-            label="✉️ Message Dev",
-            style=discord.ButtonStyle.primary,
-            custom_id="dm_dev"
-        ))
+        # Only one button for DM
+        self.add_item(MessageDevButton(dev_user))
 
-    @discord.ui.button(label="✉️ Message Dev", style=discord.ButtonStyle.primary, custom_id="dm_dev_fake")
-    async def dm_dev_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        dev_user = await interaction.client.fetch_user(DEV_USER_ID)
+class MessageDevButton(discord.ui.Button):
+    def __init__(self, dev_user):
+        super().__init__(label="✉️ Message Dev", style=discord.ButtonStyle.primary)
+        self.dev_user = dev_user
+
+    async def callback(self, interaction: discord.Interaction):
         try:
-            await dev_user.send(f"📩 **{interaction.user}** from **{interaction.guild.name}** wants to chat with you!")
-            await interaction.response.send_message("✅ Message sent to the developer!", ephemeral=True)
+            await self.dev_user.send(
+                f"📩 **{interaction.user}** from **{interaction.guild.name}** wants to chat with you!"
+            )
+            await interaction.response.send_message(
+                "✅ Message sent to the developer!", ephemeral=True
+            )
         except discord.Forbidden:
-            await interaction.response.send_message("⚠️ Could not DM the developer.", ephemeral=True)
+            await interaction.response.send_message(
+                "⚠️ Could not DM the developer.", ephemeral=True
+            )
 
 @bot.command(name="dev")
 async def dev(ctx):
@@ -3948,7 +3954,6 @@ async def dev(ctx):
     """
     # Get dev user
     dev_user = ctx.guild.get_member(DEV_USER_ID) or await bot.fetch_user(DEV_USER_ID)
-
     if dev_user is None:
         await ctx.send("⚠️ Developer not found.")
         return
@@ -3960,20 +3965,15 @@ async def dev(ctx):
         color=discord.Color.purple()
     )
 
-    # Large avatar banner at top
-    embed.set_image(url=dev_user.display_avatar.url)
+    embed.set_image(url=dev_user.display_avatar.url)  # Big banner
+    embed.set_thumbnail(url=dev_user.display_avatar.url)  # Thumbnail
 
-    # Small icon on the left
-    embed.set_thumbnail(url=dev_user.display_avatar.url)
-
-    # Author info
     embed.set_author(
         name=f"{dev_user.display_name}",
         icon_url=dev_user.display_avatar.url,
         url=f"https://discord.com/users/{dev_user.id}"
     )
 
-    # Add fun fields
     embed.add_field(
         name="👨‍💻 About",
         value="💡 Creator of this awesome bot.\n🚀 Building cool features for you.",
