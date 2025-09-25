@@ -4950,6 +4950,109 @@ def check_achievements(user_data):
     return new_achievements
 
 
+class ShipyardView(ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.current_page = 0
+        self.upgrade_names = list(ship_upgrades.keys())
+
+    @ui.button(label='⬅️ Previous', style=discord.ButtonStyle.secondary)
+    async def previous_upgrade(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your shipyard!", ephemeral=True)
+            return
+
+        self.current_page = (self.current_page - 1) % len(self.upgrade_names)
+        embed = self.create_upgrade_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @ui.button(label='🔧 Purchase Upgrade', style=discord.ButtonStyle.success)
+    async def purchase_upgrade(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your shipyard!", ephemeral=True)
+            return
+
+        user_data = get_galaxy_user_data(self.user_id)
+        upgrade_name = self.upgrade_names[self.current_page]
+        upgrade_info = ship_upgrades[upgrade_name]
+        current_level = user_data['ship_upgrades'][upgrade_name]
+
+        if current_level >= upgrade_info['levels']:
+            await interaction.response.send_message("This upgrade is already maxed out!", ephemeral=True)
+            return
+
+        cost = upgrade_info['cost'] * (current_level + 1)
+        if user_data['credits'] < cost:
+            await interaction.response.send_message(
+                f"Insufficient credits! Need {cost:,}, have {user_data['credits']:,}", ephemeral=True)
+            return
+
+        # Purchase upgrade
+        user_data['credits'] -= cost
+        user_data['ship_upgrades'][upgrade_name] += 1
+
+        # Update fuel tank if fuel efficiency upgraded
+        if upgrade_name == 'fuel_efficiency':
+            user_data['max_fuel'] += 20
+            user_data['fuel'] = min(user_data['fuel'] + 20, user_data['max_fuel'])
+
+        success_embed = discord.Embed(
+            title="Upgrade Purchased!",
+            description=f"Successfully upgraded {upgrade_name.replace('_', ' ').title()} to level {user_data['ship_upgrades'][upgrade_name]}",
+            color=0x00ff00
+        )
+        await interaction.response.send_message(embed=success_embed, ephemeral=True)
+
+        # Update main embed
+        embed = self.create_upgrade_embed()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    @ui.button(label='➡️ Next', style=discord.ButtonStyle.secondary)
+    async def next_upgrade(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your shipyard!", ephemeral=True)
+            return
+
+        self.current_page = (self.current_page + 1) % len(self.upgrade_names)
+        embed = self.create_upgrade_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def create_upgrade_embed(self):
+        user_data = get_galaxy_user_data(self.user_id)
+        upgrade_name = self.upgrade_names[self.current_page]
+        upgrade_info = ship_upgrades[upgrade_name]
+        current_level = user_data['ship_upgrades'][upgrade_name]
+
+        embed = discord.Embed(
+            title="Deep Space Shipyard",
+            description=f"Credits Available: {user_data['credits']:,}",
+            color=0x4169e1
+        )
+
+        embed.add_field(
+            name=f"{upgrade_name.replace('_', ' ').title()}",
+            value=f"**Description:** {upgrade_info['description']}\n**Current Level:** {current_level}/{upgrade_info['levels']}",
+            inline=False
+        )
+
+        if current_level < upgrade_info['levels']:
+            next_cost = upgrade_info['cost'] * (current_level + 1)
+            embed.add_field(
+                name="Next Upgrade Cost",
+                value=f"{next_cost:,} credits",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="Status",
+                value="MAXED OUT",
+                inline=True
+            )
+
+        embed.set_footer(text=f"Upgrade {self.current_page + 1} of {len(self.upgrade_names)}")
+        return embed
+
 # ========================================
 # ENHANCED BOT COMMANDS
 # ========================================
@@ -5007,43 +5110,47 @@ async def enhanced_galaxy_stats(ctx):
     await ctx.send(embed=embed)
 
 
-'''@bot.command(name='shipyard', aliases=['upgrade', 'shop'])
+@bot.command(name='shipyard', aliases=['upgrade', 'shop'])
 async def shipyard_command(ctx):
-    """Access ship upgrade system"""
+    """Access ship upgrade system with interactive UI"""
+    user_id = ctx.author.id
+    view = ShipyardView(user_id)
+    embed = view.create_upgrade_embed()
+    await ctx.send(embed=embed, view=view)
+
+@bot.command(name='missions', aliases=['objectives', 'goals'])
+async def missions_command(ctx):
+    """Show current missions and objectives"""
     user_id = ctx.author.id
     user_data = get_galaxy_user_data(user_id)
 
     embed = discord.Embed(
-        title="🔧 Deep Space Shipyard",
-        description="Upgrade your exploration vessel with advanced technology",
-        color=0x4169e1
+        title="Mission Control",
+        description="Current objectives for deep space exploration",
+        color=0x9932cc
     )
 
-    embed.add_field(
-        name="💰 Available Credits",
-        value=f"{user_data['credits']:,}",
-        inline=False
-    )
+    for mission_id, mission in galaxy_missions.items():
+        status = "✅ COMPLETED" if mission['completed'] else "🎯 ACTIVE"
 
-    upgrades_text = ""
-    for upgrade_name, upgrade_info in ship_upgrades.items():
-        current_level = user_data['ship_upgrades'][upgrade_name]
-        max_level = upgrade_info['levels']
-        cost = upgrade_info['cost'] * (current_level + 1)
+        reward_text = []
+        for reward_type, amount in mission['reward'].items():
+            if reward_type == 'credits':
+                reward_text.append(f"{amount:,} credits")
+            elif reward_type in ['crystals', 'metals', 'energy']:
+                reward_text.append(f"{amount} {reward_type}")
+            elif reward_type == 'special_title':
+                reward_text.append(f"Title: {amount}")
+            elif reward_type == 'warp_drive_unlock':
+                reward_text.append("Warp Drive Access")
 
-        if current_level < max_level:
-            status = f"Level {current_level}/{max_level} • Next: {cost:,} credits"
-        else:
-            status = f"Level {current_level}/{max_level} • **MAXED**"
+        embed.add_field(
+            name=f"{status} {mission['name']}",
+            value=f"{mission['description']}\n**Rewards:** {', '.join(reward_text)}",
+            inline=False
+        )
 
-        upgrades_text += f"🔧 **{upgrade_name.replace('_', ' ').title()}**\n"
-        upgrades_text += f"   {upgrade_info['description']}\n"
-        upgrades_text += f"   {status}\n\n"
-
-    embed.add_field(name="Available Upgrades", value=upgrades_text, inline=False)
-    embed.set_footer(text="Use !upgrade <upgrade_name> to purchase upgrades")
-
-    await ctx.send(embed=embed)'''
+    await ctx.send(embed=embed)
 
 @bot.command(name='galacticleaderboard', aliases=['grankings', 'gtop'])
 async def galaxy_leaderboard_command(ctx):
