@@ -4452,7 +4452,7 @@ class SystemExplorationView(ui.View):
         new_achievements = check_achievements(user_data)
 
         # ADD POINTS TO YOUR EXISTING SCORING SYSTEM HERE:
-        # Example: add_score(self.user_id, points)
+        add_score(self.user_id, points)
 
         # Send enhanced results
         result_embed = create_enhanced_exploration_result_embed(
