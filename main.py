@@ -3914,32 +3914,74 @@ async def gif(ctx):
 # Replace with your developer's Discord user ID
 DEV_USER_ID = 814791086114865233  # 🟩 put the actual ID here
 
+class DevView(discord.ui.View):
+    def __init__(self, dev_user):
+        super().__init__(timeout=None)
+
+        # Button to open profile
+        self.add_item(discord.ui.Button(
+            label="🔗 View Profile",
+            url=f"https://discord.com/users/{dev_user.id}"
+        ))
+
+        # Button to DM the developer
+        self.add_item(discord.ui.Button(
+            label="✉️ Message Dev",
+            style=discord.ButtonStyle.primary,
+            custom_id="dm_dev"
+        ))
+
+    @discord.ui.button(label="✉️ Message Dev", style=discord.ButtonStyle.primary, custom_id="dm_dev_fake")
+    async def dm_dev_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        dev_user = await interaction.client.fetch_user(DEV_USER_ID)
+        try:
+            await dev_user.send(f"📩 **{interaction.user}** from **{interaction.guild.name}** wants to chat with you!")
+            await interaction.response.send_message("✅ Message sent to the developer!", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.response.send_message("⚠️ Could not DM the developer.", ephemeral=True)
+
 @bot.command(name="dev")
 async def dev(ctx):
     """
-    Mention the developer with a beautiful embed.
+    Mention the developer with a super beautiful embed.
     Usage: !dev
     """
+    # Get dev user
     dev_user = ctx.guild.get_member(DEV_USER_ID) or await bot.fetch_user(DEV_USER_ID)
 
     if dev_user is None:
         await ctx.send("⚠️ Developer not found.")
         return
 
+    # 🎨 Build the embed
     embed = discord.Embed(
-        title="👨‍💻 Developer",
-        description=f"Say hi to our amazing developer: {dev_user.mention} 🎉",
-        color=discord.Color.blurple()
+        title=f"✨ Meet Our Developer — {dev_user.display_name} ✨",
+        description=f"👋 Say hi to our amazing developer: {dev_user.mention}",
+        color=discord.Color.purple()
     )
-    embed.set_author(
-        name=dev_user.display_name,
-        icon_url=dev_user.display_avatar.url
-    )
+
+    # Large avatar banner at top
+    embed.set_image(url=dev_user.display_avatar.url)
+
+    # Small icon on the left
     embed.set_thumbnail(url=dev_user.display_avatar.url)
 
+    # Author info
+    embed.set_author(
+        name=f"{dev_user.display_name}",
+        icon_url=dev_user.display_avatar.url,
+        url=f"https://discord.com/users/{dev_user.id}"
+    )
+
+    # Add fun fields
     embed.add_field(
-        name="About",
-        value="💡 Creator of this awesome bot.\n🌟 Always improving and adding new features.",
+        name="👨‍💻 About",
+        value="💡 Creator of this awesome bot.\n🚀 Building cool features for you.",
+        inline=False
+    )
+    embed.add_field(
+        name="🎯 Contact",
+        value="Use the buttons below to **view profile** or **message** the dev!",
         inline=False
     )
 
@@ -3948,7 +3990,8 @@ async def dev(ctx):
         icon_url=ctx.author.display_avatar.url
     )
 
-    await ctx.send(embed=embed)
+    view = DevView(dev_user)
+    await ctx.send(embed=embed, view=view)
 
 
 
