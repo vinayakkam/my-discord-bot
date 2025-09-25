@@ -309,6 +309,9 @@ async def catch(ctx):
 @bot.command()
 async def vent(ctx):
     await ctx.send(f"I am venting whieeeeee 💨💨💨")
+@bot.command()
+async def behero(ctx):
+    await ctx.send(f"Wanna be a hero try catching water tower which is 69m in height falling at insane speeds")
 
 
 GUILD_IDS = [
@@ -3868,6 +3871,49 @@ async def gif(ctx):
     # Replace with any GIF URL
 
     await ctx.send(embed=embed)
+
+@bot.command(name="mediumboom")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="**Medium BOOM**",
+        description="Here is your Medium Boom!",
+        color=discord.Color.blurple()
+    )
+    embed.set_image(url="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWx4eHNnNWUxMjZwNWVkNndxZHdtaHlpd2xkcG9oOThxOHVhaDRkcSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/UJUDgMjE92ZLA7768U/giphy.gif")
+    # Replace with any GIF URL
+
+    await ctx.send(embed=embed)
+
+@bot.command(name="lightsaber")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="**Light Saber**",
+        description="Here comes your Light Saber its upside down but I think since I can you can manage it!",
+        color=discord.Color.red()
+    )
+    embed.set_image(url="https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExdXprdG16ZXhpbzhqZnVnMHlhOTZ5eHFmYWNrNzVvb29sZmFxbDB0dyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/4mm9vEickH766HCp7u/giphy.gif")
+    # Replace with any GIF URL
+
+    await ctx.send(embed=embed)
+
+@bot.command(name="lonely")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="**Feeling lonely**",
+        description="This dude is chilling in space kilometers away in some random dudes car!",
+        color=discord.Color.yellow()
+    )
+    embed.set_image(url="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExejM2OTh2dHB0bHQ4aDN3eW5qMTRsOGFmaGI5ZHZ1bGdjYmdiNDZjYyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/obLAwiCqhKD3rMKq31/giphy.gif")
+    # Replace with any GIF URL
+
+    await ctx.send(embed=embed)
+
+
+
+
 
 
 
