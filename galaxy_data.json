@@ -1,0 +1,38 @@
+{
+  "814791086114865233": {
+    "position": [
+      0,
+      1
+    ],
+    "fuel": 92,
+    "max_fuel": 100,
+    "credits": 100,
+    "discovered_systems": [],
+    "rare_discoveries": [],
+    "total_discoveries": 0,
+    "exploration_rank": "Cadet",
+    "ship_upgrades": {
+      "fuel_efficiency": 0,
+      "scanner_range": 0,
+      "cargo_hold": 0,
+      "shield_strength": 0,
+      "warp_drive": 0
+    },
+    "resources": {
+      "crystals": 0,
+      "metals": 0,
+      "energy": 0
+    },
+    "achievements": [],
+    "last_exploration": null,
+    "danger_encounters": 0,
+    "successful_explorations": 0,
+    "story_state": {
+      "puzzles_solved": 0,
+      "hints_collected": [],
+      "core_location_revealed": false,
+      "core_retrieved": false
+    },
+    "total_credits_earned": 100
+  }
+}

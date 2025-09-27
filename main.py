@@ -4,6 +4,7 @@ import discord
 from discord import ui, ButtonStyle, Interaction, Embed
 from discord.ext import commands
 from typing import Dict, Set
+import shutil
 import logging
 from dotenv import load_dotenv
 from datetime import timedelta
@@ -12,6 +13,7 @@ import time
 import random
 import json
 import asyncio
+import glob
 import math
 from typing import Dict, List, Tuple, Optional
 
@@ -4005,8 +4007,102 @@ async def dev(ctx):
 
 #galaxy keeper
 # Add these variables to your bot's global scope or class
-galaxy_user_data = {}  # Store per-user game state
-galaxy_active_sessions = {}  # Track active exploration sessions
+GALAXY_DATA_FILE = "galaxy_data.json"
+STORY_DATA_FILE = "story_progress.json"
+
+
+def load_galaxy_data():
+    """Load galaxy user data from JSON file"""
+    if os.path.exists(GALAXY_DATA_FILE):
+        try:
+            with open(GALAXY_DATA_FILE, "r") as f:
+                data = json.load(f)
+                # Convert discovered_systems back to sets and achievements back to sets
+                for user_id, user_data in data.items():
+                    if 'discovered_systems' in user_data:
+                        user_data['discovered_systems'] = set(
+                            tuple(coords) for coords in user_data['discovered_systems'])
+                    if 'achievements' in user_data:
+                        user_data['achievements'] = set(user_data['achievements'])
+                return data
+        except (json.JSONDecodeError, KeyError):
+            return {}
+    return {}
+
+
+def save_galaxy_data():
+    """Save galaxy user data to JSON file"""
+    # Convert sets to lists for JSON serialization
+    data_to_save = {}
+    for user_id, user_data in galaxy_user_data.items():
+        user_copy = user_data.copy()
+        if 'discovered_systems' in user_copy:
+            user_copy['discovered_systems'] = list(user_copy['discovered_systems'])
+        if 'achievements' in user_copy:
+            user_copy['achievements'] = list(user_copy['achievements'])
+        data_to_save[user_id] = user_copy
+
+    with open(GALAXY_DATA_FILE, "w") as f:
+        json.dump(data_to_save, f, indent=2)
+
+
+def load_story_progress():
+    """Load story progress data from JSON file"""
+    if os.path.exists(STORY_DATA_FILE):
+        try:
+            with open(STORY_DATA_FILE, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def save_story_progress():
+    """Save story progress data to JSON file"""
+    with open(STORY_DATA_FILE, "w") as f:
+        json.dump(story_progress, f, indent=2)
+
+
+def backup_galaxy_data():
+    """Create a backup of galaxy data"""
+
+    if os.path.exists(GALAXY_DATA_FILE):
+        backup_name = f"galaxy_data_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        shutil.copy2(GALAXY_DATA_FILE, backup_name)
+        return backup_name
+    return None
+
+
+def restore_galaxy_data(backup_file):
+    """Restore galaxy data from backup"""
+    if os.path.exists(backup_file):
+        shutil.copy2(backup_file, GALAXY_DATA_FILE)
+        global galaxy_user_data
+        galaxy_user_data = load_galaxy_data()
+        return True
+    return False
+
+# Load data on startup
+galaxy_user_data = load_galaxy_data()
+story_progress = load_story_progress()
+galaxy_active_sessions = {}
+
+
+STORY_STATE = {
+    'puzzles_solved': 0,
+    'hints_collected': [],
+    'core_location_revealed': False,
+    'core_retrieved': False
+}
+
+PUZZLE_SYSTEMS = [
+    {'coords': (15, 25), 'puzzle_type': 'cipher', 'hint': 'The ancient symbols point to sector -40'},
+    {'coords': (-20, 30), 'puzzle_type': 'math', 'hint': 'Where three suns dance, the core sleeps'},
+    {'coords': (35, -15), 'puzzle_type': 'sequence', 'hint': 'In the void between worlds, power awaits'},
+    {'coords': (-25, -40), 'puzzle_type': 'logic', 'hint': 'Coordinates: (-78, 42) - Guarded by the Void Sentinel'}
+]
+
+CORE_LOCATION = (-78, 42)
 
 # Enhanced discovery rewards system
 galaxy_rewards = {
@@ -4075,8 +4171,10 @@ ship_upgrades = {
 
 def get_galaxy_user_data(user_id: int):
     """Get or create enhanced user data for galaxy exploration"""
-    if user_id not in galaxy_user_data:
-        galaxy_user_data[user_id] = {
+    user_id_str = str(user_id)  # JSON keys must be strings
+
+    if user_id_str not in galaxy_user_data:
+        galaxy_user_data[user_id_str] = {
             'position': [0, 0],
             'fuel': 100,
             'max_fuel': 100,
@@ -4090,9 +4188,13 @@ def get_galaxy_user_data(user_id: int):
             'achievements': set(),
             'last_exploration': None,
             'danger_encounters': 0,
-            'successful_explorations': 0
+            'successful_explorations': 0,
+            'story_state': STORY_STATE.copy(),
+            'total_credits_earned': 100
         }
-    return galaxy_user_data[user_id]
+        save_galaxy_data()  # Save immediately when creating new user
+
+    return galaxy_user_data[user_id_str]
 
 
 def calculate_exploration_rank(user_data):
@@ -4116,9 +4218,20 @@ def calculate_exploration_rank(user_data):
 
 def generate_enhanced_star_system(x: int, y: int):
     """Generate an enhanced procedural star system"""
-    random.seed(hash((x, y)))  # Consistent generation
+    def generate_enhanced_star_system(x: int, y: int):
+        """Generate an enhanced procedural star system"""
 
-    # Enhanced star types with rarity
+        # Check for special story systems first
+        for puzzle_system in PUZZLE_SYSTEMS:
+            if puzzle_system['coords'] == (x, y):
+                return generate_puzzle_system(x, y, puzzle_system)
+
+        if (x, y) == CORE_LOCATION:
+            return generate_core_system(x, y)
+
+        # Continue with existing random generation...
+        random.seed(hash((x, y)))
+        # Enhanced star types with rarity
     star_types = [
         ('Red Dwarf', 0.4), ('Yellow Star', 0.3), ('Blue Giant', 0.15),
         ('White Dwarf', 0.08), ('Binary System', 0.05), ('Neutron Star', 0.015),
@@ -4218,6 +4331,32 @@ def generate_enhanced_star_system(x: int, y: int):
         'nebula_presence': random.random() < 0.3,
         'danger_level': random.choice(['Safe', 'Low Risk', 'Moderate', 'Dangerous', 'Extreme', 'Lethal']),
         'trade_value': random.randint(0, 1000) if random.random() < 0.2 else 0
+    }
+def generate_puzzle_system(x, y, puzzle_data):
+    return {
+        'coordinates': (x, y),
+        'star_type': 'Ancient Binary System',
+        'planets': [{'name': 'Puzzle Keeper', 'type': 'Ancient Ruins', 'size': 'Large', 'moons': 0,
+                    'atmosphere': 'None', 'temperature': -200, 'gravity': 1.0, 'resources': 'Crystals', 'habitability': 'Hostile'}],
+        'phenomena': ['Ancient Computer Core', 'Cryptic Inscriptions'],
+        'hazards': ['Security Protocols'],
+        'danger_level': 'Dangerous',
+        'is_puzzle_system': True,
+        'puzzle_type': puzzle_data['puzzle_type'],
+        'hint_reward': puzzle_data['hint']
+    }
+
+def generate_core_system(x, y):
+    return {
+        'coordinates': (x, y),
+        'star_type': 'Dying Supergiant',
+        'planets': [{'name': 'Core Vault', 'type': 'Fortress World', 'size': 'Colossal', 'moons': 12,
+                    'atmosphere': 'Energy Field', 'temperature': 0, 'gravity': 10.0, 'resources': 'Pure Energy', 'habitability': 'Transcendent'}],
+        'phenomena': ['Power Core Signature', 'Void Sentinel'],
+        'hazards': ['Guardian Defenses'],
+        'danger_level': 'Lethal',
+        'is_core_system': True,
+        'boss_present': True
     }
 
 
@@ -4385,7 +4524,8 @@ class GalaxyNavigationView(ui.View):
             return
 
         user_data = get_galaxy_user_data(self.user_id)
-        refuel_cost = max(10, (user_data['max_fuel'] - user_data['fuel']) // 2)
+        fuel_needed = user_data['max_fuel'] - user_data['fuel']
+        refuel_cost = fuel_needed * 2
 
         if user_data['credits'] < refuel_cost:
             await interaction.response.send_message(
@@ -4394,6 +4534,7 @@ class GalaxyNavigationView(ui.View):
 
         user_data['credits'] -= refuel_cost
         user_data['fuel'] = user_data['max_fuel']
+        save_galaxy_data()
 
         embed = discord.Embed(
             title="⛽ Emergency Refuel Complete",
@@ -4435,6 +4576,7 @@ class GalaxyNavigationView(ui.View):
         user_data['position'][0] += dx
         user_data['position'][1] += dy
         user_data['fuel'] -= fuel_cost
+        save_galaxy_data()
 
         # Random events during travel
         if random.random() < 0.1:  # 10% chance
@@ -4813,6 +4955,8 @@ def calculate_enhanced_discovery_rewards(system, user_id: int):
         total_points += first_discovery_bonus
         discoveries.append(f"🏆 First Discovery Bonus (+{first_discovery_bonus})")
 
+    save_galaxy_data()
+
     return total_points, discoveries, resources
 
 
@@ -5030,6 +5174,54 @@ def check_achievements(user_data):
     return new_achievements
 
 
+@ui.button(label='🧩 Solve Puzzle', style=discord.ButtonStyle.danger, emoji='🧩', row=1)
+async def solve_puzzle(self, interaction: discord.Interaction, button: ui.Button):
+    if not self.system.get('is_puzzle_system'):
+        button.style = discord.ButtonStyle.secondary
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+        return
+
+    # Simple puzzle completion for now
+    user_data = get_galaxy_user_data(self.user_id)
+    story_state = user_data['story_state']
+
+    if self.system['coordinates'] not in [tuple(ps['coords']) for ps in PUZZLE_SYSTEMS if
+                                          ps['hint'] in story_state['hints_collected']]:
+        story_state['puzzles_solved'] += 1
+        story_state['hints_collected'].append(self.system['hint_reward'])
+
+        embed = discord.Embed(title="Puzzle Solved!",
+                              description=f"Hint Acquired: {self.system['hint_reward']}",
+                              color=0x00ff00)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@ui.button(label='⚔️ Fight Boss', style=discord.ButtonStyle.danger, emoji='⚔️', row=1)
+async def fight_boss(self, interaction: discord.Interaction, button: ui.Button):
+    if not self.system.get('boss_present'):
+        button.style = discord.ButtonStyle.secondary
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+        return
+
+    # Simple boss battle - require 4 hints to win
+    user_data = get_galaxy_user_data(self.user_id)
+    hints_count = len(user_data['story_state']['hints_collected'])
+
+    if hints_count < 4:
+        embed = discord.Embed(title="Boss Too Strong!",
+                              description=f"You need all 4 puzzle hints to defeat the Void Sentinel. You have {hints_count}/4.",
+                              color=0xff0000)
+    else:
+        user_data['story_state']['core_retrieved'] = True
+        embed = discord.Embed(title="Victory! Core Retrieved!",
+                              description="You have obtained the Ancient Core! Your base can now be powered!",
+                              color=0xffd700)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 class ShipyardView(ui.View):
     def __init__(self, user_id: int):
         super().__init__(timeout=300)
@@ -5071,6 +5263,7 @@ class ShipyardView(ui.View):
         # Purchase upgrade
         user_data['credits'] -= cost
         user_data['ship_upgrades'][upgrade_name] += 1
+        save_galaxy_data()
 
         # Update fuel tank if fuel efficiency upgraded
         if upgrade_name == 'fuel_efficiency':
@@ -5232,6 +5425,28 @@ async def missions_command(ctx):
 
     await ctx.send(embed=embed)
 
+
+@bot.command(name='galaxybackup')
+@commands.is_owner()
+async def backup_command(ctx):
+    """Create backup of galaxy data (owner only)"""
+    backup_file = backup_galaxy_data()
+    if backup_file:
+        await ctx.send(f"Backup created: {backup_file}")
+    else:
+        await ctx.send("No data to backup")
+
+
+@bot.command(name='galaxyadmin')  # Changed name
+@commands.is_owner()
+async def data_stats_command(ctx):
+    """Show data statistics (owner only)"""
+    total_users = len(galaxy_user_data)
+    total_systems_discovered = sum(len(data['discovered_systems']) for data in galaxy_user_data.values())
+
+    await ctx.send(
+        f"Galaxy Data Stats:\nTotal Players: {total_users}\nTotal Systems Discovered: {total_systems_discovered}")
+
 @bot.command(name='galacticleaderboard', aliases=['grankings', 'gtop'])
 async def galaxy_leaderboard_command(ctx):
     """Show exploration leaderboards"""
@@ -5246,7 +5461,7 @@ async def galaxy_leaderboard_command(ctx):
 
     # Top explorers by systems discovered
     systems_leaders = sorted(
-        [(uid, data) for uid, data in galaxy_user_data.items()],
+        [(int(uid), data) for uid, data in galaxy_user_data.items()],  # Convert back to int
         key=lambda x: len(x[1]['discovered_systems']),
         reverse=True
     )[:5]
