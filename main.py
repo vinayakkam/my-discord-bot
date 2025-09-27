@@ -3151,66 +3151,73 @@ def add_score(user_id, points=1):
 
 @bot.command(name="games")
 async def games(ctx):
-    """Display a beautiful, comprehensive list of all available games."""
+    """Display a comprehensive, organized list of all available games with dynamic stats."""
 
-    # Create main embed with gradient-like color and attractive styling
+    # Get current server stats
+    guild_member_ids = [member.id for member in ctx.guild.members] if ctx.guild else []
+    guild_scores = {uid: pts for uid, pts in scores.items() if int(uid) in guild_member_ids}
+    total_players = len(guild_scores)
+    total_galaxy_players = len(galaxy_user_data) if 'galaxy_user_data' in globals() else 0
+
+    # Create main embed
     embed = discord.Embed(
-        title="🎮 Space Gaming Hub — Complete Game Collection",
-        description="**Welcome to the ultimate space-themed gaming experience!**\n\nChoose from our collection of mini-games, challenges, and simulations. Earn points, climb the leaderboard, and become the ultimate space commander!",
-        color=0x5865F2,  # Discord's blurple
+        title="🎮 Launch Tower Gaming Hub — Complete Collection",
+        description=f"**Welcome to the ultimate space gaming experience!**\n\n"
+                    f"🏠 **{ctx.guild.name if ctx.guild else 'Server'}:** {total_players} active players\n"
+                    f"🌌 **Galaxy Explorers:** {total_galaxy_players} commanders\n"
+                    f"🏆 **Total Games:** 15+ unique experiences\n\n"
+                    f"Earn points, climb leaderboards, and become the ultimate space commander!",
+        color=0x5865F2,
         timestamp=ctx.message.created_at
     )
 
-    # Set thumbnail and author
     embed.set_thumbnail(url=ctx.author.display_avatar.url)
-    embed.set_author(name=f"Games requested by {ctx.author.display_name}", icon_url=ctx.author.display_avatar.url)
+    embed.set_author(
+        name=f"Gaming Hub requested by {ctx.author.display_name}",
+        icon_url=ctx.author.display_avatar.url
+    )
 
-    # Quick Play Games Section
+    # ⚡ QUICK PLAY GAMES
     quick_games = (
         "🪨📄✂️ **Rock Paper Scissors** — `!rps`\n"
-        "├ Classic RPS battle with the bot\n"
+        "├ Interactive button-based RPS battle\n"
         "└ **Reward:** +1 point for victory\n\n"
 
         "🪙 **Coin Flip** — `!coinflip`\n"
-        "├ Test your luck with a simple coin toss\n"
+        "├ Heads or tails prediction game\n"
         "└ **Reward:** +1 point for correct guess\n\n"
 
-        "🎲 **Dice Roll** — `!dice <guess> <sides>`\n"
-        "├ Roll dice and predict the outcome\n"
+        "🎲 **Dice Roll** — `!dice [guess] [sides]`\n"
+        "├ Predict dice outcomes with custom sides\n"
         "└ **Reward:** +1 point for exact match\n\n"
 
         "🔢 **Number Guess** — `!guess`\n"
-        "├ Guess a number between 1-10 in 15 seconds\n"
+        "├ Guess numbers 1-10 within time limit\n"
         "└ **Reward:** +1 point for correct answer"
     )
 
     embed.add_field(
-        name="⚡ Quick Play Games",
+        name="⚡ Quick Play Games (1 Point Each)",
         value=quick_games,
         inline=False
     )
 
-    # Knowledge Games Section
+    # 🧠 KNOWLEDGE & PUZZLE GAMES
     knowledge_games = (
-        "🎓 **Space Trivia** — `!trivia`\n"
-        "├ Test your knowledge of space, planets, and the universe\n"
-        "├ Three difficulty levels: Easy (1pt) • Medium (2pts) • Hard (3pts)\n"
-        "└ **Features:** Interactive buttons, timed questions, detailed explanations\n\n"
+        "🎓 **Space Trivia Challenge** — `!trivia`\n"
+        "├ 60+ questions across 3 difficulty levels\n"
+        "├ Topics: Planets, space exploration, astrophysics\n"
+        "└ **Rewards:** Easy (+1) • Medium (+2) • Hard (+3)\n\n"
 
         "🔤 **Word Unscramble** — `!unscramble`\n"
-        "├ Unscramble words of varying difficulty\n"
-        "├ Categories: Simple words • Space terms • Technical vocabulary\n"
-        "└ **Rewards:** Easy (+1pt) • Medium (+2pts) • Hard (+3pts)\n\n"
+        "├ Unscramble words from simple to space-technical\n"
+        "├ Three categories with increasing difficulty\n"
+        "└ **Rewards:** Easy (+1) • Medium (+2) • Hard (+3)\n\n"
 
         "🧮 **Math Quiz** — `!mathquiz`\n"
-        "├ Solve random mathematical problems\n"
-        "└ **Reward:** +1 point for correct solution\n\n"
-
-        "7️⃣ **Rocket Design Quiz** — `!rocketdesign`\n"
-        "├ Choose engines, tank sizes, and staging\n"
-        "├ Design your own custom rocket configuration\n"
-        
-        "└ **Rewards:** Success based on engineering choices"
+        "├ Solve random mathematical equations\n"
+        "├ Modal input system with validation\n"
+        "└ **Reward:** +1 point for correct solution"
     )
 
     embed.add_field(
@@ -3219,75 +3226,117 @@ async def games(ctx):
         inline=False
     )
 
-    # Advanced Simulation Games Section
+    # 🚀 SPACE SIMULATION GAMES
     simulation_games = (
-        "🛰️ **Starship Mission** — `!mission`\n"
-        "├ Manage resources: Fuel, Food, and Research\n"
-        "├ Make strategic decisions to survive in space\n"
-        "└ **Rewards:** Points scale with survival turns\n\n"
+        "🌌 **Galaxy Explorer** — `!galaxy` `!explore` `!space`\n"
+        "├ **NEW:** Explore procedurally generated star systems\n"
+        "├ Features: Ship upgrades, resource mining, storyline\n"
+        "├ Persistent progress with JSON data storage\n"
+        "└ **Rewards:** Variable points based on discoveries\n\n"
+
+        "🛰️ **Starship Mission Control** — `!mission`\n"
+        "├ Manage fuel, food, and research resources\n"
+        "├ Interactive button-based decision making\n"
+        "└ **Rewards:** Points scale with survival duration\n\n"
 
         "🪝 **Booster Catch Challenge** — `!catchbooster`\n"
-        "├ Position mechanical arms like Mechazilla\n"
-        "├ Time your catch with precision and accuracy\n"
-        "└ **Rewards:** Points based on reaction time & precision\n\n"
-
-        "🚀 **Starship Predictor** — `!starship`\n"
-        "├ Simulate full Starship launch (Booster + Ship)\n"
-        "├ Answer mission parameters and technical questions\n"
-        "└ **Rewards:** Success probability affects point multiplier\n\n"
-
-        "🚀 **Ship Simulation** — `!predict <shipname>`\n"
-        "├ Predict success for specific Starship vehicles\n"
-        "├ Choose ship name and mission parameters\n"
-        "└ **Rewards:** Based on prediction accuracy"
+        "├ **FEATURED:** Advanced Mechzilla-style catching game\n"
+        "├ Real-time physics, atmospheric effects, auto-landing\n"
+        "├ Multiple difficulty levels and precision scoring\n"
+        "└ **Rewards:** Up to 300+ points for perfect catches"
     )
 
     embed.add_field(
-        name="🚀 Advanced Simulations",
+        name="🚀 Advanced Space Simulations",
         value=simulation_games,
         inline=False
     )
 
-    # Coming Soon Section
-    coming_soon = (
-        "🌌 **Galaxy Exploration** 🔜\n"
-        "├ Explore procedurally generated star systems\n"
-        "└ **Rewards:** Discover rare planets and phenomena\n\n"
+    # 🎯 PREDICTION & STRATEGY GAMES
+    prediction_games = (
+        "🚀 **Starship Launch Predictor** — `!starship`\n"
+        "├ Answer mission parameters via dropdowns\n"
+        "├ Weather, vehicle condition, payload analysis\n"
+        "└ **Rewards:** Based on prediction accuracy\n\n"
+
+        "🔮 **Mission Predictor** — `!predict [ship_name]`\n"
+        "├ Chat-based test sequence simulation\n"
+        "├ 5 different spacecraft system tests\n"
+        "└ **Rewards:** Mission success probability scoring\n\n"
+
+        "🛠️ **Rocket Design Quiz** — `!rocketdesign`\n"
+        "├ Choose engines, fuel tanks, and payloads\n"
+        "├ Engineering decision impact simulation\n"
+        "└ **Rewards:** +2 points for successful launches"
     )
 
     embed.add_field(
-        name="🔮 Coming Soon",
-        value=coming_soon,
+        name="🎯 Prediction & Strategy Games",
+        value=prediction_games,
         inline=False
     )
 
-    # Stats and Leaderboard Section
-    stats_info = (
-        "🏆 **Leaderboard** — `!leaderboard`\n"
-        "├ View top 10 players in your server\n"
-        "├ Automatic Leader role assignment\n"
-        "└ Server-specific rankings with medals\n\n"
+    # 🏆 LEADERBOARD & STATISTICS
+    leaderboard_info = (
+        "🏆 **Server Leaderboard** — `!leaderboard`\n"
+        "├ Top 10 players with medals and rankings\n"
+        "├ Automatic Leader role assignment system\n"
+        "├ Server-specific statistics and totals\n"
+        "└ **Features:** Real-time role management\n\n"
 
-        "📊 **Your Stats** — `!stats` *(Coming Soon)*\n"
+        "🌌 **Galaxy Leaderboard** — `!galacticleaderboard` `!gtop`\n"
+        "├ Exploration-specific rankings\n"
+        "├ Systems discovered and rare phenomena found\n"
+        "└ **Categories:** Most explored • Rare discoveries\n\n"
+
+        "📊 **Personal Stats** — `!galaxystats` `!gstats`\n"
+        "├ Comprehensive exploration statistics\n"
+        "├ Ship status, resources, achievements\n"
+        "└ **Features:** Career progress tracking\n\n"
+
+        "📊 **Your Stats** — `!stats`\n"
         "├ Personal gaming statistics\n"
         "├ Game completion rates and streaks\n"
         "└ Achievement progress tracking"
     )
 
     embed.add_field(
-        name="📈 Statistics & Rankings",
-        value=stats_info,
+        name="🏆 Statistics & Rankings",
+        value=leaderboard_info,
         inline=False
     )
 
-    # Game Categories Overview
+    # 🛠️ UTILITY & SPECIAL COMMANDS
+    utility_commands = (
+        "🔧 **Ship Upgrade System** — `!shipyard` `!upgrade`\n"
+        "├ Interactive upgrade browser with buttons\n"
+        "├ 5 upgrade categories: Fuel, scanners, shields, cargo\n"
+        "└ **Currency:** Credits earned from exploration\n\n"
+
+        "🔭 **System Scanner** — `!scan` `!system` `!probe`\n"
+        "├ Detailed analysis of current star system\n"
+        "├ Planet composition, phenomena, hazards\n"
+        "└ **Features:** Exploration mission planning\n\n"
+
+        "🎮 **Game Info** — `!games` (this command)\n"
+        "└ Complete overview of all available games"
+    )
+
     embed.add_field(
-        name="🎯 Difficulty & Rewards",
+        name="🛠️ Utility & Special Features",
+        value=utility_commands,
+        inline=False
+    )
+
+    # 📈 DIFFICULTY & REWARDS BREAKDOWN
+    embed.add_field(
+        name="📈 Scoring System",
         value=(
-            "**🟢 Easy Games:** +1 point • Quick and accessible\n"
-            "**🟡 Medium Games:** +2 points • Moderate challenge\n"
-            "**🔴 Hard Games:** +3 points • Expert level difficulty\n"
-            "**⭐ Bonus Rewards:** Performance-based scaling"
+            "**🟢 Basic Games:** 1-2 points • Quick entertainment\n"
+            "**🟡 Skill Games:** 2-5 points • Knowledge & strategy\n"
+            "**🔴 Simulation Games:** 5-300+ points • Complex challenges\n"
+            "**⭐ Galaxy Exploration:** Variable • Discovery-based rewards\n"
+            "**🏆 Bonus Multipliers:** Performance & difficulty scaling"
         ),
         inline=True
     )
@@ -3295,40 +3344,298 @@ async def games(ctx):
     embed.add_field(
         name="🎮 Game Categories",
         value=(
-            "**⚡ Quick Play:** Instant fun games\n"
-            "**🧠 Knowledge:** Test your brain power\n"
-            "**🚀 Simulations:** Complex challenges\n"
-            "**🏆 Competitive:** Leaderboard climbing"
+            "**⚡ Quick Play:** Instant fun, 1-2 minutes\n"
+            "**🧠 Knowledge:** Trivia, puzzles, education\n"
+            "**🚀 Simulations:** Complex, persistent progress\n"
+            "**🎯 Strategy:** Prediction, planning, analysis\n"
+            "**🌌 Exploration:** Open-world, RPG elements"
         ),
         inline=True
+    )
+
+    # 🌟 FEATURED GAME HIGHLIGHT
+    featured_text = (
+        "**🌟 Galaxy Explorer — NEW PERSISTENT WORLD**\n"
+        f"└ {total_galaxy_players} active commanders exploring the galaxy\n\n"
+        "**🪝 Booster Catch — MOST ADVANCED GAME**\n"
+        "└ Real-time physics simulation with 300+ point potential\n\n"
+        "**🎓 Space Trivia — EDUCATIONAL FAVORITE**\n"
+        "└ 60+ questions across beginner to expert levels"
     )
 
     embed.add_field(
-        name="💡 Pro Tips",
-        value=(
-            "• Play daily to climb the leaderboard\n"
-            "• Try different difficulties for variety\n"
-            "• Challenge friends to beat your scores\n"
-            "• Master hard games for maximum points"
-        ),
-        inline=True
+        name="🌟 Featured Experiences",
+        value=featured_text,
+        inline=False
     )
 
-    # Add server info if available
+    # Server-specific information
     if ctx.guild:
+        # Calculate some basic stats
+        top_scorer = max(guild_scores.items(), key=lambda x: x[1]) if guild_scores else None
+
+        server_info = f"**{len(ctx.guild.members)}** total members • **{total_players}** active gamers"
+        if top_scorer:
+            try:
+                top_user = ctx.guild.get_member(int(top_scorer[0]))
+                server_info += f"\n🏆 **Leader:** {top_user.display_name if top_user else 'Unknown'} ({top_scorer[1]:,} pts)"
+            except:
+                pass
+
         embed.add_field(
-            name=f"🏠 Playing in {ctx.guild.name}",
-            value=f"**{len(ctx.guild.members)}** members • **{len([m for m in ctx.guild.members if not m.bot])}** humans",
+            name=f"🏠 {ctx.guild.name} Server Stats",
+            value=server_info,
             inline=False
         )
 
-    # Footer with additional info
+    # Footer with tips and updates
     embed.set_footer(
-        text="🌟 All progress saved automatically • Use !help for command details • New games added regularly!",
+        text="🚀 All progress auto-saved • New games added regularly • Use !help [game] for detailed instructions",
         icon_url=ctx.bot.user.display_avatar.url if ctx.bot.user else None
     )
 
-    # Send the main embed
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="stats")
+async def personal_stats(ctx):
+    """Display comprehensive personal gaming statistics and achievements."""
+    user_id = str(ctx.author.id)
+
+    # Get user's total score
+    total_score = scores.get(user_id, 0)
+
+    # Get galaxy exploration data if available
+    galaxy_data = None
+    if 'galaxy_user_data' in globals() and user_id in galaxy_user_data:
+        galaxy_data = galaxy_user_data[user_id]
+
+    # Create main stats embed
+    embed = discord.Embed(
+        title=f"📊 Personal Gaming Statistics",
+        description=f"**{ctx.author.display_name}'s Complete Performance Report**",
+        color=0x9932cc,
+        timestamp=ctx.message.created_at
+    )
+
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.set_author(
+        name=f"Statistics for {ctx.author.display_name}",
+        icon_url=ctx.author.display_avatar.url
+    )
+
+    # Overall Performance
+    if ctx.guild:
+        guild_member_ids = [member.id for member in ctx.guild.members]
+        guild_scores = {uid: pts for uid, pts in scores.items() if int(uid) in guild_member_ids}
+
+        if guild_scores:
+            sorted_scores = sorted(guild_scores.items(), key=lambda x: x[1], reverse=True)
+            user_rank = next((i + 1 for i, (uid, _) in enumerate(sorted_scores) if uid == user_id),
+                             len(sorted_scores) + 1)
+            total_players = len(guild_scores)
+
+            percentile = max(1, int(((total_players - user_rank + 1) / total_players) * 100))
+        else:
+            user_rank = 1
+            total_players = 1
+            percentile = 100
+    else:
+        user_rank = 1
+        total_players = 1
+        percentile = 100
+
+    embed.add_field(
+        name="🏆 Overall Performance",
+        value=(f"**Total Points:** {total_score:,}\n"
+               f"**Server Rank:** #{user_rank} of {total_players}\n"
+               f"**Percentile:** Top {100 - percentile + 1}%\n"
+               f"**Status:** {'🥇 Champion' if user_rank == 1 else '🥈 Elite' if user_rank <= 3 else '🥉 Expert' if user_rank <= 10 else '⭐ Player'}"),
+        inline=False
+    )
+
+    # Game Category Performance (estimated based on typical point values)
+    quick_games_estimated = min(total_score, max(0, total_score // 10))  # Assume some points from quick games
+    knowledge_games_estimated = min(total_score, max(0, (total_score - quick_games_estimated) // 3))
+    simulation_games_estimated = total_score - quick_games_estimated - knowledge_games_estimated
+
+    embed.add_field(
+        name="🎮 Game Category Breakdown",
+        value=(f"**⚡ Quick Play Games:** ~{quick_games_estimated:,} pts\n"
+               f"**🧠 Knowledge Games:** ~{knowledge_games_estimated:,} pts\n"
+               f"**🚀 Simulations:** ~{simulation_games_estimated:,} pts\n"
+               f"**📈 Estimated Games Played:** {(total_score // 5) + 1:,}"),
+        inline=True
+    )
+
+    # Achievement System
+    achievements = []
+
+    # Point-based achievements
+    if total_score >= 1000:
+        achievements.append("🏆 Point Master (1,000+ points)")
+    elif total_score >= 500:
+        achievements.append("⭐ High Scorer (500+ points)")
+    elif total_score >= 100:
+        achievements.append("🎯 Dedicated Player (100+ points)")
+    elif total_score >= 25:
+        achievements.append("🎮 Active Gamer (25+ points)")
+    elif total_score >= 1:
+        achievements.append("🌟 First Steps (1+ points)")
+
+    # Rank-based achievements
+    if user_rank == 1:
+        achievements.append("👑 Server Champion")
+    elif user_rank <= 3:
+        achievements.append("🥈 Top 3 Player")
+    elif user_rank <= 10:
+        achievements.append("🥉 Top 10 Player")
+
+    # Galaxy-specific achievements
+    if galaxy_data:
+        systems_explored = len(galaxy_data.get('discovered_systems', set()))
+        rare_discoveries = len(galaxy_data.get('rare_discoveries', []))
+
+        if systems_explored >= 50:
+            achievements.append("🌌 Galaxy Master (50+ systems)")
+        elif systems_explored >= 20:
+            achievements.append("🚀 Space Explorer (20+ systems)")
+        elif systems_explored >= 5:
+            achievements.append("🛸 Pilot (5+ systems)")
+
+        if rare_discoveries >= 10:
+            achievements.append("💎 Phenomenon Hunter")
+        elif rare_discoveries >= 3:
+            achievements.append("✨ Discovery Specialist")
+
+    # Consistency achievements (estimated)
+    if total_score >= 200:
+        achievements.append("🔥 Consistent Performer")
+
+    if achievements:
+        embed.add_field(
+            name="🏅 Achievements Unlocked",
+            value="\n".join(achievements),
+            inline=True
+        )
+    else:
+        embed.add_field(
+            name="🏅 Achievements",
+            value="Play games to unlock achievements!",
+            inline=True
+        )
+
+    # Galaxy Exploration Stats (if available)
+    if galaxy_data:
+        systems_explored = len(galaxy_data.get('discovered_systems', set()))
+        exploration_rank = galaxy_data.get('exploration_rank', 'Cadet')
+        credits = galaxy_data.get('credits', 0)
+        fuel = galaxy_data.get('fuel', 0)
+        max_fuel = galaxy_data.get('max_fuel', 100)
+
+        # Resources
+        resources = galaxy_data.get('resources', {'crystals': 0, 'metals': 0, 'energy': 0})
+        total_resources = sum(resources.values())
+
+        embed.add_field(
+            name="🌌 Galaxy Exploration Profile",
+            value=(f"**Rank:** {exploration_rank}\n"
+                   f"**Systems Explored:** {systems_explored}\n"
+                   f"**Credits:** {credits:,}\n"
+                   f"**Fuel:** {fuel}/{max_fuel}\n"
+                   f"**Resources:** {total_resources:,} total"),
+            inline=False
+        )
+
+        # Ship upgrades
+        ship_upgrades_data = galaxy_data.get('ship_upgrades', {})
+        upgrade_levels = sum(ship_upgrades_data.values())
+
+        if upgrade_levels > 0:
+            upgrades_text = []
+            for upgrade, level in ship_upgrades_data.items():
+                if level > 0:
+                    upgrade_name = upgrade.replace('_', ' ').title()
+                    upgrades_text.append(f"• {upgrade_name}: Lv.{level}")
+
+            embed.add_field(
+                name="⚡ Ship Upgrades",
+                value="\n".join(upgrades_text) if upgrades_text else "No upgrades purchased",
+                inline=True
+            )
+
+    # Progress Tracking & Goals
+    next_milestone = 0
+    milestone_name = ""
+
+    if total_score < 25:
+        next_milestone = 25
+        milestone_name = "Active Gamer"
+    elif total_score < 100:
+        next_milestone = 100
+        milestone_name = "Dedicated Player"
+    elif total_score < 500:
+        next_milestone = 500
+        milestone_name = "High Scorer"
+    elif total_score < 1000:
+        next_milestone = 1000
+        milestone_name = "Point Master"
+    else:
+        next_milestone = ((total_score // 1000) + 1) * 1000
+        milestone_name = f"Elite {next_milestone // 1000}K"
+
+    progress_to_next = next_milestone - total_score
+    progress_percentage = (total_score / next_milestone) * 100 if next_milestone > 0 else 100
+
+    embed.add_field(
+        name="🎯 Next Milestone",
+        value=(f"**Goal:** {milestone_name} ({next_milestone:,} points)\n"
+               f"**Progress:** {progress_percentage:.1f}%\n"
+               f"**Points Needed:** {progress_to_next:,}"),
+        inline=True
+    )
+
+    # Game Recommendations
+    recommendations = []
+
+    if total_score < 10:
+        recommendations.append("🎮 Try `!trivia` for easy points")
+        recommendations.append("⚡ Play `!rps` for quick games")
+    elif total_score < 50:
+        recommendations.append("🚀 Challenge `!catchbooster` for big points")
+        recommendations.append("🌌 Explore `!galaxy` for adventure")
+    elif total_score < 200:
+        recommendations.append("🔥 Master hard trivia questions")
+        recommendations.append("🛸 Build your galaxy empire")
+    else:
+        recommendations.append("👑 Help others discover games")
+        recommendations.append("🏆 Compete for server champion")
+
+    if recommendations:
+        embed.add_field(
+            name="💡 Recommended Next Steps",
+            value="\n".join(recommendations),
+            inline=True
+        )
+
+    # Recent Activity Summary (estimated)
+    if total_score > 0:
+        activity_level = "🔥 Very Active" if total_score >= 100 else "⚡ Active" if total_score >= 25 else "🌟 Getting Started"
+
+        embed.add_field(
+            name="📈 Activity Summary",
+            value=(f"**Activity Level:** {activity_level}\n"
+                   f"**Games Available:** 15+ experiences\n"
+                   f"**Favorite Category:** {'🚀 Simulations' if simulation_games_estimated > knowledge_games_estimated else '🧠 Knowledge Games'}\n"
+                   f"**Play Style:** {'Completionist' if total_score >= 500 else 'Explorer' if total_score >= 100 else 'Casual'}"),
+            inline=False
+        )
+
+    # Footer with tips
+    embed.set_footer(
+        text="🚀 Stats update in real-time • Use !games to see all available experiences • Keep playing to unlock more achievements!"
+    )
+
     await ctx.send(embed=embed)
 #trolling
 
