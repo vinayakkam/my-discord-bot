@@ -3645,7 +3645,9 @@ MASTER_ID = 814791086114865233  # make sure this is an int, no quotes
 # Map of guild_id -> list of allowed user IDs (multiple users can access same server)
 GUILD_USER_MAP = {
     1210475350119813120: [814791086114865233,827552324389175297],  # Multiple users for server 1
-    1397218218535424090: [1085236492571529287, 948973975353057341, 1418946895816167475, 1343933090191376446, 1357772900916138219],  # Multiple users for server 2
+    1397218218535424090: [1085236492571529287, 948973975353057341, 1418946895816167475, 1343933090191376446, 1357772900916138219],
+    1411425019434766499: [1187981682280775733,827552324389175297],
+    1341485158129205278: [1187981682280775733,827552324389175297],# Multiple users for server 2
     # You can add more servers with their allowed user lists
     # 1234567890123456789: [111111111111111111, 222222222222222222],  # Example server 3
 }
@@ -3835,19 +3837,22 @@ async def timeout_users(ctx):
 AUTOMOD_ENABLED_GUILDS = {
     1210475350119813120: True,  # Server 1 - automod enabled
     1397218218535424090: True,  # Server 2 - automod enabled
+    1411425019434766499: True,  # Server 3 - automod enabled
+    1341485158129205278: True,  # Server 4 - automod enabled
     # Add more servers here as needed
     # 1234567890123456789: False,  # Example: Server 3 - automod disabled
 }
 
 # Users exempt from auto-moderation (in addition to master)
 AUTOMOD_EXEMPT_USERS = [
-    1085236492571529287,
     814791086114865233,
+    1085236492571529287,
     948973975353057341,
     1343933090191376446,
     1418946895816167475,
     1414168461172539454,
     827552324389175297,
+    1187981682280775733,
     # Master user
     # Add other user IDs here who should be exempt
     # 123456789012345678,  # Example: Moderator 1
