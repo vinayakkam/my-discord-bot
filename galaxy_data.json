@@ -1,13 +1,18 @@
 {
   "814791086114865233": {
     "position": [
-      0,
-      1
+      -78,
+      42
     ],
-    "fuel": 92,
+    "fuel": 100,
     "max_fuel": 100,
-    "credits": 100,
-    "discovered_systems": [],
+    "credits": 1190,
+    "discovered_systems": [
+      [
+        15,
+        25
+      ]
+    ],
     "rare_discoveries": [],
     "total_discoveries": 0,
     "exploration_rank": "Cadet",
@@ -19,19 +24,26 @@
       "warp_drive": 0
     },
     "resources": {
-      "crystals": 0,
-      "metals": 0,
-      "energy": 0
+      "crystals": 50,
+      "metals": 16,
+      "energy": 112
     },
-    "achievements": [],
+    "achievements": [
+      "First Steps"
+    ],
     "last_exploration": null,
     "danger_encounters": 0,
-    "successful_explorations": 0,
+    "successful_explorations": 1,
     "story_state": {
-      "puzzles_solved": 0,
-      "hints_collected": [],
+      "puzzles_solved": 4,
+      "hints_collected": [
+        "The ancient symbols point to sector -40",
+        "Where three suns dance, the core sleeps",
+        "In the void between worlds, power awaits",
+        "Coordinates: (-78, 42) - Guarded by the Void Sentinel"
+      ],
       "core_location_revealed": false,
-      "core_retrieved": false
+      "core_retrieved": true
     },
     "total_credits_earned": 100
   }

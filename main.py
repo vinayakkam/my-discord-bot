@@ -4525,20 +4525,19 @@ def calculate_exploration_rank(user_data):
 
 def generate_enhanced_star_system(x: int, y: int):
     """Generate an enhanced procedural star system"""
-    def generate_enhanced_star_system(x: int, y: int):
-        """Generate an enhanced procedural star system"""
 
-        # Check for special story systems first
-        for puzzle_system in PUZZLE_SYSTEMS:
-            if puzzle_system['coords'] == (x, y):
-                return generate_puzzle_system(x, y, puzzle_system)
+    # Check for special story systems first
+    for puzzle_system in PUZZLE_SYSTEMS:
+        if puzzle_system['coords'] == (x, y):
+            return generate_puzzle_system(x, y, puzzle_system)
 
-        if (x, y) == CORE_LOCATION:
-            return generate_core_system(x, y)
+    if (x, y) == CORE_LOCATION:
+        return generate_core_system(x, y)
 
-        # Continue with existing random generation...
-        random.seed(hash((x, y)))
-        # Enhanced star types with rarity
+    # Continue with existing random generation
+    random.seed(hash((x, y)))
+
+    # Enhanced star types with rarity
     star_types = [
         ('Red Dwarf', 0.4), ('Yellow Star', 0.3), ('Blue Giant', 0.15),
         ('White Dwarf', 0.08), ('Binary System', 0.05), ('Neutron Star', 0.015),
@@ -4639,6 +4638,7 @@ def generate_enhanced_star_system(x: int, y: int):
         'danger_level': random.choice(['Safe', 'Low Risk', 'Moderate', 'Dangerous', 'Extreme', 'Lethal']),
         'trade_value': random.randint(0, 1000) if random.random() < 0.2 else 0
     }
+
 def generate_puzzle_system(x, y, puzzle_data):
     return {
         'coordinates': (x, y),
@@ -4647,7 +4647,10 @@ def generate_puzzle_system(x, y, puzzle_data):
                     'atmosphere': 'None', 'temperature': -200, 'gravity': 1.0, 'resources': 'Crystals', 'habitability': 'Hostile'}],
         'phenomena': ['Ancient Computer Core', 'Cryptic Inscriptions'],
         'hazards': ['Security Protocols'],
+        'asteroid_belts': 0,
+        'nebula_presence': False,
         'danger_level': 'Dangerous',
+        'trade_value': 0,  # <-- This was missing
         'is_puzzle_system': True,
         'puzzle_type': puzzle_data['puzzle_type'],
         'hint_reward': puzzle_data['hint']
@@ -4661,7 +4664,10 @@ def generate_core_system(x, y):
                     'atmosphere': 'Energy Field', 'temperature': 0, 'gravity': 10.0, 'resources': 'Pure Energy', 'habitability': 'Transcendent'}],
         'phenomena': ['Power Core Signature', 'Void Sentinel'],
         'hazards': ['Guardian Defenses'],
+        'asteroid_belts': 0,
+        'nebula_presence': True,
         'danger_level': 'Lethal',
+        'trade_value': 0,  # <-- This was missing
         'is_core_system': True,
         'boss_present': True
     }
@@ -4782,14 +4788,32 @@ class GalaxyNavigationView(ui.View):
             await interaction.response.send_message("❌ This isn't your ship!", ephemeral=True)
             return
 
-        user_data = get_galaxy_user_data(self.user_id)
-        pos = user_data['position']
-        system = generate_enhanced_star_system(pos[0], pos[1])
+        try:
+            user_data = get_galaxy_user_data(self.user_id)
+            pos = user_data['position']
 
-        embed = create_enhanced_system_scan_embed(system, self.user_id)
-        view = SystemExplorationView(self.user_id, system)
+            # Debug: Check what coordinates we're scanning
+            print(f"Scanning coordinates: ({pos[0]}, {pos[1]})")
 
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            system = generate_enhanced_star_system(pos[0], pos[1])
+
+            # Debug: Check if it's a puzzle system
+            print(f"System generated: {system.get('is_puzzle_system', False)}")
+
+            embed = create_enhanced_system_scan_embed(system, self.user_id)
+            view = SystemExplorationView(self.user_id, system)
+
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+        except Exception as e:
+            # Error handling to see what's going wrong
+            print(f"Scan error: {e}")
+            error_embed = discord.Embed(
+                title="❌ Scan Error",
+                description=f"Failed to scan system: {str(e)}",
+                color=0xff0000
+            )
+            await interaction.response.send_message(embed=error_embed, ephemeral=True)
 
     @ui.button(label='⬅️', style=discord.ButtonStyle.primary, row=1)
     async def west(self, interaction: discord.Interaction, button: ui.Button):
@@ -4980,8 +5004,11 @@ class SystemExplorationView(ui.View):
         # Check for achievements
         new_achievements = check_achievements(user_data)
 
-        # ADD POINTS TO YOUR EXISTING SCORING SYSTEM HERE:
+        # Add points to scoring system
         add_score(self.user_id, points)
+
+        # Save data
+        save_galaxy_data()
 
         # Send enhanced results
         result_embed = create_enhanced_exploration_result_embed(
@@ -4996,6 +5023,171 @@ class SystemExplorationView(ui.View):
             )
 
         await interaction.response.edit_message(embed=result_embed, view=None)
+
+    @ui.button(label='🧩 Solve Puzzle', style=discord.ButtonStyle.danger, emoji='🧩', row=1)
+    async def solve_puzzle(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your exploration mission!", ephemeral=True)
+            return
+
+        if not self.system.get('is_puzzle_system'):
+            await interaction.response.send_message("❌ No puzzle detected in this system.", ephemeral=True)
+            return
+
+        user_data = get_galaxy_user_data(self.user_id)
+        story_state = user_data['story_state']
+
+        # Check if puzzle already solved
+        puzzle_coords = tuple(self.system['coordinates'])
+        already_solved = any(
+            ps['hint'] in story_state['hints_collected']
+            for ps in PUZZLE_SYSTEMS
+            if tuple(ps['coords']) == puzzle_coords
+        )
+
+        if already_solved:
+            await interaction.response.send_message("❌ This puzzle has already been solved!", ephemeral=True)
+            return
+
+        # Solve the puzzle
+        story_state['puzzles_solved'] += 1
+        story_state['hints_collected'].append(self.system['hint_reward'])
+
+        # Award points for solving puzzle
+        add_score(self.user_id, 50)  # 50 points for puzzle completion
+
+        save_galaxy_data()
+
+        embed = discord.Embed(
+            title="🧩 Puzzle Solved!",
+            description=f"**Ancient knowledge acquired!**\n\n**Hint Revealed:**\n*{self.system['hint_reward']}*",
+            color=0x00ff00
+        )
+
+        embed.add_field(
+            name="📊 Progress",
+            value=f"Hints collected: {len(story_state['hints_collected'])}/4",
+            inline=True
+        )
+
+        embed.add_field(
+            name="🎁 Reward",
+            value="+50 points for puzzle completion!",
+            inline=True
+        )
+
+        if len(story_state['hints_collected']) >= 4:
+            embed.add_field(
+                name="🎯 Final Mission Unlocked!",
+                value="All hints collected! Head to coordinates (-78, 42) for the final confrontation with the Void Sentinel.",
+                inline=False
+            )
+            embed.color = 0xffd700  # Gold color for mission unlock
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @ui.button(label='⚔️ Fight Boss', style=discord.ButtonStyle.danger, emoji='⚔️', row=1)
+    async def fight_boss(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your exploration mission!", ephemeral=True)
+            return
+
+        if not self.system.get('boss_present'):
+            await interaction.response.send_message("❌ No boss detected in this system.", ephemeral=True)
+            return
+
+        user_data = get_galaxy_user_data(self.user_id)
+        story_state = user_data['story_state']
+        hints_count = len(story_state['hints_collected'])
+
+        if story_state.get('core_retrieved'):
+            embed = discord.Embed(
+                title="✅ Mission Already Complete",
+                description="You have already defeated the Void Sentinel and retrieved the Ancient Core!\n\nYour base is now powered by this legendary artifact.",
+                color=0x00ff41
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        if hints_count < 4:
+            embed = discord.Embed(
+                title="⚔️ Boss Battle: Void Sentinel",
+                description=f"**The Void Sentinel emerges from the shadows!**\n\nIts powerful energy shields deflect your attacks. The ancient guardian's defenses are too strong without the proper knowledge.\n\n*You need all 4 puzzle hints to weaken its shields.*",
+                color=0xff0000
+            )
+
+            embed.add_field(
+                name="🛡️ Current Status",
+                value=f"**Hints Collected:** {hints_count}/4\n**Boss Status:** Invulnerable",
+                inline=True
+            )
+
+            # Show which puzzles are still needed
+            missing_puzzles = []
+            for puzzle in PUZZLE_SYSTEMS:
+                if puzzle['hint'] not in story_state['hints_collected']:
+                    coords = puzzle['coords']
+                    puzzle_type = puzzle['puzzle_type'].title()
+                    missing_puzzles.append(f"🧩 {puzzle_type} puzzle at ({coords[0]}, {coords[1]})")
+
+            if missing_puzzles:
+                embed.add_field(
+                    name="📍 Missing Puzzle Locations",
+                    value="\n".join(missing_puzzles),
+                    inline=False
+                )
+
+            embed.add_field(
+                name="💡 Strategy Tip",
+                value="Collect all puzzle hints first, then return to face the Void Sentinel when its shields are weakened.",
+                inline=False
+            )
+
+        else:
+            # Boss battle victory sequence
+            story_state['core_retrieved'] = True
+
+            # Award massive points for completing the storyline
+            story_completion_points = 500
+            add_score(self.user_id, story_completion_points)
+
+            # Bonus credits and resources
+            user_data['credits'] += 1000
+            user_data['resources']['crystals'] += 50
+            user_data['resources']['energy'] += 100
+
+            save_galaxy_data()
+
+            embed = discord.Embed(
+                title="🏆 VICTORY! CORE RETRIEVED!",
+                description="**The Void Sentinel has been defeated!**\n\n*With the combined power of all four ancient hints, you channel the wisdom of the ancients. The Void Sentinel's shields collapse under the weight of forgotten knowledge.*\n\n**The Ancient Core now pulses with incredible energy in your hands!**\n\n*This legendary artifact contains enough power to sustain your base for millennia. Your exploration of the galaxy has led to the ultimate discovery.*",
+                color=0xffd700
+            )
+
+            embed.add_field(
+                name="🎁 Epic Rewards",
+                value=f"🏆 **+{story_completion_points} points** - Storyline completion\n💰 **+1,000 credits** - Victory bonus\n💎 **+50 crystals** - Core fragment energy\n⚡ **+100 energy** - Ancient power surge",
+                inline=False
+            )
+
+            embed.add_field(
+                name="🏅 Achievement Unlocked",
+                value="**🌟 Core Retriever** - Master of the Galaxy Storyline\n**⚔️ Void Slayer** - Defeated the ancient guardian\n**🔮 Ancient Wisdom** - Collected all puzzle knowledge",
+                inline=False
+            )
+
+            embed.add_field(
+                name="🏠 Base Status",
+                value="**Ancient Core installed successfully!**\nYour base is now powered by legendary technology.",
+                inline=False
+            )
+
+            # Add achievements to user data
+            user_data['achievements'].add('Core Retriever')
+            user_data['achievements'].add('Void Slayer')
+            user_data['achievements'].add('Ancient Wisdom')
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def handle_hazard_encounter(self, user_data):
         """Handle hazard encounters during exploration"""
@@ -5025,6 +5217,10 @@ class SystemExplorationView(ui.View):
                 description=f"**{hazard}** caused significant damage!\nExploration aborted. Fuel lost: {fuel_loss}",
                 color=0xff0000
             )
+
+            # Save the damage
+            save_galaxy_data()
+
             return {'failed': True, 'embed': embed}
 
 
@@ -5481,52 +5677,6 @@ def check_achievements(user_data):
     return new_achievements
 
 
-@ui.button(label='🧩 Solve Puzzle', style=discord.ButtonStyle.danger, emoji='🧩', row=1)
-async def solve_puzzle(self, interaction: discord.Interaction, button: ui.Button):
-    if not self.system.get('is_puzzle_system'):
-        button.style = discord.ButtonStyle.secondary
-        button.disabled = True
-        await interaction.response.edit_message(view=self)
-        return
-
-    # Simple puzzle completion for now
-    user_data = get_galaxy_user_data(self.user_id)
-    story_state = user_data['story_state']
-
-    if self.system['coordinates'] not in [tuple(ps['coords']) for ps in PUZZLE_SYSTEMS if
-                                          ps['hint'] in story_state['hints_collected']]:
-        story_state['puzzles_solved'] += 1
-        story_state['hints_collected'].append(self.system['hint_reward'])
-
-        embed = discord.Embed(title="Puzzle Solved!",
-                              description=f"Hint Acquired: {self.system['hint_reward']}",
-                              color=0x00ff00)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-@ui.button(label='⚔️ Fight Boss', style=discord.ButtonStyle.danger, emoji='⚔️', row=1)
-async def fight_boss(self, interaction: discord.Interaction, button: ui.Button):
-    if not self.system.get('boss_present'):
-        button.style = discord.ButtonStyle.secondary
-        button.disabled = True
-        await interaction.response.edit_message(view=self)
-        return
-
-    # Simple boss battle - require 4 hints to win
-    user_data = get_galaxy_user_data(self.user_id)
-    hints_count = len(user_data['story_state']['hints_collected'])
-
-    if hints_count < 4:
-        embed = discord.Embed(title="Boss Too Strong!",
-                              description=f"You need all 4 puzzle hints to defeat the Void Sentinel. You have {hints_count}/4.",
-                              color=0xff0000)
-    else:
-        user_data['story_state']['core_retrieved'] = True
-        embed = discord.Embed(title="Victory! Core Retrieved!",
-                              description="You have obtained the Ancient Core! Your base can now be powered!",
-                              color=0xffd700)
-
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class ShipyardView(ui.View):
@@ -5801,6 +5951,324 @@ async def galaxy_leaderboard_command(ctx):
             rare_text += f"{i + 1}. Commander #{user_id} - {len(data['rare_discoveries'])} rare finds\n"
 
     embed.add_field(name="✨ Most Rare Discoveries", value=rare_text or "No data", inline=True)
+
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='teleport', aliases=['tp', 'goto'])
+async def galaxy_teleport(ctx, location: str = None, user: discord.Member = None):
+    """Master-only command to teleport to specific galaxy locations or teleport users."""
+
+    # Check if user is master
+    if ctx.author.id != MASTER_ID:
+        embed = discord.Embed(
+            title="❌ Access Denied",
+            description="Only the master user can use teleportation commands.",
+            color=0xff0000
+        )
+        embed.set_thumbnail(url=ctx.author.display_avatar.url)
+        return await ctx.send(embed=embed)
+
+    # Show help if no location specified
+    if not location:
+        help_embed = discord.Embed(
+            title="🌌 Galaxy Teleportation System",
+            description="Master teleportation commands for galaxy exploration",
+            color=0x9932cc
+        )
+
+        help_embed.add_field(
+            name="📍 Puzzle Locations",
+            value=(
+                "`!teleport puzzle1` - Cipher puzzle (15, 25)\n"
+                "`!teleport puzzle2` - Math puzzle (-20, 30)\n"
+                "`!teleport puzzle3` - Sequence puzzle (35, -15)\n"
+                "`!teleport puzzle4` - Logic puzzle (-25, -40)"
+            ),
+            inline=False
+        )
+
+        help_embed.add_field(
+            name="⚔️ Boss Location",
+            value="`!teleport boss` - Core Vault boss fight (-78, 42)",
+            inline=False
+        )
+
+        help_embed.add_field(
+            name="🏠 Other Locations",
+            value=(
+                "`!teleport home` - Return to base (0, 0)\n"
+                "`!teleport coords X Y` - Teleport to custom coordinates"
+            ),
+            inline=False
+        )
+
+        help_embed.add_field(
+            name="👥 User Management",
+            value=(
+                "`!teleport home @user` - Send user home\n"
+                "`!teleport boss @user` - Send user to boss\n"
+                "`!teleport coords X Y @user` - Send user to coordinates"
+            ),
+            inline=False
+        )
+
+        help_embed.set_footer(text="Master only • Use exact command syntax")
+        return await ctx.send(embed=help_embed)
+
+    # Determine target user
+    target_user_id = user.id if user else ctx.author.id
+    target_user = user if user else ctx.author
+
+    # Get user data
+    user_data = get_galaxy_user_data(target_user_id)
+
+    # Define teleport locations
+    locations = {
+        'puzzle1': (15, 25),
+        'puzzle2': (-20, 30),
+        'puzzle3': (35, -15),
+        'puzzle4': (-25, -40),
+        'boss': (-78, 42),
+        'home': (0, 0),
+        'base': (0, 0)
+    }
+
+    # Handle coordinate teleportation
+    if location.lower() == 'coords':
+        if len(ctx.message.content.split()) < 4:
+            await ctx.send("❌ Usage: `!teleport coords X Y [@user]`")
+            return
+
+        try:
+            parts = ctx.message.content.split()
+            x = int(parts[2])
+            y = int(parts[3])
+            target_coords = (x, y)
+        except (ValueError, IndexError):
+            await ctx.send("❌ Invalid coordinates. Use integers for X and Y.")
+            return
+    else:
+        # Get predefined location
+        target_coords = locations.get(location.lower())
+        if not target_coords:
+            await ctx.send(f"❌ Unknown location: {location}. Use `!teleport` for available locations.")
+            return
+
+    # Perform teleportation
+    old_position = user_data['position'].copy()
+    user_data['position'] = list(target_coords)
+
+    # Full refuel for teleportation
+    user_data['fuel'] = user_data['max_fuel']
+
+    # Save data
+    save_galaxy_data()
+
+    # Create teleportation embed
+    embed = discord.Embed(
+        title="✨ Teleportation Complete",
+        color=0x00ff41,
+        timestamp=ctx.message.created_at
+    )
+
+    embed.set_thumbnail(url=target_user.display_avatar.url)
+
+    # Location descriptions
+    location_descriptions = {
+        (15, 25): "🧩 Cipher Puzzle System - Ancient cryptographic challenges await",
+        (-20, 30): "🧮 Math Puzzle System - Solve complex equations to progress",
+        (35, -15): "🔢 Sequence Puzzle System - Decode the pattern mysteries",
+        (-25, -40): "🧠 Logic Puzzle System - Final challenge before the core",
+        (-78, 42): "⚔️ Core Vault - Face the Void Sentinel boss battle",
+        (0, 0): "🏠 Home Base - Safe harbor with free refueling"
+    }
+
+    description = location_descriptions.get(tuple(target_coords), f"📍 Custom coordinates {target_coords}")
+
+    embed.add_field(
+        name="🎯 Destination",
+        value=description,
+        inline=False
+    )
+
+    embed.add_field(
+        name="📊 Teleportation Details",
+        value=(
+            f"**Target:** {target_user.mention}\n"
+            f"**From:** ({old_position[0]}, {old_position[1]})\n"
+            f"**To:** ({target_coords[0]}, {target_coords[1]})\n"
+            f"**Fuel:** Fully restored to {user_data['max_fuel']}"
+        ),
+        inline=True
+    )
+
+    # Add special warnings for dangerous locations
+    if target_coords == (-78, 42):
+        embed.add_field(
+            name="⚠️ Boss Battle Warning",
+            value="**Void Sentinel encountered!** Ensure you have collected all 4 puzzle hints before engaging.",
+            inline=False
+        )
+    elif target_coords in [(15, 25), (-20, 30), (35, -15), (-25, -40)]:
+        embed.add_field(
+            name="🧩 Puzzle System",
+            value="Scan the system and use the puzzle-solving interface to collect hints.",
+            inline=False
+        )
+
+    # Story progress check
+    story_state = user_data.get('story_state', {})
+    hints_collected = len(story_state.get('hints_collected', []))
+
+    if hints_collected > 0:
+        embed.add_field(
+            name="📜 Story Progress",
+            value=f"Hints collected: {hints_collected}/4\nCore retrieved: {'✅' if story_state.get('core_retrieved') else '❌'}",
+            inline=True
+        )
+
+    embed.set_footer(text=f"Teleportation executed by Master • Target: {target_user.display_name}")
+
+    await ctx.send(embed=embed)
+
+    # Send notification to target user if different from master
+    if user and user.id != ctx.author.id:
+        try:
+            dm_embed = discord.Embed(
+                title="✨ You've been teleported!",
+                description=f"The master has teleported you to: {description}",
+                color=0x00ff41
+            )
+            dm_embed.add_field(
+                name="New Position",
+                value=f"({target_coords[0]}, {target_coords[1]})",
+                inline=True
+            )
+            dm_embed.add_field(
+                name="Fuel Status",
+                value="Fully restored",
+                inline=True
+            )
+            await user.send(embed=dm_embed)
+        except discord.Forbidden:
+            await ctx.send(f"⚠️ Could not notify {user.mention} via DM")
+
+
+@bot.command(name='galaxyinfo')
+async def galaxy_story_info(ctx):
+    """Show current story progress for galaxy exploration (Master can see all users)."""
+
+    if ctx.author.id == MASTER_ID:
+        # Master can see all story progress
+        embed = discord.Embed(
+            title="🌌 Galaxy Story Progress Overview",
+            description="Current progress of all players in the storyline",
+            color=0x9932cc
+        )
+
+        if not galaxy_user_data:
+            embed.description = "No players have started galaxy exploration yet."
+            return await ctx.send(embed=embed)
+
+        active_players = 0
+        completed_players = 0
+
+        for user_id_str, user_data in galaxy_user_data.items():
+            story_state = user_data.get('story_state', {})
+            hints_collected = len(story_state.get('hints_collected', []))
+            core_retrieved = story_state.get('core_retrieved', False)
+
+            if hints_collected > 0 or core_retrieved:
+                active_players += 1
+
+                try:
+                    user = await bot.fetch_user(int(user_id_str))
+                    user_name = user.display_name
+                except:
+                    user_name = f"User {user_id_str}"
+
+                status = "✅ Complete" if core_retrieved else f"🧩 {hints_collected}/4 hints"
+                position = user_data.get('position', [0, 0])
+
+                embed.add_field(
+                    name=f"👤 {user_name}",
+                    value=f"**Status:** {status}\n**Position:** ({position[0]}, {position[1]})",
+                    inline=True
+                )
+
+                if core_retrieved:
+                    completed_players += 1
+
+        if active_players == 0:
+            embed.add_field(
+                name="📊 Summary",
+                value="No players have engaged with the storyline yet.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="📊 Summary",
+                value=f"**Active Players:** {active_players}\n**Completed:** {completed_players}\n**In Progress:** {active_players - completed_players}",
+                inline=False
+            )
+
+    else:
+        # Regular users see only their own progress
+        user_data = get_galaxy_user_data(ctx.author.id)
+        story_state = user_data.get('story_state', {})
+
+        embed = discord.Embed(
+            title="🌌 Your Story Progress",
+            description=f"Galaxy exploration storyline progress for {ctx.author.display_name}",
+            color=0x9932cc
+        )
+
+        embed.set_thumbnail(url=ctx.author.display_avatar.url)
+
+        hints_collected = story_state.get('hints_collected', [])
+        puzzles_solved = story_state.get('puzzles_solved', 0)
+        core_retrieved = story_state.get('core_retrieved', False)
+
+        embed.add_field(
+            name="🧩 Puzzle Progress",
+            value=f"**Puzzles Solved:** {puzzles_solved}/4\n**Hints Collected:** {len(hints_collected)}/4",
+            inline=True
+        )
+
+        embed.add_field(
+            name="⚔️ Final Mission",
+            value=f"**Core Retrieved:** {'✅ Yes' if core_retrieved else '❌ No'}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📍 Current Position",
+            value=f"({user_data['position'][0]}, {user_data['position'][1]})",
+            inline=True
+        )
+
+        if hints_collected:
+            embed.add_field(
+                name="📜 Collected Hints",
+                value="\n".join([f"• {hint}" for hint in hints_collected]),
+                inline=False
+            )
+
+        # Next steps
+        if core_retrieved:
+            next_step = "🏆 Storyline Complete! You have powered your base with the Ancient Core."
+        elif len(hints_collected) >= 4:
+            next_step = "⚔️ Ready for boss battle! Travel to (-78, 42) to face the Void Sentinel."
+        else:
+            remaining = 4 - len(hints_collected)
+            next_step = f"🧩 Find and solve {remaining} more puzzles to reveal the core location."
+
+        embed.add_field(
+            name="🎯 Next Steps",
+            value=next_step,
+            inline=False
+        )
 
     await ctx.send(embed=embed)
 
