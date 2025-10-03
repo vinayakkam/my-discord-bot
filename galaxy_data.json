@@ -1,13 +1,41 @@
 {
   "814791086114865233": {
     "position": [
-      -78,
-      42
+      -63,
+      45
     ],
-    "fuel": 100,
-    "max_fuel": 100,
-    "credits": 1190,
+    "fuel": 68,
+    "max_fuel": 120,
+    "credits": 1446,
     "discovered_systems": [
+      [
+        -72,
+        42
+      ],
+      [
+        -76,
+        42
+      ],
+      [
+        -64,
+        45
+      ],
+      [
+        -63,
+        45
+      ],
+      [
+        -74,
+        42
+      ],
+      [
+        -67,
+        44
+      ],
+      [
+        -66,
+        45
+      ],
       [
         15,
         25
@@ -17,23 +45,25 @@
     "total_discoveries": 0,
     "exploration_rank": "Cadet",
     "ship_upgrades": {
-      "fuel_efficiency": 0,
-      "scanner_range": 0,
+      "fuel_efficiency": 1,
+      "scanner_range": 1,
       "cargo_hold": 0,
       "shield_strength": 0,
       "warp_drive": 0
     },
     "resources": {
-      "crystals": 50,
-      "metals": 16,
-      "energy": 112
+      "crystals": 87,
+      "metals": 245,
+      "energy": 134
     },
     "achievements": [
+      "Wealthy Trader",
+      "Resource Baron",
       "First Steps"
     ],
     "last_exploration": null,
     "danger_encounters": 0,
-    "successful_explorations": 1,
+    "successful_explorations": 8,
     "story_state": {
       "puzzles_solved": 4,
       "hints_collected": [
