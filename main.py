@@ -891,7 +891,7 @@ async def leaderboard(ctx):
 
 
 # Optional: Command to check/manage role mappings (Master only)
-@bot.command(name="role_mapping")
+@bot.command(name="rolemapping")
 async def role_mapping(ctx, action: str = None, server_id: int = None, role_id: int = None):
     """Manage Leader role mappings. Usage: !role_mapping [list/add/remove] [server_id] [role_id]"""
     author_id = int(ctx.author.id)
