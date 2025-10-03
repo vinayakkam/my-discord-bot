@@ -4343,7 +4343,7 @@ class HelpView(discord.ui.View):
     def create_main_embed(self):
         """Create the main help embed with comprehensive overview"""
         embed = discord.Embed(
-            title="🚀 Launch Tower Bot - Mission Control Center",
+            title="🚀 OLIT Bot - Mission Control Center",
             description=(
                 "**Welcome to your comprehensive space-themed Discord bot!**\n\n"
                 "I'm Launch Tower, your ultimate mission control companion. "
@@ -4708,7 +4708,7 @@ class HelpView(discord.ui.View):
         embed.add_field(
             name="👑 **Role & Permission Management**",
             value=(
-                "`!role_mapping [list/add/remove] [server_id] [role_id]`\n"
+                "`!rolemapping [list/add/remove] [server_id] [role_id]`\n"
                 "🎭 **Leader Role Configuration** - Reward system management\n"
                 "• Configure Leader roles per server • Automatic role assignment\n"
                 "• Top player recognition • Permission validation\n"
