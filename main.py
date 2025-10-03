@@ -4900,7 +4900,7 @@ async def about_command(interaction: discord.Interaction):
 
     embed.set_thumbnail(url=bot.user.display_avatar.url)
     embed.set_footer(
-        text="🌌 Launch Tower Bot v2.0 | Comprehensive Space-Themed Discord Experience",
+        text="🌌 OLIT Bot v4.0 | Comprehensive Space-Themed Discord Experience",
         icon_url=bot.user.display_avatar.url
     )
 
