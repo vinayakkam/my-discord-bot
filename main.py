@@ -5145,24 +5145,28 @@ class ElectionVoteButton(ui.Button):
 
 
 # ========================
-# Helper Function to End Election
+# Helper Function to End Election (FIXED VERSION)
 # ========================
 async def end_election_process(election_id):
     """End an election and display results"""
     election = active_elections.get(election_id)
     if not election:
+        print(f"DEBUG: Election {election_id} not found in active_elections")
         return
 
+    print(f"DEBUG: Ending election {election_id} - {election['title']}")
     active_elections.pop(election_id, None)
     election_tasks.pop(election_id, None)
 
     try:
         channel = bot.get_channel(election["channel_id"])
         if not channel:
+            print(f"ERROR: Channel {election['channel_id']} not found")
             return
 
         guild = bot.get_guild(election.get("guild_id"))
         msg = await channel.fetch_message(election["message_id"])
+        print(f"DEBUG: Successfully fetched message {election['message_id']}")
 
         # Calculate results
         results = {opt: len(voters) for opt, voters in election["options"].items()}
@@ -5224,7 +5228,10 @@ async def end_election_process(election_id):
 
         result_embed.set_footer(text=f"Election ended • {datetime.now(UTC).strftime('%B %d, %Y at %H:%M UTC')}")
 
+        # Edit the original message with results
+        print(f"DEBUG: Editing message with results...")
         await msg.edit(embed=result_embed, view=None)
+        print(f"DEBUG: Message edited successfully!")
 
         if results and not all(count == 0 for count in results.values()):
             announce_embed = discord.Embed(
@@ -5237,8 +5244,16 @@ async def end_election_process(election_id):
             announce_embed.set_footer(text="Thank you to everyone who participated!")
             await channel.send(embed=announce_embed)
 
+    except discord.NotFound:
+        print(f"ERROR: Message {election['message_id']} not found - may have been deleted")
+    except discord.Forbidden:
+        print(f"ERROR: No permission to edit message {election['message_id']}")
+    except discord.HTTPException as e:
+        print(f"ERROR: HTTP error editing message {election['message_id']}: {e}")
     except Exception as e:
-        print(f"Error ending election {election_id}: {e}")
+        print(f"ERROR ending election {election_id}: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 async def start_election_timeout(election_id, hours):
