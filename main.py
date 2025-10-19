@@ -5718,6 +5718,7 @@ async def on_ready():
 
 
 
+
 #galaxy keeper
 # Add these variables to your bot's global scope or class
 GALAXY_DATA_FILE = "galaxy_data.json"
