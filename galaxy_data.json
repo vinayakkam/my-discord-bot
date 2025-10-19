@@ -1,13 +1,17 @@
 {
   "814791086114865233": {
     "position": [
-      -63,
+      -62,
       45
     ],
-    "fuel": 68,
+    "fuel": 61,
     "max_fuel": 120,
-    "credits": 1446,
+    "credits": 1932,
     "discovered_systems": [
+      [
+        -62,
+        45
+      ],
       [
         -72,
         42
@@ -52,18 +56,18 @@
       "warp_drive": 0
     },
     "resources": {
-      "crystals": 87,
-      "metals": 245,
-      "energy": 134
+      "crystals": 90,
+      "metals": 289,
+      "energy": 151
     },
     "achievements": [
+      "First Steps",
       "Wealthy Trader",
-      "Resource Baron",
-      "First Steps"
+      "Resource Baron"
     ],
     "last_exploration": null,
     "danger_encounters": 0,
-    "successful_explorations": 8,
+    "successful_explorations": 9,
     "story_state": {
       "puzzles_solved": 4,
       "hints_collected": [
