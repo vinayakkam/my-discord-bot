@@ -4224,6 +4224,19 @@ async def gif(ctx):
 
     await ctx.send(embed=embed)
 
+@bot.command(name="rafshocked")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="**RAF Shocked**",
+        description="You shocked a Protogen!",
+        color=discord.Color.from_rgb(128, 0, 0)
+    )
+    embed.set_image(url="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExZnpmam1qOXdmb2Y0eDFja2wwaWt0cGRpNXV0NjRtbWppMWljZnRiaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/CKu1S2EgBdNNLxD6hu/giphy.gif")
+    # Replace with any GIF URL
+
+    await ctx.send(embed=embed)
+
 # Replace with your developer's Discord user ID
 DEV_USER_ID = 814791086114865233  # 🟩 put the actual ID here
 
@@ -4979,49 +4992,177 @@ import traceback
 
 from datetime import datetime, timedelta, UTC
 
-# Replace with your Election Official role ID
-ELECTION_OFFICIAL_ROLE_ID = 1419734226311450665
+# ========================
+# ROLE MAPPING FOR MULTI-SERVER SUPPORT
+# ========================
+ROLE_MAPPING = {
+    # Format: guild_id: election_official_role_id
+    # Add your server configurations here
+    1210475350119813120: 1418639851586191572,  # Server 1
+    1411425019434766499: 1424409812070039562,  # Replace with your guild ID and role ID
+    # Add more servers as needed
+    # 987654321: ELECTION_OFFICIAL_ROLE_ID,
+}
 
 # Common logo URL for BAA and HS elections
 ELECTION_LOGO_URL = "https://media.discordapp.net/attachments/1421476807189991444/1426195894814117918/92ecea0f-2a16-4c0b-9b03-e3662cbd16d7.png?ex=68ea57ee&is=68e9066e&hm=378057ab1ccc76bc9347189960514911729d2510500065717b273c5584ad1a3e&=&format=webp&quality=lossless&width=960&height=960"
+
+# File paths for data persistence
+ELECTIONS_FILE = "active_elections.json"
+HISTORY_FILE = "election_history.json"
 
 # Store active elections
 active_elections = {}
 election_tasks = {}
 
 
+# ========================
+# DATA PERSISTENCE FUNCTIONS
+# ========================
+def load_election_history():
+    """Load election history from JSON file"""
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading history: {e}")
+    return {}
+
+
+def save_election_history(history):
+    """Save election history to JSON file"""
+    try:
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=4)
+    except Exception as e:
+        print(f"Error saving history: {e}")
+
+
+def load_active_elections():
+    """Load active elections from JSON file"""
+    global active_elections
+    if os.path.exists(ELECTIONS_FILE):
+        try:
+            with open(ELECTIONS_FILE, 'r') as f:
+                data = json.load(f)
+                # Convert string keys back to integers and reconstruct datetime objects
+                for key, election in data.items():
+                    election['end_time'] = datetime.fromisoformat(election['end_time'])
+                    election['options'] = {opt: voters for opt, voters in election['options'].items()}
+                    active_elections[int(key)] = election
+            print(f"Loaded {len(active_elections)} active elections")
+        except Exception as e:
+            print(f"Error loading elections: {e}")
+
+
+def save_active_elections():
+    """Save active elections to JSON file"""
+    try:
+        data = {}
+        for key, election in active_elections.items():
+            election_copy = election.copy()
+            election_copy['end_time'] = election['end_time'].isoformat()
+            data[str(key)] = election_copy
+
+        with open(ELECTIONS_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving elections: {e}")
+
+
+def get_consecutive_wins(guild_id: int, user_id: int, election_type: str) -> int:
+    """Get number of consecutive wins for a user in a specific election type"""
+    history = load_election_history()
+    guild_key = str(guild_id)
+
+    if guild_key not in history:
+        return 0
+
+    if election_type not in history[guild_key]:
+        return 0
+
+    elections = history[guild_key][election_type]
+    if not elections:
+        return 0
+
+    # Sort by timestamp (most recent first)
+    sorted_elections = sorted(elections, key=lambda x: x['timestamp'], reverse=True)
+
+    consecutive = 0
+    for election in sorted_elections:
+        if election['winner_id'] == user_id:
+            consecutive += 1
+        else:
+            break
+
+    return consecutive
+
+
+def record_election_result(guild_id: int, election_type: str, winner_id: int, winner_name: str, total_votes: int):
+    """Record election result in history"""
+    history = load_election_history()
+    guild_key = str(guild_id)
+
+    if guild_key not in history:
+        history[guild_key] = {}
+
+    if election_type not in history[guild_key]:
+        history[guild_key][election_type] = []
+
+    history[guild_key][election_type].append({
+        'winner_id': winner_id,
+        'winner_name': winner_name,
+        'total_votes': total_votes,
+        'timestamp': datetime.now(UTC).isoformat()
+    })
+
+    save_election_history(history)
+
+
+def get_election_official_role(guild_id: int) -> Optional[int]:
+    """Get election official role ID for a guild"""
+    return ROLE_MAPPING.get(guild_id)
+
+
+# ========================
+# HELPER FUNCTIONS
+# ========================
 def clean_button_label(label: str, guild=None) -> str:
     """Convert long labels to button-friendly format"""
     if label.startswith("<@") and label.endswith(">"):
-        # Extract user ID and try to get username from bot cache
         user_id = label[2:-1].replace("!", "")
         try:
             user_id_int = int(user_id)
-
-            # Try to get member from guild first (for server nickname)
             if guild:
                 member = guild.get_member(user_id_int)
                 if member:
-                    # Priority: Server nickname > Display name > Global name > Username
                     return member.nick if member.nick else (member.display_name if member.display_name else member.name)
 
-            # Fallback to user from cache
             user = bot.get_user(user_id_int)
             if user:
-                # Priority: Display name > Global name > Username
                 if hasattr(user, 'display_name') and user.display_name:
                     return user.display_name
                 elif hasattr(user, 'global_name') and user.global_name:
                     return user.global_name
                 else:
                     return user.name
-
             return f"User {user_id[:4]}"
         except:
             return f"User {user_id[:4]}"
     if len(label) > 80:
         return label[:77] + "..."
     return label
+
+
+def extract_user_id(mention: str) -> Optional[int]:
+    """Extract user ID from mention string"""
+    if mention.startswith("<@") and mention.endswith(">"):
+        try:
+            return int(mention[2:-1].replace("!", ""))
+        except ValueError:
+            return None
+    return None
 
 
 # ========================
@@ -5039,7 +5180,6 @@ class ElectionVoteView(ui.View):
 
 class ElectionVoteButton(ui.Button):
     def __init__(self, election_id, option, option_index, display_label=None):
-        # Always show "Option X" format
         button_label = f"Option {option_index + 1}"
         super().__init__(
             label=button_label,
@@ -5062,17 +5202,9 @@ class ElectionVoteButton(ui.Button):
             embed.set_footer(text="Please check for active elections")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        # Debug logging
-        print(f"DEBUG: Election {self.election_id} contestants: {election['contestants']}")
-        print(f"DEBUG: Current option being voted for: {self.option}")
-        print(f"DEBUG: User ID: {interaction.user.id}")
-
         # Check if user is a contestant (prevent self-voting) - ONLY for BAA elections
         if election["title"] == "BAA Administrator":
             contestant_id = election["contestants"].get(self.option)
-            print(
-                f"DEBUG: Checking self-vote for BAA - option={self.option}, contestant_id={contestant_id}, user_id={interaction.user.id}")
-
             if contestant_id and int(contestant_id) == interaction.user.id:
                 embed = discord.Embed(
                     title="❌ Self-Voting Not Allowed",
@@ -5080,7 +5212,6 @@ class ElectionVoteButton(ui.Button):
                     color=discord.Color.red()
                 )
                 embed.set_footer(text=f"Election: {election['title']}")
-                print(f"DEBUG: BLOCKED self-vote!")
                 return await interaction.response.send_message(embed=embed, ephemeral=True)
 
         # Check if user has already voted
@@ -5137,6 +5268,9 @@ class ElectionVoteButton(ui.Button):
             embed.set_footer(text="Please try again or contact an administrator")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
+        # Save updated elections
+        save_active_elections()
+
         embed.set_footer(text=f"Election: {election['title']} • Thank you for voting!")
         if election.get("logo"):
             embed.set_thumbnail(url=election["logo"])
@@ -5145,28 +5279,26 @@ class ElectionVoteButton(ui.Button):
 
 
 # ========================
-# Helper Function to End Election (FIXED VERSION)
+# Helper Function to End Election
 # ========================
 async def end_election_process(election_id):
     """End an election and display results"""
     election = active_elections.get(election_id)
     if not election:
-        print(f"DEBUG: Election {election_id} not found in active_elections")
         return
 
-    print(f"DEBUG: Ending election {election_id} - {election['title']}")
+    print(f"Ending election {election_id} - {election['title']}")
     active_elections.pop(election_id, None)
     election_tasks.pop(election_id, None)
+    save_active_elections()
 
     try:
         channel = bot.get_channel(election["channel_id"])
         if not channel:
-            print(f"ERROR: Channel {election['channel_id']} not found")
             return
 
         guild = bot.get_guild(election.get("guild_id"))
         msg = await channel.fetch_message(election["message_id"])
-        print(f"DEBUG: Successfully fetched message {election['message_id']}")
 
         # Calculate results
         results = {opt: len(voters) for opt, voters in election["options"].items()}
@@ -5184,32 +5316,113 @@ async def end_election_process(election_id):
             )
         else:
             max_votes = max(results.values())
-            winners = [opt for opt, count in results.items() if count == max_votes]
+            potential_winners = [opt for opt, count in results.items() if count == max_votes]
 
-            if len(winners) > 1:
+            # Check for consecutive wins and disqualify if necessary
+            final_winners = []
+            disqualified = []
+
+            for winner in potential_winners:
+                winner_id = extract_user_id(winner)
+                if winner_id:
+                    election_type = None
+                    if election["title"] == "BAA Administrator":
+                        election_type = "baa_admin"
+                    elif election["title"] == "Head Sheriff":
+                        election_type = "head_sheriff"
+
+                    if election_type:
+                        consecutive = get_consecutive_wins(guild.id, winner_id, election_type)
+                        if consecutive >= 2:
+                            disqualified.append((winner, consecutive))
+                            continue
+
+                final_winners.append(winner)
+
+            # If all winners are disqualified, pick next best
+            if not final_winners and len(results) > len(potential_winners):
+                sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
+                for opt, count in sorted_results:
+                    if opt not in potential_winners:
+                        winner_id = extract_user_id(opt)
+                        if winner_id:
+                            election_type = None
+                            if election["title"] == "BAA Administrator":
+                                election_type = "baa_admin"
+                            elif election["title"] == "Head Sheriff":
+                                election_type = "head_sheriff"
+
+                            if election_type:
+                                consecutive = get_consecutive_wins(guild.id, winner_id, election_type)
+                                if consecutive < 2:
+                                    final_winners.append(opt)
+                                    break
+
+            # Create result embed
+            if not final_winners:
+                result_embed = discord.Embed(
+                    title="🏁 Election Concluded",
+                    description=f"**{election['title']}**\n\n⚠️ **No eligible winner (all candidates won 2+ consecutive times)**",
+                    color=discord.Color.orange()
+                )
+            elif len(final_winners) > 1:
                 winner_text = f"🤝 **Tie Between:**\n" + "\n".join(
-                    [f"• {clean_button_label(w, guild)}" for w in winners])
+                    [f"• {clean_button_label(w, guild)}" for w in final_winners])
                 winner_color = discord.Color.blue()
+                result_embed = discord.Embed(
+                    title="🏁 Election Results",
+                    description=f"**{election['title']}**\n\n{winner_text}",
+                    color=winner_color
+                )
             else:
-                winner_text = f"🏆 **Winner:**\n**{clean_button_label(winners[0], guild)}**"
+                winner = final_winners[0]
+                winner_text = f"🏆 **Winner:**\n**{clean_button_label(winner, guild)}**"
                 winner_color = discord.Color.gold()
+                result_embed = discord.Embed(
+                    title="🏁 Election Results",
+                    description=f"**{election['title']}**\n\n{winner_text}",
+                    color=winner_color
+                )
 
-            result_embed = discord.Embed(
-                title="🏁 Election Results",
-                description=f"**{election['title']}**\n\n{winner_text}",
-                color=winner_color
-            )
+                # Record the win
+                winner_id = extract_user_id(winner)
+                if winner_id:
+                    election_type = None
 
-            # Create vote breakdown with bars
+                    if election["title"] == "BAA Administrator":
+                        election_type = "baa_admin"
+                    elif election["title"] == "Head Sheriff":
+                        election_type = "head_sheriff"
+
+                    if election_type:
+                        record_election_result(
+                            guild.id,
+                            election_type,
+                            winner_id,
+                            clean_button_label(winner, guild),
+                            sum(results.values())
+                        )
+
+            # Add disqualification notice
+            if disqualified:
+                disq_text = "\n".join([f"• {clean_button_label(w, guild)} ({c} consecutive wins)"
+                                       for w, c in disqualified])
+                result_embed.add_field(
+                    name="⚠️ Disqualified (2+ Consecutive Wins)",
+                    value=disq_text,
+                    inline=False
+                )
+
+            # Vote breakdown
             vote_lines = []
             total_votes = sum(results.values())
-
             for opt, count in sorted(results.items(), key=lambda x: x[1], reverse=True):
                 percentage = (count / total_votes * 100) if total_votes > 0 else 0
                 bar_length = int(percentage / 10)
                 bar = "█" * bar_length + "░" * (10 - bar_length)
+                status = " ⚠️ Disqualified" if any(opt == d[0] for d in disqualified) else ""
                 vote_lines.append(
-                    f"**{clean_button_label(opt, guild)}**\n{bar} {count} vote{'s' if count != 1 else ''} ({percentage:.1f}%)")
+                    f"**{clean_button_label(opt, guild)}**{status}\n{bar} {count} vote{'s' if count != 1 else ''} ({percentage:.1f}%)")
 
             result_embed.add_field(
                 name="📊 Vote Breakdown",
@@ -5228,10 +5441,7 @@ async def end_election_process(election_id):
 
         result_embed.set_footer(text=f"Election ended • {datetime.now(UTC).strftime('%B %d, %Y at %H:%M UTC')}")
 
-        # Edit the original message with results
-        print(f"DEBUG: Editing message with results...")
         await msg.edit(embed=result_embed, view=None)
-        print(f"DEBUG: Message edited successfully!")
 
         if results and not all(count == 0 for count in results.values()):
             announce_embed = discord.Embed(
@@ -5244,12 +5454,6 @@ async def end_election_process(election_id):
             announce_embed.set_footer(text="Thank you to everyone who participated!")
             await channel.send(embed=announce_embed)
 
-    except discord.NotFound:
-        print(f"ERROR: Message {election['message_id']} not found - may have been deleted")
-    except discord.Forbidden:
-        print(f"ERROR: No permission to edit message {election['message_id']}")
-    except discord.HTTPException as e:
-        print(f"ERROR: HTTP error editing message {election['message_id']}: {e}")
     except Exception as e:
         print(f"ERROR ending election {election_id}: {type(e).__name__}: {e}")
         import traceback
@@ -5268,10 +5472,8 @@ async def start_election_timeout(election_id, hours):
 @bot.command(name="BAAelections")
 async def baa_election(ctx, hours: int = 24, *candidates: str):
     try:
-        print(f"DEBUG: BAAelections command called")
-
-        if not any(role.id == ELECTION_OFFICIAL_ROLE_ID for role in ctx.author.roles):
-            print(f"DEBUG: User {ctx.author} doesn't have election role")
+        official_role = get_election_official_role(ctx.guild.id)
+        if not official_role or not any(role.id == official_role for role in ctx.author.roles):
             embed = discord.Embed(
                 title="🚫 Access Denied",
                 description="You don't have permission to start elections.\n\nOnly Election Officials can use this command.",
@@ -5280,15 +5482,12 @@ async def baa_election(ctx, hours: int = 24, *candidates: str):
             embed.set_footer(text="Contact an administrator if you believe this is an error")
             return await ctx.send(embed=embed)
 
-        print(f"DEBUG: User authorized, hours={hours}, candidates={candidates}")
-
         if hours <= 0:
             embed = discord.Embed(
                 title="❌ Invalid Duration",
                 description="Election duration must be greater than 0 hours.",
                 color=discord.Color.red()
             )
-            embed.set_footer(text="Please provide a valid duration")
             return await ctx.send(embed=embed)
 
         if len(candidates) < 2:
@@ -5296,46 +5495,30 @@ async def baa_election(ctx, hours: int = 24, *candidates: str):
 
         title = "BAA Administrator"
         end_time = datetime.now(UTC) + timedelta(hours=hours)
-        print(f"DEBUG: Current time: {datetime.now(UTC)}")
-        print(f"DEBUG: End time: {end_time}")
-        print(f"DEBUG: Hours: {hours}")
         options = {c: [] for c in candidates}
 
-        # Parse contestant IDs from mentions if present (for self-vote prevention)
+        # Parse contestant IDs
         contestant_ids = {}
         for c in candidates:
-            if c.startswith("<@") and c.endswith(">"):
-                try:
-                    user_id = int(c[2:-1].replace("!", ""))
-                    contestant_ids[c] = user_id
-                    print(f"DEBUG: Registered BAA contestant {c} with ID {user_id}")
-                except ValueError as e:
-                    print(f"DEBUG: Failed to parse user ID from {c}: {e}")
-                    contestant_ids[c] = None
-            else:
-                contestant_ids[c] = None
-
-        print(f"DEBUG: Creating embed")
+            user_id = extract_user_id(c)
+            contestant_ids[c] = user_id
 
         embed = discord.Embed(
             title=f"🗳️ {title} Election",
-            description="**Vote for your preferred candidate!**\n\nClick the buttons below to cast your vote. You can change your vote anytime before the election ends.\n\n⚠️ *Candidates cannot vote for themselves.*",
-            color=0x5865F2  # Discord Blurple
+            description="**Vote for your preferred candidate!**\n\nClick the buttons below to cast your vote. You can change your vote anytime before the election ends.\n\n⚠️ *Candidates cannot vote for themselves.*\n⚠️ *Candidates with 2 consecutive wins are ineligible.*",
+            color=0x5865F2
         )
         embed.set_thumbnail(url=ELECTION_LOGO_URL)
 
-        # Add candidates in a clean format
         candidates_text = []
         for i, c in enumerate(candidates, 1):
             display_name = clean_button_label(c, ctx.guild)
-            candidates_text.append(f"**Option {i}:** {display_name}")
+            user_id = extract_user_id(c)
+            consecutive = get_consecutive_wins(ctx.guild.id, user_id, "baa_admin") if user_id else 0
+            status = f" ⚠️ ({consecutive}/2 wins)" if consecutive > 0 else ""
+            candidates_text.append(f"**Option {i}:** {display_name}{status}")
 
-        embed.add_field(
-            name="📋 Candidates",
-            value="\n".join(candidates_text),
-            inline=False
-        )
-
+        embed.add_field(name="📋 Candidates", value="\n".join(candidates_text), inline=False)
         embed.add_field(name="⏱️ Duration", value=f"`{hours} hour{'s' if hours != 1 else ''}`", inline=True)
         embed.add_field(name="🏁 Ends", value=f"<t:{int(end_time.timestamp())}:R>", inline=True)
         embed.add_field(name="📊 Status", value="🟢 **Active**", inline=True)
@@ -5343,9 +5526,7 @@ async def baa_election(ctx, hours: int = 24, *candidates: str):
         embed.set_footer(text=f"Started by {ctx.author.name} • Click buttons below to vote",
                          icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
 
-        print(f"DEBUG: Sending message")
         msg = await ctx.send(embed=embed)
-        print(f"DEBUG: Message sent, ID={msg.id}")
 
         active_elections[msg.id] = {
             "title": title,
@@ -5358,18 +5539,14 @@ async def baa_election(ctx, hours: int = 24, *candidates: str):
             "logo": ELECTION_LOGO_URL
         }
 
-        print(f"DEBUG: Contestant IDs stored: {contestant_ids}")
+        save_active_elections()
 
-        print(f"DEBUG: Creating view")
         view = ElectionVoteView(msg.id, candidates)
-        print(f"DEBUG: Editing message with view")
         await msg.edit(view=view)
 
-        print(f"DEBUG: Starting timeout task")
         task = asyncio.create_task(start_election_timeout(msg.id, hours))
         election_tasks[msg.id] = task
 
-        print(f"DEBUG: Sending confirmation")
         confirm_embed = discord.Embed(
             title="✅ Election Started Successfully!",
             description=f"**{title}** election is now live and accepting votes!",
@@ -5377,37 +5554,28 @@ async def baa_election(ctx, hours: int = 24, *candidates: str):
         )
         confirm_embed.add_field(name="Duration", value=f"{hours} hour{'s' if hours != 1 else ''}", inline=True)
         confirm_embed.add_field(name="Candidates", value=f"{len(candidates)}", inline=True)
-        confirm_embed.set_footer(text="Voters can now cast their ballots")
         await ctx.send(embed=confirm_embed, delete_after=10)
-        print(f"DEBUG: BAAelections command completed")
 
     except Exception as e:
-        print(f"ERROR in BAAelections: {type(e).__name__}: {e}")
+        print(f"ERROR in BAAelections: {e}")
         import traceback
         traceback.print_exc()
-        error_embed = discord.Embed(
-            title="❌ Error",
-            description=f"An error occurred while starting the election:\n```{str(e)}```",
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=error_embed)
 
 
 # ========================
 # Head Sheriff Election Command
 # ========================
-@bot.command(name="HSelection")
+@bot.command(name="HSelections"
+                  "")
 async def hs_election(ctx, hours: int = 24, *candidates: str):
     try:
-        print(f"DEBUG: HSelection command called")
-
-        if not any(role.id == ELECTION_OFFICIAL_ROLE_ID for role in ctx.author.roles):
+        official_role = get_election_official_role(ctx.guild.id)
+        if not official_role or not any(role.id == official_role for role in ctx.author.roles):
             embed = discord.Embed(
                 title="🚫 Access Denied",
-                description="You don't have permission to start elections.\n\nOnly Election Officials can use this command.",
+                description="You don't have permission to start elections.",
                 color=discord.Color.red()
             )
-            embed.set_footer(text="Contact an administrator if you believe this is an error")
             return await ctx.send(embed=embed)
 
         if hours <= 0:
@@ -5416,7 +5584,6 @@ async def hs_election(ctx, hours: int = 24, *candidates: str):
                 description="Election duration must be greater than 0 hours.",
                 color=discord.Color.red()
             )
-            embed.set_footer(text="Please provide a valid duration")
             return await ctx.send(embed=embed)
 
         if len(candidates) < 2:
@@ -5426,25 +5593,27 @@ async def hs_election(ctx, hours: int = 24, *candidates: str):
         end_time = datetime.now(UTC) + timedelta(hours=hours)
         options = {c: [] for c in candidates}
 
+        contestant_ids = {}
+        for c in candidates:
+            user_id = extract_user_id(c)
+            contestant_ids[c] = user_id
+
         embed = discord.Embed(
             title=f"🗳️ {title} Election",
-            description="**Vote for your preferred candidate!**\n\nClick the buttons below to cast your vote. You can change your vote anytime before the election ends.",
-            color=0xED4245  # Discord Red
+            description="**Vote for your preferred candidate!**\n\nClick the buttons below to cast your vote. You can change your vote anytime before the election ends.\n\n⚠️ *Candidates with 2 consecutive wins are ineligible.*",
+            color=0xED4245
         )
         embed.set_thumbnail(url=ELECTION_LOGO_URL)
 
-        # Add candidates in a clean format
         candidates_text = []
         for i, c in enumerate(candidates, 1):
             display_name = clean_button_label(c, ctx.guild)
-            candidates_text.append(f"**Option {i}:** {display_name}")
+            user_id = extract_user_id(c)
+            consecutive = get_consecutive_wins(ctx.guild.id, user_id, "head_sheriff") if user_id else 0
+            status = f" ⚠️ ({consecutive}/2 wins)" if consecutive > 0 else ""
+            candidates_text.append(f"**Option {i}:** {display_name}{status}")
 
-        embed.add_field(
-            name="📋 Candidates",
-            value="\n".join(candidates_text),
-            inline=False
-        )
-
+        embed.add_field(name="📋 Candidates", value="\n".join(candidates_text), inline=False)
         embed.add_field(name="⏱️ Duration", value=f"`{hours} hour{'s' if hours != 1 else ''}`", inline=True)
         embed.add_field(name="🏁 Ends", value=f"<t:{int(end_time.timestamp())}:R>", inline=True)
         embed.add_field(name="📊 Status", value="🟢 **Active**", inline=True)
@@ -5453,18 +5622,6 @@ async def hs_election(ctx, hours: int = 24, *candidates: str):
                          icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
 
         msg = await ctx.send(embed=embed)
-
-        # Parse contestant IDs from mentions if present
-        contestant_ids = {}
-        for c in candidates:
-            if c.startswith("<@") and c.endswith(">"):
-                try:
-                    user_id = int(c[2:-1].replace("!", ""))
-                    contestant_ids[c] = user_id
-                except ValueError:
-                    contestant_ids[c] = None
-            else:
-                contestant_ids[c] = None
 
         active_elections[msg.id] = {
             "title": title,
@@ -5477,6 +5634,8 @@ async def hs_election(ctx, hours: int = 24, *candidates: str):
             "logo": ELECTION_LOGO_URL
         }
 
+        save_active_elections()
+
         view = ElectionVoteView(msg.id, candidates)
         await msg.edit(view=view)
 
@@ -5488,20 +5647,155 @@ async def hs_election(ctx, hours: int = 24, *candidates: str):
             description=f"**{title}** election is now live and accepting votes!",
             color=discord.Color.green()
         )
-        confirm_embed.add_field(name="Duration", value=f"{hours} hour{'s' if hours != 1 else ''}", inline=True)
-        confirm_embed.add_field(name="Candidates", value=f"{len(candidates)}", inline=True)
-        confirm_embed.set_footer(text="Voters can now cast their ballots")
         await ctx.send(embed=confirm_embed, delete_after=10)
 
     except Exception as e:
-        print(f"ERROR in HSelection: {type(e).__name__}: {e}")
+        print(f"ERROR in HSelection: {e}")
+        import traceback
         traceback.print_exc()
-        error_embed = discord.Embed(
-            title="❌ Error",
-            description=f"An error occurred while starting the election:\n```{str(e)}```",
-            color=discord.Color.red()
+
+
+# ========================
+# Clear Win History Command
+# ========================
+@bot.command(name="clearwins")
+async def clear_wins(ctx, user: discord.Member, election_type: str):
+    """Clear win history for a user. Types: baa_admin, head_sheriff, all"""
+    official_role = get_election_official_role(ctx.guild.id)
+    if not official_role or not any(role.id == official_role for role in ctx.author.roles):
+        return await ctx.send("❌ You don't have permission to use this command.")
+
+    if election_type not in ["baa_admin", "head_sheriff", "all"]:
+        return await ctx.send("❌ Invalid type. Use: baa_admin, head_sheriff, or all")
+
+    history = load_election_history()
+    guild_key = str(ctx.guild.id)
+
+    if guild_key not in history:
+        return await ctx.send("✅ No history found for this server.")
+
+    cleared_types = []
+
+    if election_type == "all":
+        types_to_clear = ["baa_admin", "head_sheriff"]
+    else:
+        types_to_clear = [election_type]
+
+    for etype in types_to_clear:
+        if etype in history[guild_key]:
+            original_length = len(history[guild_key][etype])
+            history[guild_key][etype] = [
+                e for e in history[guild_key][etype]
+                if e['winner_id'] != user.id
+            ]
+            removed = original_length - len(history[guild_key][etype])
+            if removed > 0:
+                cleared_types.append(f"{etype}: {removed} win(s)")
+
+    save_election_history(history)
+
+    if cleared_types:
+        embed = discord.Embed(
+            title="✅ Win History Cleared",
+            description=f"Cleared win history for {user.mention}:\n" + "\n".join(f"• {t}" for t in cleared_types),
+            color=discord.Color.green()
         )
-        await ctx.send(embed=error_embed)
+    else:
+        embed = discord.Embed(
+            title="ℹ️ No History Found",
+            description=f"No win history found for {user.mention} in the specified election type(s).",
+            color=discord.Color.blue()
+        )
+
+    await ctx.send(embed=embed)
+
+
+# ========================
+# View Win History Command
+# ========================
+@bot.command(name="winhistory")
+async def win_history(ctx, user: discord.Member = None):
+    """View win history for a user or all users"""
+    history = load_election_history()
+    guild_key = str(ctx.guild.id)
+
+    if guild_key not in history or not any(history[guild_key].values()):
+        embed = discord.Embed(
+            title="📊 Win History",
+            description="No election history found for this server.",
+            color=discord.Color.blue()
+        )
+        return await ctx.send(embed=embed)
+
+    if user:
+        # Show history for specific user
+        embed = discord.Embed(
+            title=f"📊 Win History - {user.display_name}",
+            color=discord.Color.blue()
+        )
+
+        found_any = False
+        for election_type, elections in history[guild_key].items():
+            user_wins = [e for e in elections if e['winner_id'] == user.id]
+            if user_wins:
+                found_any = True
+                consecutive = get_consecutive_wins(ctx.guild.id, user.id, election_type)
+
+                wins_text = f"**Total Wins:** {len(user_wins)}\n"
+                wins_text += f"**Consecutive Wins:** {consecutive}\n"
+                wins_text += f"**Eligible:** {'❌ No' if consecutive >= 2 else '✅ Yes'}\n\n"
+                wins_text += "**Recent Wins:**\n"
+
+                for i, win in enumerate(sorted(user_wins, key=lambda x: x['timestamp'], reverse=True)[:3], 1):
+                    timestamp = datetime.fromisoformat(win['timestamp'])
+                    wins_text += f"{i}. <t:{int(timestamp.timestamp())}:R> ({win['total_votes']} votes)\n"
+
+                embed.add_field(
+                    name=f"🏆 {election_type.replace('_', ' ').title()}",
+                    value=wins_text,
+                    inline=False
+                )
+
+        if not found_any:
+            embed.description = f"No win history found for {user.mention}"
+    else:
+        # Show overall statistics
+        embed = discord.Embed(
+            title="📊 Server Election History",
+            color=discord.Color.blue()
+        )
+
+        for election_type, elections in history[guild_key].items():
+            if elections:
+                total_elections = len(elections)
+                unique_winners = len(set(e['winner_id'] for e in elections))
+
+                # Get top winners
+                winner_counts = {}
+                for e in elections:
+                    winner_counts[e['winner_id']] = winner_counts.get(e['winner_id'], 0) + 1
+
+                top_winners = sorted(winner_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+
+                stats_text = f"**Total Elections:** {total_elections}\n"
+                stats_text += f"**Unique Winners:** {unique_winners}\n\n"
+                stats_text += "**Top Winners:**\n"
+
+                for i, (winner_id, wins) in enumerate(top_winners, 1):
+                    member = ctx.guild.get_member(winner_id)
+                    name = member.display_name if member else f"User {winner_id}"
+                    consecutive = get_consecutive_wins(ctx.guild.id, winner_id, election_type)
+                    status = " ⚠️" if consecutive >= 2 else ""
+                    stats_text += f"{i}. {name}: {wins} win(s){status}\n"
+
+                embed.add_field(
+                    name=f"🏆 {election_type.replace('_', ' ').title()}",
+                    value=stats_text,
+                    inline=False
+                )
+
+    embed.set_footer(text="Use !clearwins @user <type> to clear history")
+    await ctx.send(embed=embed)
 
 
 # ========================
@@ -5509,13 +5803,13 @@ async def hs_election(ctx, hours: int = 24, *candidates: str):
 # ========================
 @bot.command(name="elections")
 async def election_command(ctx, hours: int, title: str, logo_url: str = None, *candidates_str: str):
-    if not any(role.id == ELECTION_OFFICIAL_ROLE_ID for role in ctx.author.roles):
+    official_role = get_election_official_role(ctx.guild.id)
+    if not official_role or not any(role.id == official_role for role in ctx.author.roles):
         embed = discord.Embed(
             title="🚫 Access Denied",
-            description="You don't have permission to start elections.\n\nOnly Election Officials can use this command.",
+            description="You don't have permission to start elections.",
             color=discord.Color.red()
         )
-        embed.set_footer(text="Contact an administrator if you believe this is an error")
         return await ctx.send(embed=embed)
 
     if len(candidates_str) < 2:
@@ -5524,7 +5818,6 @@ async def election_command(ctx, hours: int, title: str, logo_url: str = None, *c
             description="You must provide at least 2 candidates for the election.",
             color=discord.Color.red()
         )
-        embed.set_footer(text="Example: !elections 24 \"My Election\" candidate1 candidate2")
         return await ctx.send(embed=embed)
 
     if hours <= 0:
@@ -5533,23 +5826,14 @@ async def election_command(ctx, hours: int, title: str, logo_url: str = None, *c
             description="Election duration must be greater than 0 hours.",
             color=discord.Color.red()
         )
-        embed.set_footer(text="Please provide a valid duration")
         return await ctx.send(embed=embed)
 
     candidates = list(candidates_str)
     contestant_ids = {}
 
     for candidate in candidates:
-        if candidate.startswith("<@") and candidate.endswith(">"):
-            try:
-                user_id = int(candidate[2:-1].replace("!", ""))
-                contestant_ids[candidate] = user_id
-                print(f"DEBUG: Registered contestant {candidate} with ID {user_id}")
-            except ValueError as e:
-                print(f"DEBUG: Failed to parse user ID from {candidate}: {e}")
-                contestant_ids[candidate] = None
-        else:
-            contestant_ids[candidate] = None
+        user_id = extract_user_id(candidate)
+        contestant_ids[candidate] = user_id
 
     end_time = datetime.now(UTC) + timedelta(hours=hours)
     options = {c: [] for c in candidates}
@@ -5557,24 +5841,18 @@ async def election_command(ctx, hours: int, title: str, logo_url: str = None, *c
     embed = discord.Embed(
         title=f"🗳️ {title}",
         description="**Vote for your preferred candidate!**\n\nClick the buttons below to cast your vote. You can change your vote anytime before the election ends.",
-        color=0x57F287  # Discord Green
+        color=0x57F287
     )
 
     if logo_url and logo_url.startswith("http"):
         embed.set_thumbnail(url=logo_url)
 
-    # Add candidates in a clean format
     candidates_text = []
     for i, c in enumerate(candidates, 1):
         display_name = clean_button_label(c, ctx.guild)
         candidates_text.append(f"**Option {i}:** {display_name}")
 
-    embed.add_field(
-        name="📋 Candidates",
-        value="\n".join(candidates_text),
-        inline=False
-    )
-
+    embed.add_field(name="📋 Candidates", value="\n".join(candidates_text), inline=False)
     embed.add_field(name="⏱️ Duration", value=f"`{hours} hour{'s' if hours != 1 else ''}`", inline=True)
     embed.add_field(name="🏁 Ends", value=f"<t:{int(end_time.timestamp())}:R>", inline=True)
     embed.add_field(name="📊 Status", value="🟢 **Active**", inline=True)
@@ -5595,6 +5873,8 @@ async def election_command(ctx, hours: int, title: str, logo_url: str = None, *c
         "logo": logo_url if logo_url and logo_url.startswith("http") else None
     }
 
+    save_active_elections()
+
     view = ElectionVoteView(msg.id, candidates)
     await msg.edit(view=view)
 
@@ -5608,7 +5888,6 @@ async def election_command(ctx, hours: int, title: str, logo_url: str = None, *c
     )
     confirm_embed.add_field(name="Duration", value=f"{hours} hour{'s' if hours != 1 else ''}", inline=True)
     confirm_embed.add_field(name="Candidates", value=f"{len(candidates)}", inline=True)
-    confirm_embed.set_footer(text="Voters can now cast their ballots")
     await ctx.send(embed=confirm_embed, delete_after=10)
 
 
@@ -5617,13 +5896,13 @@ async def election_command(ctx, hours: int, title: str, logo_url: str = None, *c
 # ========================
 @bot.command(name="endelections")
 async def end_election_early(ctx, message_id: int):
-    if not any(role.id == ELECTION_OFFICIAL_ROLE_ID for role in ctx.author.roles):
+    official_role = get_election_official_role(ctx.guild.id)
+    if not official_role or not any(role.id == official_role for role in ctx.author.roles):
         embed = discord.Embed(
             title="🚫 Access Denied",
             description="You don't have permission to end elections.",
             color=discord.Color.red()
         )
-        embed.set_footer(text="Only Election Officials can use this command")
         return await ctx.send(embed=embed)
 
     election = active_elections.get(message_id)
@@ -5633,7 +5912,6 @@ async def end_election_early(ctx, message_id: int):
             description="The election doesn't exist or has already ended.",
             color=discord.Color.red()
         )
-        embed.set_footer(text="Use !listelections to see active elections")
         return await ctx.send(embed=embed)
 
     task = election_tasks.get(message_id)
@@ -5647,7 +5925,6 @@ async def end_election_early(ctx, message_id: int):
         description=f"Successfully ended election:\n**{election['title']}**",
         color=discord.Color.green()
     )
-    confirm_embed.set_footer(text="Results have been posted")
     await ctx.send(embed=confirm_embed)
 
 
@@ -5662,7 +5939,6 @@ async def list_elections(ctx):
             description="There are currently no active elections running.",
             color=discord.Color.blue()
         )
-        embed.set_footer(text="Use election commands to start a new election")
         return await ctx.send(embed=embed)
 
     embed = discord.Embed(
@@ -5683,9 +5959,79 @@ async def list_elections(ctx):
     await ctx.send(embed=embed)
 
 
+# ========================
+# Help Command
+# ========================
+@bot.command(name="electionhelp")
+async def election_help(ctx):
+    embed = discord.Embed(
+        title="📖 Election Bot Commands",
+        description="Complete guide to using the election system",
+        color=0x5865F2
+    )
+
+    embed.add_field(
+        name="🗳️ Starting Elections",
+        value=(
+            "**!BAAelections <hours> @candidate1 @candidate2 ...**\n"
+            "Start a BAA Administrator election\n\n"
+            "**!HSelections <hours> @candidate1 @candidate2 ...**\n"
+            "Start a Head Sheriff election\n\n"
+            "**!elections <hours> \"Title\" [logo_url] candidate1 candidate2 ...**\n"
+            "Start a custom election"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📊 Managing Elections",
+        value=(
+            "**!listelections** - View all active elections\n"
+            "**!endelections <message_id>** - End an election early\n"
+            "**!winhistory [@user]** - View win history\n"
+            "**!clearwins @user <type>** - Clear win history\n"
+            "  Types: `baa_admin`, `head_sheriff`, `all`"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚙️ Features",
+        value=(
+            "✅ Vote tracking with button interface\n"
+            "✅ Vote changing allowed anytime\n"
+            "✅ Self-voting prevention (BAA only)\n"
+            "✅ 2-consecutive-win rule enforcement\n"
+            "✅ Multi-server support\n"
+            "✅ Persistent data storage"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏆 Consecutive Win Rule",
+        value=(
+            "Candidates who have won **2 consecutive elections** of the same type "
+            "are automatically disqualified. If disqualified candidates have the most votes, "
+            "the next eligible candidate wins."
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="Only Election Officials can start and manage elections")
+    await ctx.send(embed=embed)
+
+
+# ========================
+# Bot Events
+# ========================
 @bot.event
 async def on_ready():
     print(f"✅ Bot ready! Logged in as {bot.user}")
+
+    # Load persistent data
+    load_active_elections()
+
     print(f"📊 Restoring {len(active_elections)} active elections...")
 
     for election_id, election in list(active_elections.items()):
