@@ -4982,15 +4982,15 @@ import discord
 from discord.ext import commands
 from discord import ui
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
+import json
+import os
+from typing import Optional
 import traceback
 
 # ========================
 # DISCORD ELECTION SYSTEM
 # ========================
-# Add this code to your existing bot file
-
-from datetime import datetime, timedelta, UTC
 
 # ========================
 # ROLE MAPPING FOR MULTI-SERVER SUPPORT
@@ -4999,7 +4999,7 @@ ROLE_MAPPING = {
     # Format: guild_id: election_official_role_id
     # Add your server configurations here
     1210475350119813120: 1418639851586191572,  # Server 1
-    1411425019434766499: 1424409812070039562,  # Replace with your guild ID and role ID
+    1411425019434766499: 1424409812070039562,  # Server 2
     # Add more servers as needed
     # 987654321: ELECTION_OFFICIAL_ROLE_ID,
 }
@@ -5565,8 +5565,7 @@ async def baa_election(ctx, hours: int = 24, *candidates: str):
 # ========================
 # Head Sheriff Election Command
 # ========================
-@bot.command(name="HSelections"
-                  "")
+@bot.command(name="HSelections")
 async def hs_election(ctx, hours: int = 24, *candidates: str):
     try:
         official_role = get_election_official_role(ctx.guild.id)
@@ -6023,7 +6022,7 @@ async def election_help(ctx):
 
 
 # ========================
-# Bot Events
+# Bot Events - FIXED VERSION
 # ========================
 @bot.event
 async def on_ready():
@@ -6042,15 +6041,19 @@ async def on_ready():
         remaining_seconds = (election["end_time"] - now).total_seconds()
 
         if remaining_seconds > 0:
-            task = asyncio.create_task(start_election_timeout(election_id, remaining_seconds / 3600))
+            # FIXED: Pass remaining time in hours (not seconds)
+            # start_election_timeout expects hours and converts to seconds internally
+            remaining_hours = remaining_seconds / 3600
+            task = asyncio.create_task(start_election_timeout(election_id, remaining_hours))
             election_tasks[election_id] = task
-            print(f"  ✓ Restored: {election['title']} (ends in {remaining_seconds / 3600:.1f}h)")
+            print(f"  ✓ Restored: {election['title']} (ends in {remaining_hours:.1f}h)")
         else:
+            # Election should have already ended
+            print(f"  ⏰ Processing overdue election: {election['title']}")
             await end_election_process(election_id)
-            print(f"  ⚠ Ended expired: {election['title']}")
+            print(f"  ✓ Ended expired: {election['title']}")
 
     print(f"✨ Bot is fully operational!")
-
 
 
 
