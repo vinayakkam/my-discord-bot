@@ -1,6 +1,5 @@
 from keep_alive import keep_alive
-from api_server import run_api
-from threading import Thread
+keep_alive()
 import discord
 from discord import ui, ButtonStyle, Interaction, Embed
 from discord.ext import commands,tasks
