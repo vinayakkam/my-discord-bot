@@ -92,5 +92,5 @@ def update_allowed_users():
     return jsonify({"success": True, "guild_id": guild, "user_id": user})
 
 
-def run():
+def run_api():
     app.run(host='0.0.0.0', port=8080)
