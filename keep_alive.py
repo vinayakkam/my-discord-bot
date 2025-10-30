@@ -11,7 +11,8 @@ def home():
     return "Bot + Dashboard API are running."
 
 def run():
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
