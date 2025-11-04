@@ -256,7 +256,7 @@ def health():
 # ============================================
 
 @app.route('/api/add_command', methods=['POST'])
-#@require_api_key
+@require_api_key
 def add_command():
     """
     Add or update a custom text command for a guild
@@ -332,7 +332,7 @@ def add_command():
 
 
 @app.route('/api/remove_command', methods=['POST'])
-#@require_api_key
+@require_api_key
 def remove_command():
     """
     Remove a custom command from a guild
@@ -390,7 +390,7 @@ def remove_command():
 # ============================================
 
 @app.route('/api/automod', methods=['POST'])
-#@require_api_key
+@require_api_key
 def manage_automod():
     """
     Add or remove banned words for automod
@@ -471,7 +471,7 @@ def manage_automod():
 # ============================================
 
 @app.route('/api/allowed_users', methods=['POST'])
-#@require_api_key
+@require_api_key
 def manage_allowed_users():
     """
     Add or remove allowed users for a guild
@@ -552,7 +552,7 @@ def manage_allowed_users():
 # ============================================
 
 @app.route('/api/config/<guild_id>', methods=['GET'])
-#@require_api_key
+@require_api_key
 def get_config(guild_id):
     """Get all configuration for a specific guild"""
     try:
@@ -579,7 +579,7 @@ def get_config(guild_id):
 
 
 @app.route('/api/guilds', methods=['GET'])
-#@require_api_key
+@require_api_key
 def list_guilds():
     """List all configured guilds"""
     try:
@@ -615,7 +615,7 @@ def list_guilds():
 # ============================================
 
 @app.route('/api/stats', methods=['GET'])
-#@require_api_key
+@require_api_key
 def get_stats():
     """Get API usage statistics"""
     try:
@@ -649,7 +649,7 @@ def get_stats():
 
 
 @app.route('/api/logs', methods=['GET'])
-#@require_api_key
+@require_api_key
 def get_logs():
     """Get recent API logs"""
     try:
