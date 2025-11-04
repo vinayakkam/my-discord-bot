@@ -1,4 +1,4 @@
-from keep_alive import keep_alive
+from keep_alive import keep_alive, get_guild_commands, get_automod_words, get_allowed_users_list
 keep_alive()
 import discord
 from discord import ui, ButtonStyle, Interaction, Embed
@@ -15,6 +15,8 @@ import asyncio
 import glob
 import math
 from typing import Dict, Any, List, Optional
+import requests
+import base64
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -3833,16 +3835,15 @@ async def timeout_users(ctx):
         await ctx.send("❌ No users are configured for this server.")
 
 
+# Static configuration (hardcoded for specific guilds)
 AUTOMOD_ENABLED_GUILDS = {
     1210475350119813120: True,  # Server 1 - automod enabled
     1397218218535424090: True,  # Server 2 - automod enabled
     1411425019434766499: True,  # Server 3 - automod enabled
     1341485158129205278: True,  # Server 4 - automod enabled
-    # Add more servers here as needed
-    # 1234567890123456789: False,  # Example: Server 3 - automod disabled
 }
 
-# Users exempt from auto-moderation (in addition to master)
+# Users exempt from auto-moderation
 AUTOMOD_EXEMPT_USERS = [
     814791086114865233,
     1085236492571529287,
@@ -3852,18 +3853,27 @@ AUTOMOD_EXEMPT_USERS = [
     1414168461172539454,
     827552324389175297,
     1187981682280775733,
-    # Master user
-    # Add other user IDs here who should be exempt
-    # 123456789012345678,  # Example: Moderator 1
-    # 987654321098765432,  # Example: Moderator 2
+]
+
+# Built-in N-word variations (always active)
+BUILTIN_NWORD_VARIATIONS = [
+    'nigger', 'nigga', 'n1gger', 'n1gga', 'nig ger', 'nig ga',
+    'n-word', 'nword', 'n word', 'nigg3r', 'nigg4', 'n!gger',
+    'n!gga', 'niqqer', 'niqqa', 'niggеr', 'niggа'
 ]
 
 
-# Auto-moderation: N-word detection and timeout
+# ============================================
+# ENHANCED AUTO-MODERATION EVENT HANDLER
+# ============================================
+
 @bot.event
 async def on_message(message):
+    """Enhanced message handler with dynamic commands, API automod, and built-in N-word detection"""
+
     # Don't moderate bots or DMs
     if message.author.bot or message.guild is None:
+        await bot.process_commands(message)
         return
 
     guild_id = int(message.guild.id)
@@ -3871,31 +3881,34 @@ async def on_message(message):
 
     # Check if auto-moderation is enabled for this server
     if not AUTOMOD_ENABLED_GUILDS.get(guild_id, False):
-        # Process commands and return if automod is disabled
         await bot.process_commands(message)
         return
 
-    # Don't timeout exempt users (master + any others you specify)
+    # Don't timeout exempt users
     if author_id in AUTOMOD_EXEMPT_USERS:
-        # Process commands and return if user is exempt
         await bot.process_commands(message)
         return
 
-    # List of N-word variations to detect (case insensitive)
-    n_word_variations = [
-        'nigger', 'nigga', 'n1gger', 'n1gga', 'nig ger', 'nig ga',
-        'n-word', 'nword', 'n word', 'nigg3r', 'nigg4', 'n!gger',
-        'n!gga', 'niqqer', 'niqqa', 'niggеr', 'niggа'  # Some with special characters
-    ]
+    # ===== COMBINED AUTOMOD CHECK =====
+    # Get API-configured banned words for this guild
+    api_banned_words = get_automod_words(str(guild_id))
 
-    # Check if message contains any variation
+    # Combine built-in N-word variations with API words
+    all_banned_words = BUILTIN_NWORD_VARIATIONS + api_banned_words
+
+    # Prepare message content for checking
     message_content = message.content.lower().replace(' ', '').replace('-', '').replace('_', '')
 
     detected_word = None
-    for word in n_word_variations:
+    is_nword = False
+
+    # Check for violations
+    for word in all_banned_words:
         clean_word = word.lower().replace(' ', '').replace('-', '').replace('_', '')
         if clean_word in message_content:
             detected_word = word
+            # Check if it's from the N-word list
+            is_nword = word in BUILTIN_NWORD_VARIATIONS
             break
 
     if detected_word:
@@ -3905,7 +3918,8 @@ async def on_message(message):
 
             # Timeout the user for 24 hours
             duration = timedelta(hours=24)
-            await message.author.timeout(duration, reason="Auto-moderation: Inappropriate language detected")
+            await message.author.timeout(duration,
+                                         reason=f"Auto-moderation: {'Inappropriate language' if is_nword else 'Banned word'} detected")
 
             # Create embed for auto-timeout
             embed = discord.Embed(
@@ -3917,7 +3931,14 @@ async def on_message(message):
             embed.set_thumbnail(url=message.author.display_avatar.url)
             embed.add_field(name="👤 User", value=f"{message.author.name}#{message.author.discriminator}", inline=True)
             embed.add_field(name="⏰ Duration", value="24 hours", inline=True)
-            embed.add_field(name="📝 Violation", value="Inappropriate language", inline=True)
+
+            # Different violation type based on source
+            if is_nword:
+                embed.add_field(name="📝 Violation", value="Inappropriate language", inline=True)
+                embed.add_field(name="🔍 Detection", value="Built-in filter", inline=True)
+            else:
+                embed.add_field(name="📝 Violation", value="Banned word usage", inline=True)
+                embed.add_field(name="🔍 Detection", value="Custom word filter", inline=True)
 
             # Calculate when timeout ends
             end_time = message.created_at + duration
@@ -3927,43 +3948,76 @@ async def on_message(message):
 
             embed.set_footer(text=f"User ID: {message.author.id} | Message auto-deleted")
 
-            # Send the embed to the channel where the violation occurred
+            # Send the embed
             await message.channel.send(embed=embed)
 
             print(
-                f"[AUTO-MOD] User {message.author.name}#{message.author.discriminator} ({message.author.id}) timed out in {message.guild.name} for inappropriate language")
+                f"[AUTO-MOD] User {message.author.name} ({message.author.id}) timed out in {message.guild.name} - {'N-word' if is_nword else 'Banned word'}: {detected_word}")
 
         except discord.Forbidden:
-            # If bot can't timeout, just delete the message and send a warning
+            # If bot can't timeout, just delete and warn
             warning_embed = discord.Embed(
                 title="⚠️ Auto-Moderation Alert",
-                description=f"{message.author.mention} used inappropriate language, but I lack timeout permissions.",
+                description=f"{message.author.mention} used prohibited content, but I lack timeout permissions.",
                 color=0xff9900,
                 timestamp=message.created_at
             )
             warning_embed.set_thumbnail(url=message.author.display_avatar.url)
             warning_embed.add_field(name="⚡ Action Needed", value="Manual moderation required", inline=False)
-            warning_embed.add_field(name="🔍 Detected", value="Inappropriate language", inline=True)
+            warning_embed.add_field(name="🔍 Detected",
+                                    value=f"{'Inappropriate language' if is_nword else 'Banned word'}", inline=True)
             warning_embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
             await message.channel.send(embed=warning_embed)
 
         except Exception as e:
             print(f"[AUTO-MOD ERROR] Failed to moderate {message.author.name}: {e}")
-            # Still delete the message even if timeout fails
+            # Still try to delete the message
             try:
-                if not message.flags.ephemeral:  # Only delete if message still exists
+                if not message.flags.ephemeral:
                     await message.delete()
             except:
                 pass
 
-    # Always process commands after checking the message
+        # Don't process commands if automod triggered
+        return
+
+    # ===== DYNAMIC COMMAND CHECK (from API) =====
+    content = message.content.lower()
+
+    if content.startswith('!'):
+        command_name = content[1:].split()[0].lower()
+        guild_commands = get_guild_commands(str(guild_id))
+
+        if command_name in guild_commands:
+            cmd_data = guild_commands[command_name]
+
+            embed = discord.Embed(
+                title=f"**{command_name.title()}**",
+                description=cmd_data.get('description', f"Here is your {command_name}!"),
+                color=discord.Color.blurple()
+            )
+            embed.set_image(url=cmd_data['url'])
+            embed.set_footer(text=f"Custom command • {message.guild.name}")
+
+            await message.channel.send(embed=embed)
+            return
+
+    # Process normal commands
     await bot.process_commands(message)
 
 
-# Command to manage auto-moderation settings
+# ============================================
+# AUTOMOD MANAGEMENT COMMANDS (Enhanced)
+# ============================================
+
 @bot.command(name="automod")
 async def manage_automod(ctx, action: str = None, server_id: int = None):
-    """Manage auto-moderation settings. Usage: !automod [status/enable/disable] [server_id]"""
+    """
+    Manage auto-moderation settings
+    Usage: !automod [status/enable/disable] [server_id]
+
+    Shows both built-in N-word filter and API custom words
+    """
     if ctx.guild is None:
         return await ctx.send("❌ This command must be used in a server (not DMs).")
 
@@ -3980,17 +4034,21 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
         error_embed.set_thumbnail(url=ctx.author.display_avatar.url)
         return await ctx.send(embed=error_embed)
 
-    # If no action specified, show current status
+    # Show current status
     if action is None or action.lower() == "status":
         target_guild = server_id if server_id else current_guild_id
         is_enabled = AUTOMOD_ENABLED_GUILDS.get(target_guild, False)
 
+        # Get API banned words for this guild
+        api_words = get_automod_words(str(target_guild))
+
         status_embed = discord.Embed(
             title="🤖 Auto-Moderation Status",
+            description="Comprehensive server moderation overview",
             color=0x00ff00 if is_enabled else 0xff6b6b
         )
 
-        # Show status for current server or specified server
+        # Server info
         if server_id:
             try:
                 guild_name = bot.get_guild(server_id).name if bot.get_guild(server_id) else f"Server ID: {server_id}"
@@ -4000,20 +4058,67 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
         else:
             status_embed.add_field(name="🏠 Current Server", value=ctx.guild.name, inline=False)
 
-        status_embed.add_field(name="📊 Status", value="🟢 **ENABLED**" if is_enabled else "🔴 **DISABLED**", inline=True)
-        status_embed.add_field(name="⏰ Timeout Duration", value="24 hours", inline=True)
-        status_embed.add_field(name="🛡️ Protected Users", value=f"{len(AUTOMOD_EXEMPT_USERS)} exempt", inline=True)
+        # Status fields
+        status_embed.add_field(
+            name="📊 System Status",
+            value="🟢 **ENABLED**" if is_enabled else "🔴 **DISABLED**",
+            inline=True
+        )
+        status_embed.add_field(
+            name="⏰ Timeout Duration",
+            value="24 hours",
+            inline=True
+        )
+        status_embed.add_field(
+            name="🛡️ Protected Users",
+            value=f"{len(AUTOMOD_EXEMPT_USERS)} exempt",
+            inline=True
+        )
 
-        # Show all configured servers
-        enabled_servers = [guild_id for guild_id, enabled in AUTOMOD_ENABLED_GUILDS.items() if enabled]
-        disabled_servers = [guild_id for guild_id, enabled in AUTOMOD_ENABLED_GUILDS.items() if not enabled]
+        # Filter breakdown
+        status_embed.add_field(
+            name="🔍 Active Filters",
+            value=f"**Built-in N-word filter:** {len(BUILTIN_NWORD_VARIATIONS)} variations\n**Custom API words:** {len(api_words)} configured",
+            inline=False
+        )
 
+        # Show some custom words if configured
+        if api_words:
+            preview_words = api_words[:5]
+            preview_text = "• " + "\n• ".join(f"`{word}`" for word in preview_words)
+            if len(api_words) > 5:
+                preview_text += f"\n... and {len(api_words) - 5} more"
+
+            status_embed.add_field(
+                name="📝 Custom Banned Words (Preview)",
+                value=preview_text,
+                inline=False
+            )
+        else:
+            status_embed.add_field(
+                name="📝 Custom Banned Words",
+                value="*No custom words configured via API*\nUse the admin panel to add custom banned words",
+                inline=False
+            )
+
+        # All configured servers summary
+        enabled_servers = [g_id for g_id, enabled in AUTOMOD_ENABLED_GUILDS.items() if enabled]
+        disabled_servers = [g_id for g_id, enabled in AUTOMOD_ENABLED_GUILDS.items() if not enabled]
+
+        summary_text = ""
         if enabled_servers:
-            status_embed.add_field(name="🟢 Enabled Servers", value=f"{len(enabled_servers)} servers", inline=True)
+            summary_text += f"🟢 **{len(enabled_servers)}** server(s) with automod enabled\n"
         if disabled_servers:
-            status_embed.add_field(name="🔴 Disabled Servers", value=f"{len(disabled_servers)} servers", inline=True)
+            summary_text += f"🔴 **{len(disabled_servers)}** server(s) with automod disabled\n"
 
-        status_embed.set_footer(text="Use !automod enable/disable [server_id] to change settings")
+        status_embed.add_field(
+            name="📊 Global Summary",
+            value=summary_text or "No servers configured",
+            inline=False
+        )
+
+        status_embed.set_footer(
+            text="Use !automod enable/disable [server_id] to change • Use admin panel for custom words")
         return await ctx.send(embed=status_embed)
 
     # Enable or disable automod
@@ -4028,8 +4133,13 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
             timestamp=ctx.message.created_at
         )
         action_embed.add_field(name="⚡ Takes Effect", value="Immediately", inline=True)
-        action_embed.add_field(name="🎯 Target", value="Inappropriate language", inline=True)
+        action_embed.add_field(name="🎯 Filters Active", value="N-word filter + Custom API words", inline=True)
         action_embed.add_field(name="⏰ Punishment", value="24-hour timeout", inline=True)
+        action_embed.add_field(
+            name="📋 What's Protected",
+            value=f"• {len(BUILTIN_NWORD_VARIATIONS)} built-in variations\n• {len(get_automod_words(str(target_guild)))} custom words from API",
+            inline=False
+        )
 
     elif action.lower() == "disable":
         AUTOMOD_ENABLED_GUILDS[target_guild] = False
@@ -4042,6 +4152,11 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
         action_embed.add_field(name="⚡ Takes Effect", value="Immediately", inline=True)
         action_embed.add_field(name="📝 Note", value="Manual moderation only", inline=True)
         action_embed.add_field(name="🔄 Re-enable", value="Use !automod enable", inline=True)
+        action_embed.add_field(
+            name="⚠️ Warning",
+            value="Both N-word filter and custom API words are now disabled",
+            inline=False
+        )
 
     else:
         help_embed = discord.Embed(
@@ -4052,17 +4167,28 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
         help_embed.add_field(name="📊 Check Status", value="`!automod status`", inline=False)
         help_embed.add_field(name="🟢 Enable", value="`!automod enable [server_id]`", inline=True)
         help_embed.add_field(name="🔴 Disable", value="`!automod disable [server_id]`", inline=True)
-        help_embed.add_field(name="💡 Examples", value="`!automod enable 123456789`\n`!automod status`", inline=False)
+        help_embed.add_field(
+            name="💡 Examples",
+            value="`!automod enable 123456789`\n`!automod status`\n`!automod disable`",
+            inline=False
+        )
+        help_embed.add_field(
+            name="🔧 Managing Custom Words",
+            value="Use the web admin panel to add/remove custom banned words\nAccess: Your admin panel URL",
+            inline=False
+        )
         return await ctx.send(embed=help_embed)
 
     action_embed.set_footer(text=f"Changed by {ctx.author.name}")
     await ctx.send(embed=action_embed)
 
 
-# Command to manage exempt users
 @bot.command(name="automod_exempt")
 async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
-    """Manage users exempt from auto-moderation. Usage: !automod_exempt [add/remove/list] [user_id]"""
+    """
+    Manage users exempt from auto-moderation
+    Usage: !automod_exempt [add/remove/list] [user_id]
+    """
     author_id = int(ctx.author.id)
 
     # Only master can manage exempt users
@@ -4077,22 +4203,30 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
     if action is None or action.lower() == "list":
         exempt_embed = discord.Embed(
             title="🛡️ Auto-Moderation Exempt Users",
+            description=f"**{len(AUTOMOD_EXEMPT_USERS)}** users exempt from all automod filters",
             color=0x3498db
         )
 
         exempt_list = []
-        for user_id in AUTOMOD_EXEMPT_USERS:
+        for uid in AUTOMOD_EXEMPT_USERS:
             try:
-                user = await bot.fetch_user(user_id)
-                if user_id == MASTER_ID:
+                user = await bot.fetch_user(uid)
+                if uid == MASTER_ID:
                     exempt_list.append(f"👑 {user.mention} ({user.name}) - **Master**")
                 else:
                     exempt_list.append(f"🛡️ {user.mention} ({user.name})")
             except:
-                exempt_list.append(f"❓ User ID: {user_id} (user not found)")
+                exempt_list.append(f"❓ User ID: {uid} (user not found)")
 
         if exempt_list:
-            exempt_embed.description = "\n".join(exempt_list)
+            # Split into chunks if too many
+            for i in range(0, len(exempt_list), 10):
+                chunk = exempt_list[i:i + 10]
+                exempt_embed.add_field(
+                    name=f"Exempt Users {i + 1}-{min(i + 10, len(exempt_list))}",
+                    value="\n".join(chunk),
+                    inline=False
+                )
         else:
             exempt_embed.description = "No exempt users configured"
 
@@ -4116,6 +4250,11 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
                 description=f"**{user_display}** is now exempt from auto-moderation",
                 color=0x00ff00
             )
+            add_embed.add_field(
+                name="🔓 Exemption Includes",
+                value="• N-word filter bypass\n• Custom API word bypass\n• All automod features",
+                inline=False
+            )
             await ctx.send(embed=add_embed)
         else:
             await ctx.send("❌ User is already exempt from auto-moderation.")
@@ -4137,12 +4276,142 @@ async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
                 description=f"**{user_display}** is no longer exempt from auto-moderation",
                 color=0xff6b6b
             )
+            remove_embed.add_field(
+                name="🔒 Now Subject To",
+                value="• N-word filter\n• Custom API word filter\n• All automod features",
+                inline=False
+            )
             await ctx.send(embed=remove_embed)
         else:
             await ctx.send("❌ User is not in the exemption list.")
 
     else:
         await ctx.send("❌ Invalid action. Use `add`, `remove`, or `list`.")
+
+
+@bot.command(name="automod_test")
+async def test_automod(ctx, *, test_word: str = None):
+    """
+    Test if a word would trigger automod (Master only)
+    Usage: !automod_test <word>
+    """
+    if ctx.author.id != MASTER_ID:
+        return await ctx.send("❌ Master only command")
+
+    if not test_word:
+        return await ctx.send("❌ Usage: `!automod_test <word>`")
+
+    guild_id = str(ctx.guild.id) if ctx.guild else None
+
+    if not guild_id:
+        return await ctx.send("❌ This command must be used in a server")
+
+    # Get all banned words for this guild
+    api_words = get_automod_words(guild_id)
+    all_banned = BUILTIN_NWORD_VARIATIONS + api_words
+
+    # Check if word would trigger
+    test_content = test_word.lower().replace(' ', '').replace('-', '').replace('_', '')
+
+    triggered = False
+    matched_word = None
+    is_nword = False
+
+    for word in all_banned:
+        clean_word = word.lower().replace(' ', '').replace('-', '').replace('_', '')
+        if clean_word in test_content:
+            triggered = True
+            matched_word = word
+            is_nword = word in BUILTIN_NWORD_VARIATIONS
+            break
+
+    # Create result embed
+    if triggered:
+        result_embed = discord.Embed(
+            title="🚨 Automod Would Trigger",
+            description=f"The test word **would trigger** auto-moderation",
+            color=0xff0000
+        )
+        result_embed.add_field(name="🔍 Matched Word", value=f"`{matched_word}`", inline=True)
+        result_embed.add_field(name="📋 Filter Type", value="Built-in N-word" if is_nword else "Custom API word",
+                               inline=True)
+        result_embed.add_field(name="⏰ Punishment", value="24-hour timeout", inline=True)
+    else:
+        result_embed = discord.Embed(
+            title="✅ Safe Word",
+            description=f"The test word **would NOT trigger** auto-moderation",
+            color=0x00ff00
+        )
+        result_embed.add_field(
+            name="📊 Checked Against",
+            value=f"• {len(BUILTIN_NWORD_VARIATIONS)} N-word variations\n• {len(api_words)} custom API words",
+            inline=False
+        )
+
+    result_embed.add_field(
+        name="🧪 Test Parameters",
+        value=f"**Original:** `{test_word}`\n**Cleaned:** `{test_content}`",
+        inline=False
+    )
+
+    result_embed.set_footer(text="This is a test only - no action taken")
+
+    await ctx.send(embed=result_embed)
+
+
+@bot.command(name="automod_words")
+async def list_automod_words(ctx):
+    """
+    Show custom API banned words for this server (Master only)
+    Usage: !automod_words
+    """
+    if ctx.author.id != MASTER_ID:
+        return await ctx.send("❌ Master only command")
+
+    if not ctx.guild:
+        return await ctx.send("❌ This command must be used in a server")
+
+    guild_id = str(ctx.guild.id)
+    api_words = get_automod_words(guild_id)
+
+    embed = discord.Embed(
+        title=f"📝 Custom Automod Words - {ctx.guild.name}",
+        description=f"Banned words configured via API for this server",
+        color=0x9932cc
+    )
+
+    embed.add_field(
+        name="🔍 Filter Summary",
+        value=f"**Built-in N-word filter:** {len(BUILTIN_NWORD_VARIATIONS)} variations (always active)\n**Custom API words:** {len(api_words)} configured",
+        inline=False
+    )
+
+    if api_words:
+        # Split into chunks
+        for i in range(0, len(api_words), 15):
+            chunk = api_words[i:i + 15]
+            word_list = "• " + "\n• ".join(f"`{word}`" for word in chunk)
+
+            embed.add_field(
+                name=f"Custom Words {i + 1}-{min(i + 15, len(api_words))}",
+                value=word_list,
+                inline=False
+            )
+    else:
+        embed.add_field(
+            name="⚠️ No Custom Words",
+            value="No custom banned words configured via API.\n\nUse the admin panel to add custom banned words.",
+            inline=False
+        )
+
+    embed.set_footer(text="Use admin panel to manage custom words • Built-in N-word filter always active")
+
+    await ctx.send(embed=embed)
+
+
+
+
+
 
 @bot.command(name="bigboom")
 async def gif(ctx):
@@ -6054,6 +6323,713 @@ async def on_ready():
             print(f"  ✓ Ended expired: {election['title']}")
 
     print(f"✨ Bot is fully operational!")
+
+
+# ============================================
+# API MANAGEMENT COMMANDS (Master Only)
+# ============================================
+
+@bot.command(name='api_reload')
+async def reload_api_data(ctx):
+    """Reload API configuration from files (Master only)"""
+
+    if ctx.author.id != MASTER_ID:
+        embed = discord.Embed(
+            title="🚫 Access Denied",
+            description="Only the master user can reload API data.",
+            color=discord.Color.red()
+        )
+        return await ctx.send(embed=embed)
+
+    try:
+        # Import load function from keep_alive
+        from keep_alive import load_all_data
+
+        load_all_data()
+
+        embed = discord.Embed(
+            title="✅ API Data Reloaded",
+            description="All configuration data has been reloaded from JSON files.",
+            color=discord.Color.green()
+        )
+
+        # Show current stats
+        from keep_alive import guild_commands, automod_config, allowed_users
+
+        embed.add_field(
+            name="📊 Loaded Data",
+            value=f"**Guilds with commands:** {len(guild_commands)}\n"
+                  f"**Guilds with automod:** {len(automod_config)}\n"
+                  f"**Guilds with allowed users:** {len(allowed_users)}",
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+
+    except Exception as e:
+        error_embed = discord.Embed(
+            title="❌ Reload Failed",
+            description=f"Error reloading API data: {str(e)}",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=error_embed)
+
+
+@bot.command(name='api_status')
+async def api_status(ctx):
+    """Show API server status and statistics"""
+
+    try:
+        from keep_alive import guild_commands, automod_config, allowed_users, api_logs
+
+        embed = discord.Embed(
+            title="🌐 API Server Status",
+            description="Current status of the OLIT API server",
+            color=discord.Color.blue()
+        )
+
+        # Calculate totals
+        total_guilds = len(set(
+            list(guild_commands.keys()) +
+            list(automod_config.keys()) +
+            list(allowed_users.keys())
+        ))
+
+        total_commands = sum(len(cmds) for cmds in guild_commands.values())
+        total_automod = sum(len(words) for words in automod_config.values())
+        total_users = sum(len(users) for users in allowed_users.values())
+
+        embed.add_field(
+            name="📊 Configuration Stats",
+            value=f"**Total Guilds:** {total_guilds}\n"
+                  f"**Custom Commands:** {total_commands}\n"
+                  f"**Automod Words:** {total_automod}\n"
+                  f"**Allowed Users:** {total_users}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📝 API Activity",
+            value=f"**Requests Logged:** {len(api_logs)}\n"
+                  f"**Server Status:** 🟢 Online\n"
+                  f"**Port:** 8080",
+            inline=True
+        )
+
+        # Show guild-specific data if in a guild
+        if ctx.guild:
+            guild_id = str(ctx.guild.id)
+
+            guild_cmd_count = len(guild_commands.get(guild_id, {}))
+            guild_automod_count = len(automod_config.get(guild_id, []))
+            guild_users_count = len(allowed_users.get(guild_id, []))
+
+            embed.add_field(
+                name=f"🏠 This Server ({ctx.guild.name})",
+                value=f"**Commands:** {guild_cmd_count}\n"
+                      f"**Automod Words:** {guild_automod_count}\n"
+                      f"**Allowed Users:** {guild_users_count}",
+                inline=False
+            )
+
+        embed.set_footer(text="Use !api_reload to refresh data from files")
+
+        await ctx.send(embed=embed)
+
+    except Exception as e:
+        error_embed = discord.Embed(
+            title="❌ Status Check Failed",
+            description=f"Error checking API status: {str(e)}",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=error_embed)
+
+
+@bot.command(name='api_commands')
+async def show_api_commands(ctx):
+    """Show all custom commands for this server"""
+
+    if not ctx.guild:
+        await ctx.send("This command can only be used in a server.")
+        return
+
+    guild_id = str(ctx.guild.id)
+    guild_cmds = get_guild_commands(guild_id)
+
+    if not guild_cmds:
+        embed = discord.Embed(
+            title="📋 Custom Commands",
+            description="No custom commands configured for this server yet.\n\nUse the admin panel to add commands!",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
+        return
+
+    embed = discord.Embed(
+        title=f"📋 Custom Commands - {ctx.guild.name}",
+        description=f"**{len(guild_cmds)}** custom command{'s' if len(guild_cmds) != 1 else ''} available",
+        color=discord.Color.green()
+    )
+
+    # Group commands (max 25 fields)
+    commands_text = []
+    for i, (cmd, data) in enumerate(guild_cmds.items(), 1):
+        description = data.get('description', 'No description')
+        commands_text.append(f"**{i}.** `!{cmd}` - {description}")
+
+    # Split into chunks if too many
+    chunk_size = 10
+    for i in range(0, len(commands_text), chunk_size):
+        chunk = commands_text[i:i + chunk_size]
+        embed.add_field(
+            name=f"Commands {i + 1}-{min(i + chunk_size, len(commands_text))}",
+            value="\n".join(chunk),
+            inline=False
+        )
+
+    embed.set_footer(text="Use the admin panel to manage commands • API-powered")
+
+    await ctx.send(embed=embed)
+
+
+# ============================================
+# OPTIONAL: ALLOWED USERS CHECK FOR COMMANDS
+# ============================================
+
+def check_allowed_user(ctx):
+    """Check if user is in allowed users list for this guild"""
+
+    # Master is always allowed
+    if ctx.author.id == MASTER_ID:
+        return True
+
+    # Get allowed users for this guild
+    guild_id = str(ctx.guild.id) if ctx.guild else None
+    if not guild_id:
+        return False
+
+    allowed = get_allowed_users_list(guild_id)
+
+    # If no restrictions set, allow everyone
+    if not allowed:
+        return True
+
+    # Check if user is in allowed list
+    return str(ctx.author.id) in allowed
+
+
+# Example of using allowed users check:
+@bot.command(name='restricted_command')
+async def restricted_command(ctx):
+    """Example command that requires allowed user status"""
+
+    if not check_allowed_user(ctx):
+        embed = discord.Embed(
+            title="🚫 Access Denied",
+            description="You don't have permission to use this command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Contact server administrators for access")
+        return await ctx.send(embed=embed)
+
+    # Command logic here
+    await ctx.send("✅ You have access to this restricted command!")
+
+
+# ============================================
+# STARTUP LOG
+# ============================================
+
+@bot.event
+async def on_ready():
+    """Enhanced startup logging with API info"""
+
+    # Your existing on_ready code...
+
+    print("=" * 60)
+    print("🌐 API SERVER STATUS")
+    print("=" * 60)
+
+    from keep_alive import guild_commands, automod_config, allowed_users
+
+    print(f"✅ Guilds with commands: {len(guild_commands)}")
+    print(f"✅ Guilds with automod: {len(automod_config)}")
+    print(f"✅ Guilds with allowed users: {len(allowed_users)}")
+
+    total_commands = sum(len(cmds) for cmds in guild_commands.values())
+    print(f"✅ Total custom commands: {total_commands}")
+
+    print("=" * 60)
+    print("🚀 Bot is ready and API server is running on port 8080")
+    print("=" * 60)
+
+
+# ============================================
+# HELPER FUNCTION: GET COMMAND INFO
+# ============================================
+
+def get_command_info(guild_id: int, command_name: str):
+    """Get information about a specific command"""
+    guild_cmds = get_guild_commands(str(guild_id))
+    return guild_cmds.get(command_name.lower())
+
+
+def is_word_banned(guild_id: int, word: str):
+    """Check if a word is banned in automod"""
+    banned_words = get_automod_words(str(guild_id))
+    return word.lower() in [w.lower() for w in banned_words]
+
+
+# ============================================
+# EXAMPLE: COMMAND USAGE STATISTICS
+# ============================================
+
+command_usage = {}  # {guild_id: {command: count}}
+
+
+@bot.event
+async def on_command(ctx):
+    """Track command usage (optional)"""
+
+    if ctx.guild:
+        guild_id = str(ctx.guild.id)
+        command = ctx.command.name
+
+        if guild_id not in command_usage:
+            command_usage[guild_id] = {}
+
+        command_usage[guild_id][command] = command_usage[guild_id].get(command, 0) + 1
+
+
+@bot.command(name='command_stats')
+async def command_stats(ctx):
+    """Show command usage statistics for this server"""
+
+    if not ctx.guild:
+        return
+
+    guild_id = str(ctx.guild.id)
+    usage = command_usage.get(guild_id, {})
+
+    if not usage:
+        await ctx.send("No command usage data available yet.")
+        return
+
+    embed = discord.Embed(
+        title=f"📊 Command Usage Statistics - {ctx.guild.name}",
+        color=discord.Color.blue()
+    )
+
+    # Sort by usage count
+    sorted_usage = sorted(usage.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    stats_text = []
+    for i, (cmd, count) in enumerate(sorted_usage, 1):
+        stats_text.append(f"**{i}.** `!{cmd}` - {count} uses")
+
+    embed.add_field(
+        name="Top Commands",
+        value="\n".join(stats_text),
+        inline=False
+    )
+
+    await ctx.send(embed=embed)
+
+
+# ============================================
+# GITHUB INTEGRATION COMMANDS
+# ============================================
+
+@bot.command(name='github_status')
+async def github_status_command(ctx):
+    """Check GitHub integration status (Master only)"""
+
+    if ctx.author.id != MASTER_ID:
+        embed = discord.Embed(
+            title="🚫 Access Denied",
+            description="Only the master user can check GitHub status.",
+            color=discord.Color.red()
+        )
+        return await ctx.send(embed=embed)
+
+    try:
+        # Import required functions and variables
+        from keep_alive import GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH
+
+        # Check if GitHub is configured
+        if not GITHUB_TOKEN or not GITHUB_REPO:
+            embed = discord.Embed(
+                title="❌ GitHub Not Configured",
+                description="GitHub integration is not set up.\n\nSet `GITHUB_TOKEN` and `GITHUB_REPO` environment variables on Render.",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="📋 Required Variables",
+                value="```env\nGITHUB_TOKEN=ghp_...\nGITHUB_REPO=username/repo-name\nGITHUB_BRANCH=main\n```",
+                inline=False
+            )
+            return await ctx.send(embed=embed)
+
+        # Make a direct API call to check status
+        import requests
+
+        headers = {
+            'Authorization': f'token {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+
+        # Get repository info
+        repo_url = f'https://api.github.com/repos/{GITHUB_REPO}'
+        repo_response = requests.get(repo_url, headers=headers, timeout=10)
+
+        if repo_response.status_code != 200:
+            embed = discord.Embed(
+                title="❌ GitHub Connection Failed",
+                description=f"Failed to connect to GitHub repository.\n\n**Status Code:** {repo_response.status_code}",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="💡 Common Issues",
+                value="• Invalid GitHub token\n• Repository doesn't exist\n• Token lacks permissions\n• Repository is private and token can't access it",
+                inline=False
+            )
+            return await ctx.send(embed=embed)
+
+        repo_data = repo_response.json()
+
+        # Get recent commits
+        commits_url = f'https://api.github.com/repos/{GITHUB_REPO}/commits'
+        commits_response = requests.get(commits_url, headers=headers, params={'per_page': 5}, timeout=10)
+
+        recent_commits = []
+        if commits_response.status_code == 200:
+            commits_data = commits_response.json()
+            recent_commits = [
+                {
+                    'message': commit['commit']['message'],
+                    'author': commit['commit']['author']['name'],
+                    'date': commit['commit']['author']['date']
+                }
+                for commit in commits_data
+            ]
+
+        # Create success embed
+        embed = discord.Embed(
+            title="🔗 GitHub Integration Status",
+            description=f"✅ Connected to [{repo_data['full_name']}]({repo_data['html_url']})",
+            color=discord.Color.green()
+        )
+
+        embed.set_thumbnail(url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+
+        embed.add_field(
+            name="📦 Repository Info",
+            value=f"**Name:** {repo_data['name']}\n**Visibility:** {'🔒 Private' if repo_data['private'] else '🌍 Public'}\n**Branch:** `{GITHUB_BRANCH}`\n**Default Branch:** `{repo_data['default_branch']}`",
+            inline=True
+        )
+
+        # Show recent commits
+        if recent_commits:
+            commits_text = []
+            for i, commit in enumerate(recent_commits[:3], 1):
+                msg = commit['message'][:60] + '...' if len(commit['message']) > 60 else commit['message']
+                commits_text.append(f"**{i}.** {msg}")
+
+            embed.add_field(
+                name="📝 Recent Commits",
+                value="\n".join(commits_text),
+                inline=False
+            )
+
+        embed.add_field(
+            name="⚙️ Auto-Sync Status",
+            value="✅ **Enabled** - All changes are automatically committed to GitHub",
+            inline=False
+        )
+
+        embed.set_footer(text="Use !github_sync to manually sync all config files")
+
+        await ctx.send(embed=embed)
+
+    except requests.exceptions.RequestException as e:
+        error_embed = discord.Embed(
+            title="❌ Network Error",
+            description=f"Failed to connect to GitHub API:\n```{str(e)}```",
+            color=discord.Color.red()
+        )
+        error_embed.add_field(
+            name="💡 Possible Causes",
+            value="• No internet connection\n• GitHub API is down\n• Request timeout\n• Firewall blocking requests",
+            inline=False
+        )
+        await ctx.send(embed=error_embed)
+
+    except Exception as e:
+        error_embed = discord.Embed(
+            title="❌ Error Checking Status",
+            description=f"An unexpected error occurred:\n```{str(e)}```",
+            color=discord.Color.red()
+        )
+        error_embed.add_field(
+            name="💡 Troubleshooting",
+            value="• Check Render logs for detailed errors\n• Verify environment variables are set\n• Ensure GitHub token has correct permissions\n• Try `!api_reload` to refresh configuration",
+            inline=False
+        )
+        await ctx.send(embed=error_embed)
+
+
+@bot.command(name='github_sync')
+async def github_sync_command(ctx):
+    """Manually sync all config files to GitHub (Master only)"""
+
+    if ctx.author.id != MASTER_ID:
+        embed = discord.Embed(
+            title="🚫 Access Denied",
+            description="Only the master user can sync to GitHub.",
+            color=discord.Color.red()
+        )
+        return await ctx.send(embed=embed)
+
+    try:
+        # Import required functions and variables
+        from keep_alive import GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH
+        import requests
+        import base64
+        import json
+
+        # Check if GitHub is configured
+        if not GITHUB_TOKEN or not GITHUB_REPO:
+            embed = discord.Embed(
+                title="❌ GitHub Not Configured",
+                description="GitHub integration is not set up.\n\nConfigure environment variables on Render:\n• `GITHUB_TOKEN`\n• `GITHUB_REPO`\n• `GITHUB_BRANCH` (optional)",
+                color=discord.Color.red()
+            )
+            return await ctx.send(embed=embed)
+
+        # Show loading message
+        loading_embed = discord.Embed(
+            title="⏳ Syncing to GitHub...",
+            description="Committing all config files to repository...",
+            color=discord.Color.blue()
+        )
+        loading_msg = await ctx.send(embed=loading_embed)
+
+        # Files to sync
+        files_to_sync = [
+            ('config/guild_commands.json', '🤖 Auto-sync guild commands'),
+            ('config/automod_config.json', '🛡️ Auto-sync automod config'),
+            ('config/allowed_users.json', '👥 Auto-sync allowed users')
+        ]
+
+        results = []
+        successful_commits = 0
+
+        headers = {
+            'Authorization': f'token {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+
+        for file_path, commit_msg in files_to_sync:
+            try:
+                # Read local file
+                if not os.path.exists(file_path):
+                    results.append({
+                        'file': file_path.split('/')[-1],
+                        'success': False,
+                        'message': 'File not found locally'
+                    })
+                    continue
+
+                with open(file_path, 'r') as f:
+                    content = f.read()
+
+                # GitHub API endpoint
+                api_url = f'https://api.github.com/repos/{GITHUB_REPO}/contents/{file_path}'
+
+                # Get current file SHA (required for updates)
+                response = requests.get(api_url, headers=headers, timeout=10)
+                sha = None
+                if response.status_code == 200:
+                    sha = response.json()['sha']
+
+                # Encode content to base64
+                content_encoded = base64.b64encode(content.encode()).decode()
+
+                # Prepare commit data
+                data = {
+                    'message': f'{commit_msg} - {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+                    'content': content_encoded,
+                    'branch': GITHUB_BRANCH
+                }
+
+                if sha:
+                    data['sha'] = sha
+
+                # Make the commit
+                commit_response = requests.put(api_url, headers=headers, json=data, timeout=10)
+
+                if commit_response.status_code in [200, 201]:
+                    result_data = commit_response.json()
+                    results.append({
+                        'file': file_path.split('/')[-1],
+                        'success': True,
+                        'commit_url': result_data['commit']['html_url']
+                    })
+                    successful_commits += 1
+                else:
+                    results.append({
+                        'file': file_path.split('/')[-1],
+                        'success': False,
+                        'message': f'HTTP {commit_response.status_code}'
+                    })
+
+            except Exception as e:
+                results.append({
+                    'file': file_path.split('/')[-1],
+                    'success': False,
+                    'message': str(e)[:100]
+                })
+
+        # Create result embed
+        if successful_commits == 0:
+            embed = discord.Embed(
+                title="❌ Sync Failed",
+                description="Failed to sync any files to GitHub.",
+                color=discord.Color.red()
+            )
+        else:
+            embed = discord.Embed(
+                title="✅ GitHub Sync Complete" if successful_commits == len(files_to_sync) else "⚠️ Partial Sync",
+                description=f"Successfully synced **{successful_commits}** out of **{len(files_to_sync)}** file(s)",
+                color=discord.Color.green() if successful_commits == len(files_to_sync) else discord.Color.orange()
+            )
+
+        # Show detailed results
+        success_files = []
+        failed_files = []
+
+        for result in results:
+            if result['success']:
+                if 'commit_url' in result:
+                    success_files.append(f"✅ [{result['file']}]({result['commit_url']})")
+                else:
+                    success_files.append(f"✅ {result['file']}")
+            else:
+                error_msg = result.get('message', 'Unknown error')[:100]
+                failed_files.append(f"❌ {result['file']}\n   └ {error_msg}")
+
+        if success_files:
+            embed.add_field(
+                name="📦 Synced Files",
+                value="\n".join(success_files),
+                inline=False
+            )
+
+        if failed_files:
+            embed.add_field(
+                name="⚠️ Failed Files",
+                value="\n".join(failed_files),
+                inline=False
+            )
+
+        embed.add_field(
+            name="🔗 Repository",
+            value=f"Check your [GitHub repository](https://github.com/{GITHUB_REPO}) for the commits",
+            inline=False
+        )
+
+        embed.set_footer(text=f"Synced to branch: {GITHUB_BRANCH}")
+
+        await loading_msg.edit(embed=embed)
+
+    except requests.exceptions.RequestException as e:
+        error_embed = discord.Embed(
+            title="❌ Network Error",
+            description=f"Failed to connect to GitHub:\n```{str(e)}```",
+            color=discord.Color.red()
+        )
+        error_embed.add_field(
+            name="💡 Common Issues",
+            value="• No internet connection\n• GitHub API timeout\n• Rate limit exceeded",
+            inline=False
+        )
+
+        try:
+            await loading_msg.edit(embed=error_embed)
+        except:
+            await ctx.send(embed=error_embed)
+
+    except Exception as e:
+        error_embed = discord.Embed(
+            title="❌ Sync Error",
+            description=f"An error occurred while syncing to GitHub:\n```{str(e)}```",
+            color=discord.Color.red()
+        )
+        error_embed.add_field(
+            name="💡 Common Issues",
+            value="• Invalid GitHub token\n• Repository not found\n• Insufficient permissions\n• Network error",
+            inline=False
+        )
+
+        try:
+            await loading_msg.edit(embed=error_embed)
+        except:
+            await ctx.send(embed=error_embed)
+
+
+@bot.command(name='github_info')
+async def github_info_command(ctx):
+    """Show information about GitHub integration"""
+
+    embed = discord.Embed(
+        title="🔗 GitHub Integration Info",
+        description="Automatic backup system for bot configuration",
+        color=discord.Color.blurple()
+    )
+
+    embed.add_field(
+        name="✨ Features",
+        value="• 🤖 Auto-commits on every config change\n• 📋 Complete version history\n• 🔄 Manual sync command\n• 📊 Commit monitoring\n• 🔐 Secure token-based auth",
+        inline=False
+    )
+
+    embed.add_field(
+        name="📝 Automatic Commits",
+        value="Every time you add/remove commands, automod words, or users via the admin panel, changes are automatically committed to GitHub!",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎯 Commands",
+        value="`!github_status` - Check connection status\n`!github_sync` - Manually sync all files\n`!github_info` - Show this information",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔧 Setup Required",
+        value="Set these environment variables on Render:\n```\nGITHUB_TOKEN=ghp_...\nGITHUB_REPO=username/repo\nGITHUB_BRANCH=main\n```",
+        inline=False
+    )
+
+    # Check if configured
+    from keep_alive import GITHUB_TOKEN, GITHUB_REPO
+
+    if GITHUB_TOKEN and GITHUB_REPO:
+        embed.add_field(
+            name="✅ Status",
+            value=f"GitHub integration is **configured**\nRepository: `{GITHUB_REPO}`",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="⚠️ Status",
+            value="GitHub integration is **not configured**\nSet environment variables to enable",
+            inline=False
+        )
+
+    embed.set_footer(text="All config changes are automatically backed up • View full guide with !help github")
+
+    await ctx.send(embed=embed)
 
 
 

@@ -1,5 +1,6 @@
-discord.py
-python-dotenv
-flask
-flask-cors
-requests
+discord.py>=2.0.0
+flask>=2.3.0
+flask-cors>=4.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+aiohttp>=3.9.0
