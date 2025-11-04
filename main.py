@@ -4365,6 +4365,7 @@ async def list_automod_words(ctx):
     Show custom API banned words for this server (Master only)
     Usage: !automod_words
     """
+
     if ctx.author.id != MASTER_ID:
         return await ctx.send("❌ Master only command")
 
