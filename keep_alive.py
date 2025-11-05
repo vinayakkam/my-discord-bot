@@ -7,6 +7,7 @@ from datetime import datetime
 import requests
 import base64
 from dotenv import load_dotenv
+
 load_dotenv()
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -86,6 +87,7 @@ def save_guild_commands():
     try:
         with open(GUILD_COMMANDS_FILE, 'w') as f:
             json.dump(guild_commands, f, indent=2)
+        print(f"💾 Saved guild commands to {GUILD_COMMANDS_FILE}")
     except Exception as e:
         print(f"❌ Error saving guild commands: {e}")
 
@@ -185,6 +187,7 @@ def log_api_request(endpoint, method, data, ip_address):
 
 def require_api_key(f):
     """Decorator to require API key authentication"""
+
     def decorated_function(*args, **kwargs):
         provided_key = request.headers.get('X-API-Key')
 
@@ -216,15 +219,19 @@ def home():
     return jsonify({
         'status': 'running',
         'service': 'OLIT Discord Bot API',
-        'version': '2.1',
+        'version': '2.2',
         'endpoints': {
             'health': '/',
-            'commands': '/api/add_command',
-            'automod': '/api/automod',
-            'users': '/api/allowed_users',
-            'config': '/api/config/<guild_id>',
-            'stats': '/api/stats',
-            'logs': '/api/logs'
+            'add_command': '/api/add_command [POST]',
+            'remove_command': '/api/remove_command [POST]',
+            'get_commands': '/api/commands/<guild_id> [GET]',
+            'list_commands': '/api/list_commands/<guild_id> [GET]',
+            'automod': '/api/automod [POST]',
+            'users': '/api/allowed_users [POST]',
+            'config': '/api/config/<guild_id> [GET]',
+            'guilds': '/api/guilds [GET]',
+            'stats': '/api/stats [GET]',
+            'logs': '/api/logs [GET]'
         }
     })
 
@@ -355,6 +362,8 @@ def remove_command():
                 except Exception as e:
                     print(f"⚠️ GitHub sync failed: {e}")
 
+            log_api_request('/api/remove_command', 'POST', data, request.remote_addr)
+
             return jsonify({
                 'success': True,
                 'message': f'Command "{command}" removed from guild {guild_id}'
@@ -365,6 +374,57 @@ def remove_command():
                 'error': 'Command not found'
             }), 404
 
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/commands/<guild_id>', methods=['GET'])
+def get_commands_public(guild_id):
+    """Get all commands for a guild (public endpoint for bot access)"""
+    try:
+        guild_id = str(guild_id)
+        commands = guild_commands.get(guild_id, {})
+
+        return jsonify({
+            'success': True,
+            'guild_id': guild_id,
+            'commands': commands,
+            'count': len(commands)
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/list_commands/<guild_id>', methods=['GET'])
+@require_api_key
+def list_commands(guild_id):
+    """List all commands for a guild with details (requires API key)"""
+    try:
+        guild_id = str(guild_id)
+        commands = guild_commands.get(guild_id, {})
+
+        # Format for better readability
+        formatted_commands = []
+        for cmd_name, cmd_data in commands.items():
+            formatted_commands.append({
+                'name': cmd_name,
+                'response': cmd_data.get('response', ''),
+                'description': cmd_data.get('description', ''),
+                'added_at': cmd_data.get('added_at', 'Unknown')
+            })
+
+        return jsonify({
+            'success': True,
+            'guild_id': guild_id,
+            'commands': formatted_commands,
+            'total': len(formatted_commands)
+        })
     except Exception as e:
         return jsonify({
             'success': False,
@@ -453,6 +513,26 @@ def manage_automod():
         }), 500
 
 
+@app.route('/api/automod/<guild_id>', methods=['GET'])
+def get_automod_public(guild_id):
+    """Get automod words for a guild (public endpoint for bot access)"""
+    try:
+        guild_id = str(guild_id)
+        words = automod_config.get(guild_id, [])
+
+        return jsonify({
+            'success': True,
+            'guild_id': guild_id,
+            'words': words,
+            'count': len(words)
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 # ============================================
 # USER MANAGEMENT ROUTES
 # ============================================
@@ -527,6 +607,26 @@ def manage_allowed_users():
             'action': action
         })
 
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/allowed_users/<guild_id>', methods=['GET'])
+def get_allowed_users_public(guild_id):
+    """Get allowed users for a guild (public endpoint for bot access)"""
+    try:
+        guild_id = str(guild_id)
+        users = allowed_users.get(guild_id, [])
+
+        return jsonify({
+            'success': True,
+            'guild_id': guild_id,
+            'users': users,
+            'count': len(users)
+        })
     except Exception as e:
         return jsonify({
             'success': False,
@@ -692,6 +792,7 @@ def run():
     print(f"✅ Guilds with automod: {len(automod_config)}")
     print(f"✅ Guilds with allowed users: {len(allowed_users)}")
     print(f"🔑 API Key configured: {'Yes' if API_KEY else 'No'}")
+    print(f"🔗 GitHub sync: {'Enabled' if GITHUB_TOKEN and GITHUB_REPO else 'Disabled'}")
     print("=" * 50)
 
     app.run(host='0.0.0.0', port=8080)
@@ -703,3 +804,7 @@ def keep_alive():
     t.daemon = True
     t.start()
     print("✅ Keep-alive server started on port 8080")
+
+
+if __name__ == '__main__':
+    run()

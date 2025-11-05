@@ -6326,6 +6326,366 @@ async def on_ready():
     print(f"✨ Bot is fully operational!")
 
 
+# Add these imports at the top of your main.py file
+import requests
+import json
+from typing import Dict, Optional
+from datetime import datetime, timedelta
+
+# ============================================
+# API INTEGRATION CONFIGURATION
+# ============================================
+
+# Configuration for API integration
+API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8080')
+API_KEY = os.getenv('API_KEY')  # Only needed for authenticated endpoints
+
+# Cache for commands to avoid excessive API calls
+command_cache = {}
+cache_expiry = {}
+CACHE_DURATION = timedelta(minutes=5)
+
+
+# ============================================
+# API HELPER FUNCTIONS
+# ============================================
+
+def fetch_guild_commands(guild_id: str) -> Dict:
+    """Fetch commands from API for a specific guild"""
+    try:
+        url = f"{API_BASE_URL}/api/commands/{guild_id}"
+        response = requests.get(url, timeout=3)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('success'):
+                print(f"✅ Loaded {len(data.get('commands', {}))} commands for guild {guild_id}")
+                return data.get('commands', {})
+        else:
+            print(f"⚠️ API returned status {response.status_code}")
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Failed to fetch commands from API: {e}")
+    except Exception as e:
+        print(f"⚠️ Error fetching commands: {e}")
+
+    # Fallback to local file if API fails
+    return load_commands_from_file(guild_id)
+
+
+def load_commands_from_file(guild_id: str) -> Dict:
+    """Fallback: Load commands from local JSON file"""
+    try:
+        with open('config/guild_commands.json', 'r') as f:
+            all_commands = json.load(f)
+            return all_commands.get(str(guild_id), {})
+    except FileNotFoundError:
+        print(f"⚠️ Config file not found, no commands loaded for guild {guild_id}")
+        return {}
+    except Exception as e:
+        print(f"⚠️ Error loading commands from file: {e}")
+        return {}
+
+
+def get_cached_commands(guild_id: str) -> Dict:
+    """Get commands with caching to reduce API calls"""
+    now = datetime.now()
+    guild_id_str = str(guild_id)
+
+    # Check if cache is valid
+    if (guild_id_str in command_cache and
+            guild_id_str in cache_expiry and
+            cache_expiry[guild_id_str] > now):
+        return command_cache[guild_id_str]
+
+    # Reload from API
+    commands = fetch_guild_commands(guild_id_str)
+    command_cache[guild_id_str] = commands
+    cache_expiry[guild_id_str] = now + CACHE_DURATION
+
+    return commands
+
+
+def fetch_automod_words(guild_id: str) -> list:
+    """Fetch automod words from API"""
+    try:
+        url = f"{API_BASE_URL}/api/automod/{guild_id}"
+        response = requests.get(url, timeout=3)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('success'):
+                return data.get('words', [])
+    except Exception as e:
+        print(f"⚠️ Failed to fetch automod words: {e}")
+
+    return []
+
+
+def fetch_allowed_users(guild_id: str) -> list:
+    """Fetch allowed users from API"""
+    try:
+        url = f"{API_BASE_URL}/api/allowed_users/{guild_id}"
+        response = requests.get(url, timeout=3)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('success'):
+                return data.get('users', [])
+    except Exception as e:
+        print(f"⚠️ Failed to fetch allowed users: {e}")
+
+    return []
+
+
+def clear_command_cache(guild_id: str = None):
+    """Clear command cache for a guild or all guilds"""
+    if guild_id:
+        guild_id_str = str(guild_id)
+        if guild_id_str in command_cache:
+            del command_cache[guild_id_str]
+        if guild_id_str in cache_expiry:
+            del cache_expiry[guild_id_str]
+    else:
+        command_cache.clear()
+        cache_expiry.clear()
+
+
+# ============================================
+# BOT EVENT HANDLERS
+# ============================================
+
+@bot.event
+async def on_message(message):
+    """Handle incoming messages and process custom commands"""
+    # Ignore bot messages
+    if message.author.bot:
+        return
+
+    # Check if message starts with ! (custom command prefix)
+    if message.content.startswith('!'):
+        # Extract command name
+        parts = message.content[1:].split()
+        if not parts:
+            await bot.process_commands(message)
+            return
+
+        command_name = parts[0].lower()
+
+        # Only check for custom commands in guilds
+        if message.guild:
+            guild_id = str(message.guild.id)
+
+            # Fetch commands from API (with caching)
+            commands = get_cached_commands(guild_id)
+
+            # Check if this command exists
+            if command_name in commands:
+                command_data = commands[command_name]
+                response_text = command_data.get('response', '')
+
+                if response_text:
+                    await message.channel.send(response_text)
+                    print(f"✅ Executed custom command: !{command_name} in guild {guild_id}")
+                    return  # Don't process as regular command
+
+    # Process regular bot commands
+    await bot.process_commands(message)
+
+
+@bot.event
+async def on_ready():
+    """Bot startup event"""
+    print(f'✅ {bot.user} has connected to Discord!')
+    print(f'🔗 API Base URL: {API_BASE_URL}')
+    print(f'📦 Connected to {len(bot.guilds)} guilds')
+
+    # Preload commands for all guilds
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        commands = get_cached_commands(guild_id)
+        print(f'  └─ Guild: {guild.name} ({guild_id}) - {len(commands)} custom commands')
+
+
+# ============================================
+# ADMIN COMMANDS
+# ============================================
+
+@bot.command(name='testcommand')
+@commands.has_permissions(administrator=True)
+async def test_command(ctx, command_name: str = None):
+    """Test if a custom command is loaded
+
+    Usage:
+        !testcommand - List all custom commands
+        !testcommand <name> - Check specific command
+    """
+    guild_id = str(ctx.guild.id)
+    commands = get_cached_commands(guild_id)
+
+    if not command_name:
+        # List all commands
+        if not commands:
+            await ctx.send("❌ No custom commands configured for this server.")
+            return
+
+        command_list = "\n".join([f"• `!{cmd}` - {data.get('description', 'No description')}"
+                                  for cmd, data in commands.items()])
+
+        embed = discord.Embed(
+            title="📋 Custom Commands",
+            description=f"**Total Commands:** {len(commands)}\n\n{command_list}",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
+    else:
+        # Check specific command
+        command_name = command_name.lower()
+        if command_name in commands:
+            cmd_data = commands[command_name]
+            embed = discord.Embed(
+                title=f"✅ Command: !{command_name}",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Response", value=cmd_data.get('response', 'N/A'), inline=False)
+            embed.add_field(name="Description", value=cmd_data.get('description', 'No description'), inline=False)
+            embed.add_field(name="Added At", value=cmd_data.get('added_at', 'Unknown'), inline=False)
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"❌ Command `!{command_name}` not found.")
+
+
+@bot.command(name='reloadcommands')
+@commands.has_permissions(administrator=True)
+async def reload_commands(ctx):
+    """Reload custom commands from API
+
+    Usage: !reloadcommands
+    """
+    guild_id = str(ctx.guild.id)
+
+    # Clear cache
+    clear_command_cache(guild_id)
+
+    # Reload
+    commands = get_cached_commands(guild_id)
+
+    embed = discord.Embed(
+        title="🔄 Commands Reloaded",
+        description=f"Successfully reloaded **{len(commands)}** custom commands!",
+        color=discord.Color.green()
+    )
+
+    if commands:
+        command_list = ", ".join([f"`!{cmd}`" for cmd in commands.keys()])
+        embed.add_field(name="Available Commands", value=command_list, inline=False)
+
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='listcommands')
+async def list_commands(ctx):
+    """List all custom commands (public command)
+
+    Usage: !listcommands
+    """
+    guild_id = str(ctx.guild.id)
+    commands = get_cached_commands(guild_id)
+
+    if not commands:
+        await ctx.send("❌ No custom commands available for this server.")
+        return
+
+    embed = discord.Embed(
+        title="📋 Available Custom Commands",
+        description=f"Use `!<command>` to execute",
+        color=discord.Color.blue()
+    )
+
+    for cmd, data in commands.items():
+        description = data.get('description', 'No description')
+        embed.add_field(
+            name=f"!{cmd}",
+            value=description,
+            inline=False
+        )
+
+    embed.set_footer(text=f"Total: {len(commands)} commands")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='apistatus')
+@commands.has_permissions(administrator=True)
+async def api_status(ctx):
+    """Check API connection status
+
+    Usage: !apistatus
+    """
+    try:
+        response = requests.get(f"{API_BASE_URL}/health", timeout=3)
+
+        if response.status_code == 200:
+            data = response.json()
+            embed = discord.Embed(
+                title="✅ API Status: Online",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Status", value=data.get('status', 'Unknown'), inline=True)
+            embed.add_field(name="Timestamp", value=data.get('timestamp', 'Unknown'), inline=True)
+            embed.add_field(name="API URL", value=API_BASE_URL, inline=False)
+        else:
+            embed = discord.Embed(
+                title="⚠️ API Status: Error",
+                description=f"Status Code: {response.status_code}",
+                color=discord.Color.orange()
+            )
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ API Status: Offline",
+            description=f"Error: {str(e)}",
+            color=discord.Color.red()
+        )
+
+    await ctx.send(embed=embed)
+
+
+# ============================================
+# ERROR HANDLER
+# ============================================
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Handle command errors"""
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You don't have permission to use this command!")
+    elif isinstance(error, commands.CommandNotFound):
+        # Check if it might be a custom command that wasn't handled
+        pass  # Already handled in on_message
+    else:
+        print(f"Error: {error}")
+        await ctx.send(f"❌ An error occurred: {str(error)}")
+
+
+# ============================================
+# TESTING FUNCTION
+# ============================================
+
+async def test_api_connection():
+    """Test API connection on startup"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/health", timeout=5)
+        if response.status_code == 200:
+            print("✅ API connection successful!")
+            return True
+        else:
+            print(f"⚠️ API returned status {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Failed to connect to API: {e}")
+        return False
+
+
+# Add this to your bot startup section:
+# asyncio.run(test_api_connection())  # Test API on startup
 # ============================================
 # API MANAGEMENT COMMANDS (Master Only)
 # ============================================
