@@ -124,10 +124,7 @@ def save_api_logs():
 def commit_to_github(file_path, content, commit_message):
     """Commit a file to GitHub repository"""
     if not GITHUB_TOKEN or not GITHUB_REPO:
-        return {
-            'success': False,
-            'message': 'GitHub integration not configured'
-        }
+        return {'success': False, 'message': 'GitHub integration not configured'}
 
     try:
         if isinstance(content, dict):
@@ -135,46 +132,36 @@ def commit_to_github(file_path, content, commit_message):
 
         api_url = f'https://api.github.com/repos/{GITHUB_REPO}/contents/{file_path}'
         headers = {
-            'Authorization': f'token {GITHUB_TOKEN}',
-            'Accept': 'application/vnd.github.v3+json'
+            'Authorization': f'Bearer {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'OLIT-Bot-API'
         }
 
-        response = requests.get(api_url, headers=headers)
-        sha = None
-        if response.status_code == 200:
-            sha = response.json()['sha']
+        # Get current file SHA if exists
+        r = requests.get(api_url, headers=headers)
+        sha = r.json().get('sha') if r.status_code == 200 else None
 
-        content_encoded = base64.b64encode(content.encode()).decode()
-        data = {
+        payload = {
             'message': commit_message,
-            'content': content_encoded,
+            'content': base64.b64encode(content.encode()).decode(),
             'branch': GITHUB_BRANCH
         }
-
         if sha:
-            data['sha'] = sha
+            payload['sha'] = sha
 
-        response = requests.put(api_url, headers=headers, json=data)
+        r = requests.put(api_url, headers=headers, json=payload)
 
-        if response.status_code in [200, 201]:
-            result = response.json()
-            return {
-                'success': True,
-                'message': f'Successfully committed to GitHub: {commit_message}',
-                'commit_url': result['commit']['html_url'],
-                'sha': result['content']['sha']
-            }
+        if r.status_code in [200, 201]:
+            res = r.json()
+            print(f"✅ GitHub commit success: {res['commit']['html_url']}")
+            return {'success': True, 'commit_url': res['commit']['html_url']}
         else:
-            return {
-                'success': False,
-                'message': f'GitHub API error: {response.status_code} - {response.text}'
-            }
+            print(f"❌ GitHub commit failed: {r.status_code} - {r.text}")
+            return {'success': False, 'message': r.text}
 
     except Exception as e:
-        return {
-            'success': False,
-            'message': f'Error committing to GitHub: {str(e)}'
-        }
+        print(f"❌ GitHub commit error: {e}")
+        return {'success': False, 'message': str(e)}
 
 
 def log_api_request(endpoint, method, data, ip_address):
