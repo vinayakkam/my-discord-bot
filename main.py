@@ -3911,59 +3911,12 @@ async def personal_stats(ctx):
 
 MASTER_ID = 814791086114865233  # make sure this is an int, no quotes
 
-import discord
-from discord.ext import commands
-from datetime import datetime, timedelta
-import asyncio
-import re
-
-# ============================================
-# BOT INITIALIZATION
-# ============================================
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-# Master user ID (replace with your ID)
-MASTER_ID = 123456789  # REPLACE THIS WITH YOUR DISCORD USER ID
-
-
-# ============================================
-# API MOCK FUNCTIONS (Replace with your actual API)
-# ============================================
-# These are placeholder functions - replace with your actual API calls
-
-def get_automod_enabled_status(guild_id):
-    """Check if automod is enabled via API for a guild"""
-    # TODO: Replace with actual API call
-    # Example: return requests.get(f"https://api.example.com/automod/{guild_id}/enabled").json()
-    return False  # Default to False if no API
-
-
-def get_automod_words(guild_id):
-    """Get custom banned words from API"""
-    # TODO: Replace with actual API call
-    # Example: return requests.get(f"https://api.example.com/automod/{guild_id}/words").json()
-    return []  # Default to empty list if no API
-
-
-def get_allowed_users_list(guild_id):
-    """Get exempt users from API"""
-    # TODO: Replace with actual API call
-    # Example: return requests.get(f"https://api.example.com/automod/{guild_id}/exempt").json()
-    return []  # Default to empty list if no API
-
-
-def get_guild_commands(guild_id):
-    """Get custom commands from API"""
-    # TODO: Replace with actual API call
-    return {}  # Default to empty dict if no API
-
-
 # ============================================
 # FIXED AUTOMOD CONFIGURATION
 # ============================================
 
 # Static configuration (hardcoded for specific guilds)
+# Add your guild ID here if you want automod always enabled
 AUTOMOD_ENABLED_GUILDS = {
     1210475350119813120: True,
     1397218218535424090: True,
@@ -3989,69 +3942,8 @@ AUTOMOD_EXEMPT_USERS = [
 BUILTIN_NWORD_VARIATIONS = [
     'nigger', 'nigga', 'n1gger', 'n1gga', 'nig ger', 'nig ga',
     'n-word', 'nword', 'n word', 'nigg3r', 'nigg4', 'n!gger',
-    'n!gga', 'niqqer', 'niqqa', 'niggеr', 'niggа', 'n1gg3r',
-    'nig', 'nigg', 'n1gg4', 'nіgger', 'nіgga'
+    '!gga', 'niqqer', 'niqqa', 'niggеr', 'niggа'
 ]
-
-
-def normalize_text(text):
-    """
-    Normalize text for better detection by:
-    - Converting to lowercase
-    - Removing common separators
-    - Removing special characters used for evasion
-    - Replacing lookalike characters
-    """
-    text = text.lower()
-
-    # Replace lookalike characters
-    replacements = {
-        '1': 'i', '!': 'i', '3': 'e', '4': 'a', '0': 'o',
-        '@': 'a', '$': 's', '5': 's', '7': 't', '8': 'b',
-        'і': 'i', 'а': 'a', 'е': 'e', 'о': 'o'  # Cyrillic lookalikes
-    }
-
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-
-    # Remove common separators and special chars
-    text = re.sub(r'[\s\-_.*#@!]+', '', text)
-
-    return text
-
-
-def check_banned_word(message_content, banned_words):
-    """
-    Enhanced word detection with multiple strategies
-    Returns: (detected: bool, matched_word: str or None, detection_type: str)
-    """
-    content_lower = message_content.lower()
-    content_normalized = normalize_text(message_content)
-
-    for word in banned_words:
-        word_lower = word.lower()
-        word_normalized = normalize_text(word)
-
-        # Strategy 1: Direct exact match (case-insensitive)
-        if word_lower in content_lower:
-            return True, word, "exact"
-
-        # Strategy 2: Normalized match (bypasses common evasion)
-        if word_normalized in content_normalized:
-            return True, word, "normalized"
-
-        # Strategy 3: Word boundary match (whole word only)
-        word_pattern = r'\b' + re.escape(word_lower) + r'\b'
-        if re.search(word_pattern, content_lower):
-            return True, word, "boundary"
-
-        # Strategy 4: Fuzzy match (allows for minor variations)
-        # Check if word appears with spaces between characters
-        spaced_pattern = '\\s*'.join(re.escape(c) for c in word_lower)
-        if re.search(spaced_pattern, content_lower):
-            return True, word, "spaced"
-
-    return False, None, None
 
 
 def get_combined_automod_enabled(guild_id):
@@ -4078,7 +3970,7 @@ def get_combined_exempt_users(guild_id):
     """
     # Get API allowed users
     api_exempt = get_allowed_users_list(str(guild_id))
-    api_exempt_ids = [int(user_id) for user_id in api_exempt if str(user_id).isdigit()]
+    api_exempt_ids = [int(user_id) for user_id in api_exempt]
 
     # Merge with hardcoded (no duplicates)
     combined = list(set(AUTOMOD_EXEMPT_USERS + api_exempt_ids))
@@ -4100,7 +3992,7 @@ def is_user_moderator(user_id, guild_id):
 
 @bot.event
 async def on_message(message):
-    """Enhanced message handler with improved word detection"""
+    """Enhanced message handler with API-integrated automod"""
 
     # Don't moderate bots or DMs
     if message.author.bot or message.guild is None:
@@ -4132,25 +4024,40 @@ async def on_message(message):
     # Combine built-in N-word variations with API words
     all_banned_words = BUILTIN_NWORD_VARIATIONS + api_banned_words
 
-    # Check for violations using enhanced detection
-    detected, matched_word, detection_type = check_banned_word(message.content, all_banned_words)
+    # Prepare message content for checking
+    message_content_lower = message.content.lower()
 
-    if detected:
-        is_nword = matched_word in BUILTIN_NWORD_VARIATIONS
-        is_custom = matched_word in api_banned_words
+    # Remove common separators for evasion detection
+    message_content_clean = message_content_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.',
+                                                                                                             '').replace(
+        '*', '')
 
+    detected_word = None
+    is_nword = False
+    is_custom = False
+
+    # Check for violations
+    for word in all_banned_words:
+        word_lower = word.lower()
+        clean_word = word_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.', '').replace('*', '')
+
+        # Check both original and cleaned versions
+        if word_lower in message_content_lower or clean_word in message_content_clean:
+            detected_word = word
+            is_nword = word in BUILTIN_NWORD_VARIATIONS
+            is_custom = word in api_banned_words
+            break
+
+    if detected_word:
         try:
             # Delete the message first
             await message.delete()
-            print(
-                f"[AUTO-MOD] Deleted message from {message.author.name} containing: {matched_word} (type: {detection_type})")
+            print(f"[AUTO-MOD] Deleted message from {message.author.name} containing: {detected_word}")
 
             # Timeout the user for 24 hours
             duration = timedelta(hours=24)
-            await message.author.timeout(
-                duration,
-                reason=f"Auto-moderation: {'Built-in filter' if is_nword else 'Custom API filter'} - {detection_type} match"
-            )
+            await message.author.timeout(duration,
+                                         reason=f"Auto-moderation: {'Built-in filter' if is_nword else 'Custom API filter'}")
 
             # Create embed for auto-timeout
             embed = discord.Embed(
@@ -4166,13 +4073,13 @@ async def on_message(message):
             # Different violation type based on source
             if is_nword:
                 embed.add_field(name="📝 Violation", value="Inappropriate language", inline=True)
-                embed.add_field(name="🔍 Detection", value=f"Built-in filter ({detection_type})", inline=True)
+                embed.add_field(name="🔍 Detection", value="Built-in N-word filter", inline=True)
             elif is_custom:
                 embed.add_field(name="📝 Violation", value="Custom banned word", inline=True)
-                embed.add_field(name="🔍 Detection", value=f"API Custom Filter ({detection_type})", inline=True)
+                embed.add_field(name="🔍 Detection", value="API Custom Filter", inline=True)
             else:
                 embed.add_field(name="📝 Violation", value="Banned word usage", inline=True)
-                embed.add_field(name="🔍 Detection", value=f"Auto-moderation ({detection_type})", inline=True)
+                embed.add_field(name="🔍 Detection", value="Auto-moderation", inline=True)
 
             # Calculate when timeout ends
             end_time = datetime.now() + duration
@@ -4187,7 +4094,7 @@ async def on_message(message):
 
             filter_type = "N-word" if is_nword else ("Custom API" if is_custom else "Unknown")
             print(
-                f"[AUTO-MOD] ✅ User {message.author.name} ({message.author.id}) timed out in {message.guild.name} - {filter_type}: {matched_word}")
+                f"[AUTO-MOD] ✅ User {message.author.name} ({message.author.id}) timed out in {message.guild.name} - {filter_type}: {detected_word}")
 
         except discord.Forbidden:
             warning_embed = discord.Embed(
@@ -4272,11 +4179,26 @@ async def test_filter(ctx, *, test_word: str = None):
     api_banned_words = get_automod_words(str(guild_id))
     all_banned_words = BUILTIN_NWORD_VARIATIONS + api_banned_words
 
-    # Test the word using enhanced detection
-    detected, matched_word, detection_type = check_banned_word(test_word, all_banned_words)
+    # Test the word
+    test_word_lower = test_word.lower()
+    test_word_clean = test_word_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.', '').replace('*',
+                                                                                                                  '')
 
-    is_builtin = matched_word in BUILTIN_NWORD_VARIATIONS if matched_word else False
-    is_api = matched_word in api_banned_words if matched_word else False
+    detected = False
+    matched_word = None
+    is_builtin = False
+    is_api = False
+
+    for word in all_banned_words:
+        word_lower = word.lower()
+        clean_word = word_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.', '').replace('*', '')
+
+        if word_lower in test_word_lower or clean_word in test_word_clean:
+            detected = True
+            matched_word = word
+            is_builtin = word in BUILTIN_NWORD_VARIATIONS
+            is_api = word in api_banned_words
+            break
 
     # Create result embed
     embed = discord.Embed(
@@ -4311,8 +4233,8 @@ async def test_filter(ctx, *, test_word: str = None):
         )
 
         embed.add_field(
-            name="🔍 Detection Method",
-            value=f"{' + '.join(filter_type)} ({detection_type} match)",
+            name="🔍 Filter Type",
+            value=" + ".join(filter_type),
             inline=False
         )
 
@@ -4421,24 +4343,35 @@ async def list_filters(ctx):
         inline=False
     )
 
-    embed.set_footer(text="Enhanced detection with multiple strategies")
+    embed.set_footer(text="Filters apply to all non-exempt users")
 
     await ctx.send(embed=embed)
-
-
 # ============================================
-# MODERATION COMMANDS
+# MODERATION COMMANDS (For Exempt Users)
 # ============================================
 
 @bot.command(name="timeout")
 @commands.has_permissions(moderate_members=True)
 async def timeout_user(ctx, member: discord.Member, duration: str, *, reason: str = "No reason provided"):
-    """Timeout a user"""
+    """
+    Timeout a user (Moderators/Exempt users only)
+    Usage: !timeout @user 1h Reason
+           !timeout @user 30m Spamming
+           !timeout @user 1d Inappropriate behavior
+
+    Duration formats: 1m, 30m, 1h, 12h, 1d, 7d
+    """
+    # Check if user is moderator/exempt
     if not is_user_moderator(ctx.author.id, ctx.guild.id):
         if not ctx.author.guild_permissions.moderate_members:
             return await ctx.send("❌ You don't have permission to use this command!")
 
-    duration_mapping = {'m': 60, 'h': 3600, 'd': 86400}
+    # Parse duration
+    duration_mapping = {
+        'm': 60,  # minutes
+        'h': 3600,  # hours
+        'd': 86400  # days
+    }
 
     try:
         time_value = int(duration[:-1])
@@ -4450,12 +4383,14 @@ async def timeout_user(ctx, member: discord.Member, duration: str, *, reason: st
         seconds = time_value * duration_mapping[time_unit]
         timeout_duration = timedelta(seconds=seconds)
 
-        if seconds > 2419200:
+        # Discord max timeout is 28 days
+        if seconds > 2419200:  # 28 days in seconds
             return await ctx.send("❌ Maximum timeout duration is 28 days!")
 
     except (ValueError, IndexError):
         return await ctx.send("❌ Invalid duration format! Use: 1m, 30m, 1h, 12h, 1d, 7d")
 
+    # Check if trying to timeout bot owner or moderators
     if member.id == ctx.guild.owner_id:
         return await ctx.send("❌ Cannot timeout the server owner!")
 
@@ -4465,12 +4400,14 @@ async def timeout_user(ctx, member: discord.Member, duration: str, *, reason: st
     if is_user_moderator(member.id, ctx.guild.id):
         return await ctx.send("❌ Cannot timeout other moderators!")
 
+    # Check hierarchy
     if member.top_role >= ctx.author.top_role:
         return await ctx.send("❌ You cannot timeout someone with equal or higher roles!")
 
     try:
         await member.timeout(timeout_duration, reason=f"{reason} (by {ctx.author.name})")
 
+        # Create embed
         end_time = datetime.now() + timeout_duration
         embed = discord.Embed(
             title="⏰ User Timed Out",
@@ -4479,7 +4416,7 @@ async def timeout_user(ctx, member: discord.Member, duration: str, *, reason: st
             timestamp=datetime.now()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="👤 User", value=f"{member.name}", inline=True)
+        embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
         embed.add_field(name="⏱️ Duration", value=duration, inline=True)
         embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
         embed.add_field(name="📝 Reason", value=reason, inline=False)
@@ -4487,7 +4424,21 @@ async def timeout_user(ctx, member: discord.Member, duration: str, *, reason: st
         embed.set_footer(text=f"User ID: {member.id}")
 
         await ctx.send(embed=embed)
-        print(f"[TIMEOUT] {member.name} timed out for {duration} by {ctx.author.name}")
+
+        # Try to DM the user
+        try:
+            dm_embed = discord.Embed(
+                title=f"⏰ You've been timed out in {ctx.guild.name}",
+                description=f"**Duration:** {duration}\n**Reason:** {reason}",
+                color=0xff9900
+            )
+            dm_embed.add_field(name="⏰ Timeout Ends", value=f"<t:{int(end_time.timestamp())}:R>", inline=False)
+            dm_embed.set_footer(text="Please follow server rules to avoid future timeouts")
+            await member.send(embed=dm_embed)
+        except:
+            pass  # User has DMs disabled
+
+        print(f"[TIMEOUT] {member.name} timed out for {duration} by {ctx.author.name} in {ctx.guild.name}")
 
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to timeout this user!")
@@ -4498,7 +4449,11 @@ async def timeout_user(ctx, member: discord.Member, duration: str, *, reason: st
 @bot.command(name="untimeout")
 @commands.has_permissions(moderate_members=True)
 async def untimeout_user(ctx, member: discord.Member, *, reason: str = "No reason provided"):
-    """Remove timeout from a user"""
+    """
+    Remove timeout from a user (Moderators/Exempt users only)
+    Usage: !untimeout @user Reason
+    """
+    # Check if user is moderator/exempt
     if not is_user_moderator(ctx.author.id, ctx.guild.id):
         if not ctx.author.guild_permissions.moderate_members:
             return await ctx.send("❌ You don't have permission to use this command!")
@@ -4516,13 +4471,26 @@ async def untimeout_user(ctx, member: discord.Member, *, reason: str = "No reaso
             timestamp=datetime.now()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="👤 User", value=f"{member.name}", inline=True)
+        embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
         embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
         embed.add_field(name="📝 Reason", value=reason, inline=False)
         embed.set_footer(text=f"User ID: {member.id}")
 
         await ctx.send(embed=embed)
-        print(f"[UNTIMEOUT] {member.name} untimeouted by {ctx.author.name}")
+
+        # Try to DM the user
+        try:
+            dm_embed = discord.Embed(
+                title=f"✅ Your timeout has been removed in {ctx.guild.name}",
+                description=f"**Reason:** {reason}",
+                color=0x00ff00
+            )
+            dm_embed.set_footer(text="Remember to follow server rules")
+            await member.send(embed=dm_embed)
+        except:
+            pass
+
+        print(f"[UNTIMEOUT] {member.name} untimeouted by {ctx.author.name} in {ctx.guild.name}")
 
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to remove timeout from this user!")
@@ -4530,125 +4498,13 @@ async def untimeout_user(ctx, member: discord.Member, *, reason: str = "No reaso
         await ctx.send(f"❌ Error: {str(e)}")
 
 
-@bot.command(name="automod")
-async def manage_automod(ctx, action: str = None):
-    """Manage auto-moderation settings"""
-    if ctx.guild is None:
-        return await ctx.send("❌ This command must be used in a server.")
-
-    if ctx.author.id != MASTER_ID:
-        return await ctx.send("❌ Master only command")
-
-    guild_id = int(ctx.guild.id)
-
-    if action is None or action.lower() == "status":
-        api_enabled = get_automod_enabled_status(guild_id)
-        hardcoded_enabled = AUTOMOD_ENABLED_GUILDS.get(guild_id, False)
-        combined_enabled = get_combined_automod_enabled(guild_id)
-
-        api_words = get_automod_words(str(guild_id))
-        all_exempt = get_combined_exempt_users(guild_id)
-
-        status_embed = discord.Embed(
-            title="🤖 Auto-Moderation Status",
-            description=f"Configuration for **{ctx.guild.name}**",
-            color=0x00ff00 if combined_enabled else 0xff6b6b
-        )
-
-        status_icon = "🟢" if combined_enabled else "🔴"
-        status_text = "**ACTIVE**" if combined_enabled else "**DISABLED**"
-        status_embed.add_field(name="📊 Overall Status", value=f"{status_icon} {status_text}", inline=False)
-
-        sources = []
-        sources.append("✅ Hardcoded Config" if hardcoded_enabled else "❌ Hardcoded Config")
-        sources.append("✅ API Enabled" if api_enabled else "❌ API Enabled")
-
-        status_embed.add_field(name="🔧 Configuration Sources", value="\n".join(sources), inline=True)
-        status_embed.add_field(name="⏰ Timeout Duration", value="24 hours", inline=True)
-
-        status_embed.add_field(
-            name="🔍 Active Filters",
-            value=f"**Built-in N-word:** {len(BUILTIN_NWORD_VARIATIONS)} variations\n**Custom API words:** {len(api_words)} configured\n**Total:** {len(BUILTIN_NWORD_VARIATIONS) + len(api_words)} banned words",
-            inline=False
-        )
-
-        status_embed.add_field(
-            name="🛡️ Protected Users",
-            value=f"**Total exempt users:** {len(all_exempt)}",
-            inline=False
-        )
-
-        if not combined_enabled:
-            status_embed.add_field(
-                name="🔧 How to Enable",
-                value=f"Use `!automod enable` to activate\n**Your Guild ID:** `{guild_id}`",
-                inline=False
-            )
-
-        status_embed.set_footer(text="Enhanced detection with 4 matching strategies")
-        return await ctx.send(embed=status_embed)
-
-    elif action.lower() == "enable":
-        AUTOMOD_ENABLED_GUILDS[guild_id] = True
-
-        embed = discord.Embed(
-            title="✅ Automod Enabled",
-            description=f"Auto-moderation is now **ACTIVE** for {ctx.guild.name}",
-            color=0x00ff00
-        )
-        embed.add_field(
-            name="⚡ Changes Applied",
-            value="• Enhanced word detection active\n• Multiple detection strategies\n• 24-hour timeout on violations",
-            inline=False
-        )
-        embed.set_footer(text=f"Guild ID: {guild_id}")
-
-        print(f"[AUTOMOD] Enabled for guild {guild_id} ({ctx.guild.name})")
-        return await ctx.send(embed=embed)
-
-    elif action.lower() == "disable":
-        if guild_id in AUTOMOD_ENABLED_GUILDS:
-            del AUTOMOD_ENABLED_GUILDS[guild_id]
-
-        embed = discord.Embed(
-            title="⚠️ Automod Disabled",
-            description=f"Hardcoded automod disabled for {ctx.guild.name}",
-            color=0xff9900
-        )
-        embed.set_footer(text=f"Guild ID: {guild_id}")
-        return await ctx.send(embed=embed)
-
-
-@bot.command(name="enableautomod")
-async def quick_enable_automod(ctx):
-    """Quick enable automod"""
-    if ctx.author.id != MASTER_ID:
-        return await ctx.send("❌ Master only command")
-
-    if not ctx.guild:
-        return await ctx.send("❌ Use this command in a server")
-
-    guild_id = ctx.guild.id
-    AUTOMOD_ENABLED_GUILDS[guild_id] = True
-
-    embed = discord.Embed(
-        title="✅ Automod Enabled!",
-        description=f"Auto-moderation is now active for **{ctx.guild.name}**",
-        color=0x00ff00
-    )
-    embed.add_field(
-        name="🔍 Active Features",
-        value=f"• Enhanced detection system\n• {len(BUILTIN_NWORD_VARIATIONS)} built-in filters\n• 4 detection strategies",
-        inline=False
-    )
-
-    await ctx.send(embed=embed)
-    print(f"[AUTOMOD] Quick-enabled for {ctx.guild.name} ({guild_id})")
-
-
 @bot.command(name="warn")
 async def warn_user(ctx, member: discord.Member, *, reason: str = "No reason provided"):
-    """Warn a user"""
+    """
+    Warn a user (Moderators/Exempt users only)
+    Usage: !warn @user Reason
+    """
+    # Check if user is moderator/exempt
     if not is_user_moderator(ctx.author.id, ctx.guild.id):
         if not ctx.author.guild_permissions.moderate_members:
             return await ctx.send("❌ You don't have permission to use this command!")
@@ -4666,13 +4522,14 @@ async def warn_user(ctx, member: discord.Member, *, reason: str = "No reason pro
         timestamp=datetime.now()
     )
     embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="👤 User", value=f"{member.name}", inline=True)
+    embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
     embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
     embed.add_field(name="📝 Reason", value=reason, inline=False)
     embed.set_footer(text=f"User ID: {member.id}")
 
     await ctx.send(embed=embed)
 
+    # Try to DM the user
     try:
         dm_embed = discord.Embed(
             title=f"⚠️ You've been warned in {ctx.guild.name}",
@@ -4685,13 +4542,17 @@ async def warn_user(ctx, member: discord.Member, *, reason: str = "No reason pro
     except:
         await ctx.send("⚠️ Could not DM user (DMs disabled)")
 
-    print(f"[WARN] {member.name} warned by {ctx.author.name}: {reason}")
+    print(f"[WARN] {member.name} warned by {ctx.author.name} in {ctx.guild.name}: {reason}")
 
 
 @bot.command(name="kick")
 @commands.has_permissions(kick_members=True)
 async def kick_user(ctx, member: discord.Member, *, reason: str = "No reason provided"):
-    """Kick a user from the server"""
+    """
+    Kick a user from the server (Moderators/Exempt users only)
+    Usage: !kick @user Reason
+    """
+    # Check if user is moderator/exempt
     if not is_user_moderator(ctx.author.id, ctx.guild.id):
         if not ctx.author.guild_permissions.kick_members:
             return await ctx.send("❌ You don't have permission to use this command!")
@@ -4709,6 +4570,7 @@ async def kick_user(ctx, member: discord.Member, *, reason: str = "No reason pro
         return await ctx.send("❌ You cannot kick someone with equal or higher roles!")
 
     try:
+        # Try to DM before kicking
         try:
             dm_embed = discord.Embed(
                 title=f"👢 You've been kicked from {ctx.guild.name}",
@@ -4729,13 +4591,13 @@ async def kick_user(ctx, member: discord.Member, *, reason: str = "No reason pro
             timestamp=datetime.now()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="👤 User", value=f"{member.name}", inline=True)
+        embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
         embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
         embed.add_field(name="📝 Reason", value=reason, inline=False)
         embed.set_footer(text=f"User ID: {member.id}")
 
         await ctx.send(embed=embed)
-        print(f"[KICK] {member.name} kicked by {ctx.author.name}")
+        print(f"[KICK] {member.name} kicked by {ctx.author.name} in {ctx.guild.name}")
 
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to kick this user!")
@@ -4746,7 +4608,11 @@ async def kick_user(ctx, member: discord.Member, *, reason: str = "No reason pro
 @bot.command(name="ban")
 @commands.has_permissions(ban_members=True)
 async def ban_user(ctx, member: discord.Member, *, reason: str = "No reason provided"):
-    """Ban a user from the server"""
+    """
+    Ban a user from the server (Moderators/Exempt users only)
+    Usage: !ban @user Reason
+    """
+    # Check if user is moderator/exempt
     if not is_user_moderator(ctx.author.id, ctx.guild.id):
         if not ctx.author.guild_permissions.ban_members:
             return await ctx.send("❌ You don't have permission to use this command!")
@@ -4764,6 +4630,7 @@ async def ban_user(ctx, member: discord.Member, *, reason: str = "No reason prov
         return await ctx.send("❌ You cannot ban someone with equal or higher roles!")
 
     try:
+        # Try to DM before banning
         try:
             dm_embed = discord.Embed(
                 title=f"🔨 You've been banned from {ctx.guild.name}",
@@ -4784,13 +4651,13 @@ async def ban_user(ctx, member: discord.Member, *, reason: str = "No reason prov
             timestamp=datetime.now()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="👤 User", value=f"{member.name}", inline=True)
+        embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
         embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
         embed.add_field(name="📝 Reason", value=reason, inline=False)
         embed.set_footer(text=f"User ID: {member.id}")
 
         await ctx.send(embed=embed)
-        print(f"[BAN] {member.name} banned by {ctx.author.name}")
+        print(f"[BAN] {member.name} banned by {ctx.author.name} in {ctx.guild.name}")
 
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to ban this user!")
@@ -4801,7 +4668,12 @@ async def ban_user(ctx, member: discord.Member, *, reason: str = "No reason prov
 @bot.command(name="purge")
 @commands.has_permissions(manage_messages=True)
 async def purge_messages(ctx, amount: int, member: discord.Member = None):
-    """Delete messages"""
+    """
+    Delete messages (Moderators/Exempt users only)
+    Usage: !purge 10 - Delete last 10 messages
+           !purge 50 @user - Delete last 50 messages from specific user
+    """
+    # Check if user is moderator/exempt
     if not is_user_moderator(ctx.author.id, ctx.guild.id):
         if not ctx.author.guild_permissions.manage_messages:
             return await ctx.send("❌ You don't have permission to use this command!")
@@ -4813,19 +4685,23 @@ async def purge_messages(ctx, amount: int, member: discord.Member = None):
         return await ctx.send("❌ Cannot delete more than 100 messages at once!")
 
     try:
+        # Delete command message first
         await ctx.message.delete()
 
         if member:
+            # Delete messages from specific user
             deleted = await ctx.channel.purge(limit=amount, check=lambda m: m.author == member)
             msg = await ctx.send(f"✅ Deleted {len(deleted)} messages from {member.mention}")
         else:
+            # Delete any messages
             deleted = await ctx.channel.purge(limit=amount)
             msg = await ctx.send(f"✅ Deleted {len(deleted)} messages")
 
+        # Auto-delete confirmation after 5 seconds
         await asyncio.sleep(5)
         await msg.delete()
 
-        print(f"[PURGE] {len(deleted)} messages deleted by {ctx.author.name}")
+        print(f"[PURGE] {len(deleted)} messages deleted by {ctx.author.name} in {ctx.guild.name}")
 
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to delete messages!")
@@ -4836,7 +4712,12 @@ async def purge_messages(ctx, amount: int, member: discord.Member = None):
 @bot.command(name="slowmode")
 @commands.has_permissions(manage_channels=True)
 async def set_slowmode(ctx, seconds: int = 0):
-    """Set slowmode for current channel"""
+    """
+    Set slowmode for current channel (Moderators/Exempt users only)
+    Usage: !slowmode 5 - Set 5 second slowmode
+           !slowmode 0 - Disable slowmode
+    """
+    # Check if user is moderator/exempt
     if not is_user_moderator(ctx.author.id, ctx.guild.id):
         if not ctx.author.guild_permissions.manage_channels:
             return await ctx.send("❌ You don't have permission to use this command!")
@@ -4844,7 +4725,7 @@ async def set_slowmode(ctx, seconds: int = 0):
     if seconds < 0:
         return await ctx.send("❌ Slowmode must be 0 or positive!")
 
-    if seconds > 21600:
+    if seconds > 21600:  # Max 6 hours
         return await ctx.send("❌ Maximum slowmode is 21600 seconds (6 hours)!")
 
     try:
@@ -4867,7 +4748,7 @@ async def set_slowmode(ctx, seconds: int = 0):
         embed.set_footer(text=f"Channel ID: {ctx.channel.id}")
 
         await ctx.send(embed=embed)
-        print(f"[SLOWMODE] Set to {seconds}s by {ctx.author.name}")
+        print(f"[SLOWMODE] Set to {seconds}s by {ctx.author.name} in {ctx.channel.name}")
 
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to manage this channel!")
@@ -4875,9 +4756,16 @@ async def set_slowmode(ctx, seconds: int = 0):
         await ctx.send(f"❌ Error: {str(e)}")
 
 
+# ============================================
+# MODERATION INFO COMMANDS
+# ============================================
+
 @bot.command(name="modhelp")
 async def mod_help(ctx):
-    """Show all moderation commands"""
+    """
+    Show all moderation commands
+    Usage: !modhelp
+    """
     embed = discord.Embed(
         title="🛡️ Moderation Commands",
         description="Available commands for moderators and exempt users",
@@ -4920,8 +4808,7 @@ async def mod_help(ctx):
         value=(
             "`!automod status` - View automod status\n"
             "`!enableautomod` - Enable automod\n"
-            "`!testfilter word` - Test word detection\n"
-            "`!listfilters` - List all filters"
+            "`!automod_exempt list` - View exempt users"
         ),
         inline=False
     )
@@ -4931,9 +4818,241 @@ async def mod_help(ctx):
     await ctx.send(embed=embed)
 
 
+# ============================================
+# ENHANCED AUTOMOD STATUS COMMAND
+# ============================================
+
+@bot.command(name="automod")
+async def manage_automod(ctx, action: str = None, server_id: int = None):
+    """
+    Manage auto-moderation settings
+    Usage:
+        !automod status - Show current status
+        !automod enable - Enable for current server (adds to hardcoded config)
+        !automod disable - Disable for current server
+    """
+    if ctx.guild is None:
+        return await ctx.send("❌ This command must be used in a server.")
+
+    author_id = int(ctx.author.id)
+    current_guild_id = int(ctx.guild.id)
+
+    # Only master can manage automod
+    if author_id != MASTER_ID:
+        error_embed = discord.Embed(
+            title="❌ Access Denied",
+            description="Only the master user can manage auto-moderation settings.",
+            color=0xff0000
+        )
+        return await ctx.send(embed=error_embed)
+
+    # Show current status
+    if action is None or action.lower() == "status":
+        target_guild = server_id if server_id else current_guild_id
+
+        # Get status from both sources
+        api_enabled = get_automod_enabled_status(target_guild)
+        hardcoded_enabled = AUTOMOD_ENABLED_GUILDS.get(target_guild, False)
+        combined_enabled = get_combined_automod_enabled(target_guild)
+
+        # Get words and exempt users
+        api_words = get_automod_words(str(target_guild))
+        api_exempt = get_allowed_users_list(str(target_guild))
+        all_exempt = get_combined_exempt_users(target_guild)
+
+        status_embed = discord.Embed(
+            title="🤖 Auto-Moderation Status",
+            description=f"Configuration for **{ctx.guild.name}**",
+            color=0x00ff00 if combined_enabled else 0xff6b6b
+        )
+
+        # Overall Status
+        status_icon = "🟢" if combined_enabled else "🔴"
+        status_text = "**ACTIVE**" if combined_enabled else "**DISABLED**"
+        status_embed.add_field(
+            name="📊 Overall Status",
+            value=f"{status_icon} {status_text}",
+            inline=False
+        )
+
+        # Configuration Sources
+        sources = []
+        if hardcoded_enabled:
+            sources.append("✅ Hardcoded Config")
+        else:
+            sources.append("❌ Hardcoded Config")
+
+        if api_enabled:
+            sources.append("✅ API Enabled")
+        else:
+            sources.append("❌ API Enabled")
+
+        status_embed.add_field(
+            name="🔧 Configuration Sources",
+            value="\n".join(sources),
+            inline=True
+        )
+
+        status_embed.add_field(
+            name="⏰ Timeout Duration",
+            value="24 hours",
+            inline=True
+        )
+
+        # Filter Details
+        status_embed.add_field(
+            name="🔍 Active Filters",
+            value=(
+                f"**Built-in N-word:** {len(BUILTIN_NWORD_VARIATIONS)} variations\n"
+                f"**Custom API words:** {len(api_words)} configured\n"
+                f"**Total:** {len(BUILTIN_NWORD_VARIATIONS) + len(api_words)} banned words"
+            ),
+            inline=False
+        )
+
+        # Exempt Users
+        status_embed.add_field(
+            name="🛡️ Protected Users",
+            value=(
+                f"**Hardcoded:** {len(AUTOMOD_EXEMPT_USERS)} users\n"
+                f"**API:** {len(api_exempt)} users\n"
+                f"**Total:** {len(all_exempt)} (no duplicates)"
+            ),
+            inline=False
+        )
+
+        # Show custom words preview if any
+        if api_words:
+            preview_words = api_words[:5]
+            preview_text = "• " + "\n".join(f"`{word}`" for word in preview_words)
+            if len(api_words) > 5:
+                preview_text += f"\n... and {len(api_words) - 5} more"
+            status_embed.add_field(
+                name="📝 Custom API Words (Preview)",
+                value=preview_text,
+                inline=False
+            )
+
+        # Instructions
+        if not combined_enabled:
+            status_embed.add_field(
+                name="🔧 How to Enable",
+                value=(
+                    "**Option 1 (Hardcoded):** Use `!automod enable` (instant)\n"
+                    "**Option 2 (API):** Use the admin panel to enable automod\n"
+                    "**Option 3 (API):** Add a custom word via API (auto-enables)\n\n"
+                    f"**Your Guild ID:** `{target_guild}`"
+                ),
+                inline=False
+            )
+
+        status_embed.set_footer(text="API changes sync automatically • No restart needed")
+        return await ctx.send(embed=status_embed)
+
+    # Enable automod (adds to hardcoded config)
+    elif action.lower() == "enable":
+        AUTOMOD_ENABLED_GUILDS[current_guild_id] = True
+
+        embed = discord.Embed(
+            title="✅ Automod Enabled",
+            description=f"Auto-moderation is now **ACTIVE** for {ctx.guild.name}",
+            color=0x00ff00
+        )
+        embed.add_field(
+            name="⚡ Changes Applied",
+            value=(
+                "• Added to hardcoded enabled guilds\n"
+                "• Built-in N-word filter active\n"
+                "• 24-hour timeout on violations\n"
+                "• Takes effect immediately"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="📝 Note",
+            value="This setting is stored in bot code. For persistent API-based config, use the admin panel.",
+            inline=False
+        )
+        embed.set_footer(text=f"Guild ID: {current_guild_id}")
+
+        print(f"[AUTOMOD] Enabled for guild {current_guild_id} ({ctx.guild.name})")
+        return await ctx.send(embed=embed)
+
+    # Disable automod
+    elif action.lower() == "disable":
+        if current_guild_id in AUTOMOD_ENABLED_GUILDS:
+            del AUTOMOD_ENABLED_GUILDS[current_guild_id]
+
+        # Note: This only disables hardcoded. If API is enabled, it will still be active
+        api_enabled = get_automod_enabled_status(current_guild_id)
+
+        embed = discord.Embed(
+            title="⚠️ Automod Disabled (Hardcoded)",
+            description=f"Hardcoded automod setting removed for {ctx.guild.name}",
+            color=0xff9900
+        )
+
+        if api_enabled:
+            embed.add_field(
+                name="⚠️ Important",
+                value="**API automod is still ENABLED** for this server.\nAutomod will remain active until you disable it via API.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="✅ Status",
+                value="Auto-moderation is now **DISABLED** for this server.",
+                inline=False
+            )
+
+        embed.set_footer(text=f"Guild ID: {current_guild_id}")
+        return await ctx.send(embed=embed)
+
+    else:
+        return await ctx.send(f"❌ Invalid action. Use: `!automod status`, `!automod enable`, or `!automod disable`")
+
+
+@bot.command(name="enableautomod")
+async def quick_enable_automod(ctx):
+    """
+    Quick command to enable automod for current server
+    Usage: !enableautomod
+    """
+    if ctx.author.id != MASTER_ID:
+        return await ctx.send("❌ Master only command")
+
+    if not ctx.guild:
+        return await ctx.send("❌ Use this command in a server")
+
+    guild_id = ctx.guild.id
+    AUTOMOD_ENABLED_GUILDS[guild_id] = True
+
+    embed = discord.Embed(
+        title="✅ Automod Enabled!",
+        description=f"Auto-moderation is now active for **{ctx.guild.name}**",
+        color=0x00ff00
+    )
+    embed.add_field(
+        name="🔍 Active Filters",
+        value=f"• Built-in N-word filter ({len(BUILTIN_NWORD_VARIATIONS)} variations)\n• 24-hour timeout\n• Instant activation",
+        inline=False
+    )
+    embed.add_field(
+        name="💡 Tip",
+        value="Use `!automod status` to see detailed configuration",
+        inline=False
+    )
+
+    await ctx.send(embed=embed)
+    print(f"[AUTOMOD] Quick-enabled for {ctx.guild.name} ({guild_id})")
+
+
 @bot.command(name="guildid")
 async def get_guild_id(ctx):
-    """Get the current guild ID"""
+    """
+    Get the current guild ID (for configuration)
+    Usage: !guildid
+    """
     if not ctx.guild:
         return await ctx.send("❌ This command must be used in a server")
 
@@ -4958,45 +5077,6 @@ async def get_guild_id(ctx):
         embed.set_thumbnail(url=ctx.guild.icon.url)
 
     await ctx.send(embed=embed)
-
-
-# ============================================
-# BOT EVENTS
-# ============================================
-
-@bot.event
-async def on_ready():
-    """Called when bot is ready"""
-    print(f"✅ Bot is online as {bot.user}")
-    print(f"📊 Connected to {len(bot.guilds)} guild(s)")
-    print(f"🔍 Automod enabled for {len(AUTOMOD_ENABLED_GUILDS)} hardcoded guild(s)")
-    print(f"🛡️ {len(AUTOMOD_EXEMPT_USERS)} exempt users configured")
-    print(f"📝 {len(BUILTIN_NWORD_VARIATIONS)} built-in filter words loaded")
-    print("=" * 50)
-
-    # Set bot status
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="for rule violations | !modhelp"
-        )
-    )
-
-
-@bot.event
-async def on_command_error(ctx, error):
-    """Global error handler"""
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command!")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Missing required argument: `{error.param.name}`")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Invalid argument provided!")
-    elif isinstance(error, commands.CommandNotFound):
-        pass  # Ignore unknown commands
-    else:
-        print(f"[ERROR] {type(error).__name__}: {error}")
-        await ctx.send("❌ An error occurred while executing the command!")
 
 
 # ============================================
