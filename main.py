@@ -145,7 +145,7 @@ async def set_welcome_channel(ctx, channel: discord.TextChannel):
 
     # Update via API
     try:
-        API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8080')
+        API_BASE_URL = os.getenv('API_BASE_URL')
         API_KEY = os.getenv('API_KEY')
 
         response = requests.post(
