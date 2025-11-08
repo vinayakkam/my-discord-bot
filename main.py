@@ -3911,198 +3911,6 @@ async def personal_stats(ctx):
 
 MASTER_ID = 814791086114865233  # make sure this is an int, no quotes
 
-# Map of guild_id -> list of allowed user IDs (multiple users can access same server)
-GUILD_USER_MAP = {
-    1210475350119813120: [814791086114865233,827552324389175297],  # Multiple users for server 1
-    1397218218535424090: [1085236492571529287, 948973975353057341, 1418946895816167475, 1343933090191376446, 1357772900916138219],
-    1411425019434766499: [1187981682280775733,827552324389175297],
-    1341485158129205278: [1187981682280775733,827552324389175297],# Multiple users for server 2
-    # You can add more servers with their allowed user lists
-    # 1234567890123456789: [111111111111111111, 222222222222222222],  # Example server 3
-}
-
-ALLOWED_GUILDS = set(GUILD_USER_MAP.keys())
-
-
-@bot.command(name="timeout")
-async def timeout(ctx, member: discord.Member, hours: int = 24):
-    # Must be used in a guild (not DM)
-    if ctx.guild is None:
-        return await ctx.send("❌ This command must be used in a server (not DMs).")
-
-    author_id = int(ctx.author.id)
-    member_id = int(member.id)
-    guild_id = int(ctx.guild.id)
-
-    # DEBUG: uncomment if you want to see values in console for troubleshooting
-    # print(f"[timeout] author={author_id}, member={member_id}, guild={guild_id}, MASTER={MASTER_ID}")
-
-    # 1) First check if server is allowed
-    if guild_id not in ALLOWED_GUILDS:
-        error_embed = discord.Embed(
-            title="❌ Server Not Authorized",
-            description="This command can only be used in designated servers.",
-            color=0xff0000
-        )
-        return await ctx.send(embed=error_embed)
-
-    # 2) Check if author is allowed in this guild (except master)
-    allowed_users = GUILD_USER_MAP.get(guild_id, [])
-    if author_id != MASTER_ID and author_id not in allowed_users:
-        error_embed = discord.Embed(
-            title="❌ Access Denied",
-            description="You are not allowed to use this command in this server.",
-            color=0xff0000
-        )
-        error_embed.set_thumbnail(url=ctx.author.display_avatar.url)
-        return await ctx.send(embed=error_embed)
-
-    # 3) Block attempts to timeout the master user
-    if member_id == MASTER_ID:
-        master_embed = discord.Embed(
-            title="👑 Cannot Target Master",
-            description="You can't timeout the master!",
-            color=0xffd700  # Gold color
-        )
-        master_embed.set_thumbnail(url=member.display_avatar.url)
-        return await ctx.send(embed=master_embed)
-
-    # 4) Block master from timing out anyone (if you want this behavior)
-    # Remove this section if you want the master to be able to use the command
-
-    # 5) Perform timeout / remove timeout
-    try:
-        if hours <= 0:
-            await member.timeout(None, reason=f"Timeout removed by {ctx.author}")
-
-            # Create embed for timeout removal
-            embed = discord.Embed(
-                title="🔓 Timeout Removed",
-                description=f"{member.mention} has been freed from timeout!",
-                color=0x00ff00,  # Green color
-                timestamp=ctx.message.created_at
-            )
-            embed.set_thumbnail(url=member.display_avatar.url)
-            embed.add_field(name="User", value=f"{member.name}#{member.discriminator}", inline=True)
-            embed.add_field(name="Moderator", value=f"{ctx.author.mention}", inline=True)
-            embed.add_field(name="Server", value=f"{ctx.guild.name}", inline=False)
-            embed.set_footer(text=f"User ID: {member.id}")
-
-            await ctx.send(embed=embed)
-
-        else:
-            # Discord has a maximum timeout of 28 days
-            max_hours = 28 * 24  # 28 days in hours
-            original_hours = hours
-            if hours > max_hours:
-                hours = max_hours
-
-            duration = timedelta(hours=hours)
-            await member.timeout(duration, reason=f"Timed out by {ctx.author}")
-
-            # Create embed for timeout
-            embed = discord.Embed(
-                title="🔇 User Timed Out",
-                description=f"{member.mention} has been placed in timeout",
-                color=0xff6b6b,  # Red color
-                timestamp=ctx.message.created_at
-            )
-            embed.set_thumbnail(url=member.display_avatar.url)
-            embed.add_field(name="User", value=f"{member.name}#{member.discriminator}", inline=True)
-            embed.add_field(name="Duration", value=f"{hours} hours", inline=True)
-            embed.add_field(name="Moderator", value=f"{ctx.author.mention}", inline=True)
-
-            # Calculate when timeout ends
-            end_time = ctx.message.created_at + duration
-            embed.add_field(name="Ends At", value=f"<t:{int(end_time.timestamp())}:F>", inline=True)
-            embed.add_field(name="Server", value=f"{ctx.guild.name}", inline=True)
-            embed.add_field(name="​", value="​", inline=True)  # Empty field for spacing
-
-            embed.set_footer(text=f"User ID: {member.id}")
-
-            # Add warning if hours were capped
-            if original_hours > max_hours:
-                embed.add_field(
-                    name="⚠️ Note",
-                    value=f"Requested {original_hours} hours, but maximum is {max_hours} hours (28 days)",
-                    inline=False
-                )
-
-            await ctx.send(embed=embed)
-
-    except discord.Forbidden:
-        error_embed = discord.Embed(
-            title="❌ Permission Error",
-            description="I don't have permission or my role is too low to timeout this member.",
-            color=0xff0000
-        )
-        error_embed.set_thumbnail(url=member.display_avatar.url)
-        await ctx.send(embed=error_embed)
-
-    except discord.HTTPException as e:
-        if e.status == 50013:  # Missing permissions
-            error_embed = discord.Embed(
-                title="❌ Permission Error",
-                description="I don't have the required permissions to timeout this member.",
-                color=0xff0000
-            )
-        else:
-            error_embed = discord.Embed(
-                title="❌ Discord API Error",
-                description=f"Discord API error: {e}",
-                color=0xff0000
-            )
-        error_embed.set_thumbnail(url=member.display_avatar.url)
-        await ctx.send(embed=error_embed)
-
-    except Exception as e:
-        error_embed = discord.Embed(
-            title="❌ Unexpected Error",
-            description=f"Could not update timeout for {member.mention}",
-            color=0xff0000
-        )
-        error_embed.add_field(name="Error Details", value=str(e), inline=False)
-        error_embed.set_thumbnail(url=member.display_avatar.url)
-        await ctx.send(embed=error_embed)
-
-
-# Optional: Add a command to check who can use timeout in current server
-@bot.command(name="timeout_users")
-async def timeout_users(ctx):
-    """Show which users can use the timeout command in this server"""
-    if ctx.guild is None:
-        return await ctx.send("❌ This command must be used in a server (not DMs).")
-
-    guild_id = int(ctx.guild.id)
-    author_id = int(ctx.author.id)
-
-    # Only allow master or authorized users to see this info
-    allowed_users = GUILD_USER_MAP.get(guild_id, [])
-    if author_id != MASTER_ID and author_id not in allowed_users:
-        return await ctx.send("❌ You are not allowed to use this command in this server.")
-
-    if guild_id not in ALLOWED_GUILDS:
-        return await ctx.send("❌ This server is not configured for timeout commands.")
-
-    user_mentions = []
-    for user_id in allowed_users:
-        try:
-            user = await bot.fetch_user(user_id)
-            user_mentions.append(f"• {user.mention} ({user.name})")
-        except:
-            user_mentions.append(f"• User ID: {user_id} (user not found)")
-
-    if user_mentions:
-        embed = discord.Embed(
-            title="Authorized Timeout Users",
-            description="\n".join(user_mentions),
-            color=0x00ff00
-        )
-        await ctx.send(embed=embed)
-    else:
-        await ctx.send("❌ No users are configured for this server.")
-
-
 # ============================================
 # FIXED AUTOMOD CONFIGURATION
 # ============================================
@@ -4134,7 +3942,7 @@ AUTOMOD_EXEMPT_USERS = [
 BUILTIN_NWORD_VARIATIONS = [
     'nigger', 'nigga', 'n1gger', 'n1gga', 'nig ger', 'nig ga',
     'n-word', 'nword', 'n word', 'nigg3r', 'nigg4', 'n!gger',
-    'n!gga', 'niqqer', 'niqqa', 'niggеr', 'niggа'
+    '!gga', 'niqqer', 'niqqa', 'niggеr', 'niggа'
 ]
 
 
@@ -4167,6 +3975,487 @@ def get_combined_exempt_users(guild_id):
     # Merge with hardcoded (no duplicates)
     combined = list(set(AUTOMOD_EXEMPT_USERS + api_exempt_ids))
     return combined
+
+
+def is_user_moderator(user_id, guild_id):
+    """
+    Check if a user is a moderator (exempt user or has permissions)
+    """
+    # Check if user is in exempt list
+    exempt_users = get_combined_exempt_users(guild_id)
+    return int(user_id) in exempt_users or int(user_id) == MASTER_ID
+
+
+# ============================================
+# MODERATION COMMANDS (For Exempt Users)
+# ============================================
+
+@bot.command(name="timeout")
+@commands.has_permissions(moderate_members=True)
+async def timeout_user(ctx, member: discord.Member, duration: str, *, reason: str = "No reason provided"):
+    """
+    Timeout a user (Moderators/Exempt users only)
+    Usage: !timeout @user 1h Reason
+           !timeout @user 30m Spamming
+           !timeout @user 1d Inappropriate behavior
+
+    Duration formats: 1m, 30m, 1h, 12h, 1d, 7d
+    """
+    # Check if user is moderator/exempt
+    if not is_user_moderator(ctx.author.id, ctx.guild.id):
+        if not ctx.author.guild_permissions.moderate_members:
+            return await ctx.send("❌ You don't have permission to use this command!")
+
+    # Parse duration
+    duration_mapping = {
+        'm': 60,  # minutes
+        'h': 3600,  # hours
+        'd': 86400  # days
+    }
+
+    try:
+        time_value = int(duration[:-1])
+        time_unit = duration[-1].lower()
+
+        if time_unit not in duration_mapping:
+            return await ctx.send("❌ Invalid duration format! Use: 1m, 1h, or 1d")
+
+        seconds = time_value * duration_mapping[time_unit]
+        timeout_duration = timedelta(seconds=seconds)
+
+        # Discord max timeout is 28 days
+        if seconds > 2419200:  # 28 days in seconds
+            return await ctx.send("❌ Maximum timeout duration is 28 days!")
+
+    except (ValueError, IndexError):
+        return await ctx.send("❌ Invalid duration format! Use: 1m, 30m, 1h, 12h, 1d, 7d")
+
+    # Check if trying to timeout bot owner or moderators
+    if member.id == ctx.guild.owner_id:
+        return await ctx.send("❌ Cannot timeout the server owner!")
+
+    if member.id == MASTER_ID:
+        return await ctx.send("❌ Cannot timeout the bot master!")
+
+    if is_user_moderator(member.id, ctx.guild.id):
+        return await ctx.send("❌ Cannot timeout other moderators!")
+
+    # Check hierarchy
+    if member.top_role >= ctx.author.top_role:
+        return await ctx.send("❌ You cannot timeout someone with equal or higher roles!")
+
+    try:
+        await member.timeout(timeout_duration, reason=f"{reason} (by {ctx.author.name})")
+
+        # Create embed
+        end_time = datetime.now() + timeout_duration
+        embed = discord.Embed(
+            title="⏰ User Timed Out",
+            description=f"{member.mention} has been timed out",
+            color=0xff9900,
+            timestamp=datetime.now()
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
+        embed.add_field(name="⏱️ Duration", value=duration, inline=True)
+        embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
+        embed.add_field(name="📝 Reason", value=reason, inline=False)
+        embed.add_field(name="🔚 Ends At", value=f"<t:{int(end_time.timestamp())}:F>", inline=False)
+        embed.set_footer(text=f"User ID: {member.id}")
+
+        await ctx.send(embed=embed)
+
+        # Try to DM the user
+        try:
+            dm_embed = discord.Embed(
+                title=f"⏰ You've been timed out in {ctx.guild.name}",
+                description=f"**Duration:** {duration}\n**Reason:** {reason}",
+                color=0xff9900
+            )
+            dm_embed.add_field(name="⏰ Timeout Ends", value=f"<t:{int(end_time.timestamp())}:R>", inline=False)
+            dm_embed.set_footer(text="Please follow server rules to avoid future timeouts")
+            await member.send(embed=dm_embed)
+        except:
+            pass  # User has DMs disabled
+
+        print(f"[TIMEOUT] {member.name} timed out for {duration} by {ctx.author.name} in {ctx.guild.name}")
+
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to timeout this user!")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)}")
+
+
+@bot.command(name="untimeout")
+@commands.has_permissions(moderate_members=True)
+async def untimeout_user(ctx, member: discord.Member, *, reason: str = "No reason provided"):
+    """
+    Remove timeout from a user (Moderators/Exempt users only)
+    Usage: !untimeout @user Reason
+    """
+    # Check if user is moderator/exempt
+    if not is_user_moderator(ctx.author.id, ctx.guild.id):
+        if not ctx.author.guild_permissions.moderate_members:
+            return await ctx.send("❌ You don't have permission to use this command!")
+
+    try:
+        if not member.timed_out:
+            return await ctx.send(f"❌ {member.mention} is not timed out!")
+
+        await member.timeout(None, reason=f"{reason} (by {ctx.author.name})")
+
+        embed = discord.Embed(
+            title="✅ Timeout Removed",
+            description=f"{member.mention}'s timeout has been removed",
+            color=0x00ff00,
+            timestamp=datetime.now()
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
+        embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
+        embed.add_field(name="📝 Reason", value=reason, inline=False)
+        embed.set_footer(text=f"User ID: {member.id}")
+
+        await ctx.send(embed=embed)
+
+        # Try to DM the user
+        try:
+            dm_embed = discord.Embed(
+                title=f"✅ Your timeout has been removed in {ctx.guild.name}",
+                description=f"**Reason:** {reason}",
+                color=0x00ff00
+            )
+            dm_embed.set_footer(text="Remember to follow server rules")
+            await member.send(embed=dm_embed)
+        except:
+            pass
+
+        print(f"[UNTIMEOUT] {member.name} untimeouted by {ctx.author.name} in {ctx.guild.name}")
+
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to remove timeout from this user!")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)}")
+
+
+@bot.command(name="warn")
+async def warn_user(ctx, member: discord.Member, *, reason: str = "No reason provided"):
+    """
+    Warn a user (Moderators/Exempt users only)
+    Usage: !warn @user Reason
+    """
+    # Check if user is moderator/exempt
+    if not is_user_moderator(ctx.author.id, ctx.guild.id):
+        if not ctx.author.guild_permissions.moderate_members:
+            return await ctx.send("❌ You don't have permission to use this command!")
+
+    if member.id == MASTER_ID:
+        return await ctx.send("❌ Cannot warn the bot master!")
+
+    if member.id == ctx.guild.owner_id:
+        return await ctx.send("❌ Cannot warn the server owner!")
+
+    embed = discord.Embed(
+        title="⚠️ User Warned",
+        description=f"{member.mention} has been warned",
+        color=0xffaa00,
+        timestamp=datetime.now()
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
+    embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
+    embed.add_field(name="📝 Reason", value=reason, inline=False)
+    embed.set_footer(text=f"User ID: {member.id}")
+
+    await ctx.send(embed=embed)
+
+    # Try to DM the user
+    try:
+        dm_embed = discord.Embed(
+            title=f"⚠️ You've been warned in {ctx.guild.name}",
+            description=f"**Reason:** {reason}",
+            color=0xffaa00
+        )
+        dm_embed.set_footer(text="Please follow server rules to avoid further action")
+        await member.send(embed=dm_embed)
+        await ctx.send(f"✅ {member.mention} has been notified via DM")
+    except:
+        await ctx.send("⚠️ Could not DM user (DMs disabled)")
+
+    print(f"[WARN] {member.name} warned by {ctx.author.name} in {ctx.guild.name}: {reason}")
+
+
+@bot.command(name="kick")
+@commands.has_permissions(kick_members=True)
+async def kick_user(ctx, member: discord.Member, *, reason: str = "No reason provided"):
+    """
+    Kick a user from the server (Moderators/Exempt users only)
+    Usage: !kick @user Reason
+    """
+    # Check if user is moderator/exempt
+    if not is_user_moderator(ctx.author.id, ctx.guild.id):
+        if not ctx.author.guild_permissions.kick_members:
+            return await ctx.send("❌ You don't have permission to use this command!")
+
+    if member.id == ctx.guild.owner_id:
+        return await ctx.send("❌ Cannot kick the server owner!")
+
+    if member.id == MASTER_ID:
+        return await ctx.send("❌ Cannot kick the bot master!")
+
+    if is_user_moderator(member.id, ctx.guild.id):
+        return await ctx.send("❌ Cannot kick other moderators!")
+
+    if member.top_role >= ctx.author.top_role:
+        return await ctx.send("❌ You cannot kick someone with equal or higher roles!")
+
+    try:
+        # Try to DM before kicking
+        try:
+            dm_embed = discord.Embed(
+                title=f"👢 You've been kicked from {ctx.guild.name}",
+                description=f"**Reason:** {reason}",
+                color=0xff0000
+            )
+            dm_embed.set_footer(text="You can rejoin with a valid invite link")
+            await member.send(embed=dm_embed)
+        except:
+            pass
+
+        await member.kick(reason=f"{reason} (by {ctx.author.name})")
+
+        embed = discord.Embed(
+            title="👢 User Kicked",
+            description=f"{member.mention} has been kicked from the server",
+            color=0xff0000,
+            timestamp=datetime.now()
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
+        embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
+        embed.add_field(name="📝 Reason", value=reason, inline=False)
+        embed.set_footer(text=f"User ID: {member.id}")
+
+        await ctx.send(embed=embed)
+        print(f"[KICK] {member.name} kicked by {ctx.author.name} in {ctx.guild.name}")
+
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to kick this user!")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)}")
+
+
+@bot.command(name="ban")
+@commands.has_permissions(ban_members=True)
+async def ban_user(ctx, member: discord.Member, *, reason: str = "No reason provided"):
+    """
+    Ban a user from the server (Moderators/Exempt users only)
+    Usage: !ban @user Reason
+    """
+    # Check if user is moderator/exempt
+    if not is_user_moderator(ctx.author.id, ctx.guild.id):
+        if not ctx.author.guild_permissions.ban_members:
+            return await ctx.send("❌ You don't have permission to use this command!")
+
+    if member.id == ctx.guild.owner_id:
+        return await ctx.send("❌ Cannot ban the server owner!")
+
+    if member.id == MASTER_ID:
+        return await ctx.send("❌ Cannot ban the bot master!")
+
+    if is_user_moderator(member.id, ctx.guild.id):
+        return await ctx.send("❌ Cannot ban other moderators!")
+
+    if member.top_role >= ctx.author.top_role:
+        return await ctx.send("❌ You cannot ban someone with equal or higher roles!")
+
+    try:
+        # Try to DM before banning
+        try:
+            dm_embed = discord.Embed(
+                title=f"🔨 You've been banned from {ctx.guild.name}",
+                description=f"**Reason:** {reason}",
+                color=0x000000
+            )
+            dm_embed.set_footer(text="Contact server moderators to appeal")
+            await member.send(embed=dm_embed)
+        except:
+            pass
+
+        await member.ban(reason=f"{reason} (by {ctx.author.name})", delete_message_days=1)
+
+        embed = discord.Embed(
+            title="🔨 User Banned",
+            description=f"{member.mention} has been banned from the server",
+            color=0x000000,
+            timestamp=datetime.now()
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.add_field(name="👤 User", value=f"{member.name}#{member.discriminator}", inline=True)
+        embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
+        embed.add_field(name="📝 Reason", value=reason, inline=False)
+        embed.set_footer(text=f"User ID: {member.id}")
+
+        await ctx.send(embed=embed)
+        print(f"[BAN] {member.name} banned by {ctx.author.name} in {ctx.guild.name}")
+
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to ban this user!")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)}")
+
+
+@bot.command(name="purge")
+@commands.has_permissions(manage_messages=True)
+async def purge_messages(ctx, amount: int, member: discord.Member = None):
+    """
+    Delete messages (Moderators/Exempt users only)
+    Usage: !purge 10 - Delete last 10 messages
+           !purge 50 @user - Delete last 50 messages from specific user
+    """
+    # Check if user is moderator/exempt
+    if not is_user_moderator(ctx.author.id, ctx.guild.id):
+        if not ctx.author.guild_permissions.manage_messages:
+            return await ctx.send("❌ You don't have permission to use this command!")
+
+    if amount < 1:
+        return await ctx.send("❌ Amount must be at least 1!")
+
+    if amount > 100:
+        return await ctx.send("❌ Cannot delete more than 100 messages at once!")
+
+    try:
+        # Delete command message first
+        await ctx.message.delete()
+
+        if member:
+            # Delete messages from specific user
+            deleted = await ctx.channel.purge(limit=amount, check=lambda m: m.author == member)
+            msg = await ctx.send(f"✅ Deleted {len(deleted)} messages from {member.mention}")
+        else:
+            # Delete any messages
+            deleted = await ctx.channel.purge(limit=amount)
+            msg = await ctx.send(f"✅ Deleted {len(deleted)} messages")
+
+        # Auto-delete confirmation after 5 seconds
+        await asyncio.sleep(5)
+        await msg.delete()
+
+        print(f"[PURGE] {len(deleted)} messages deleted by {ctx.author.name} in {ctx.guild.name}")
+
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to delete messages!")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)}")
+
+
+@bot.command(name="slowmode")
+@commands.has_permissions(manage_channels=True)
+async def set_slowmode(ctx, seconds: int = 0):
+    """
+    Set slowmode for current channel (Moderators/Exempt users only)
+    Usage: !slowmode 5 - Set 5 second slowmode
+           !slowmode 0 - Disable slowmode
+    """
+    # Check if user is moderator/exempt
+    if not is_user_moderator(ctx.author.id, ctx.guild.id):
+        if not ctx.author.guild_permissions.manage_channels:
+            return await ctx.send("❌ You don't have permission to use this command!")
+
+    if seconds < 0:
+        return await ctx.send("❌ Slowmode must be 0 or positive!")
+
+    if seconds > 21600:  # Max 6 hours
+        return await ctx.send("❌ Maximum slowmode is 21600 seconds (6 hours)!")
+
+    try:
+        await ctx.channel.edit(slowmode_delay=seconds)
+
+        if seconds == 0:
+            embed = discord.Embed(
+                title="🚫 Slowmode Disabled",
+                description=f"Slowmode has been disabled in {ctx.channel.mention}",
+                color=0x00ff00
+            )
+        else:
+            embed = discord.Embed(
+                title="⏱️ Slowmode Enabled",
+                description=f"Slowmode set to **{seconds} seconds** in {ctx.channel.mention}",
+                color=0x3498db
+            )
+
+        embed.add_field(name="👮 Moderator", value=ctx.author.mention, inline=True)
+        embed.set_footer(text=f"Channel ID: {ctx.channel.id}")
+
+        await ctx.send(embed=embed)
+        print(f"[SLOWMODE] Set to {seconds}s by {ctx.author.name} in {ctx.channel.name}")
+
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to manage this channel!")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)}")
+
+
+# ============================================
+# MODERATION INFO COMMANDS
+# ============================================
+
+@bot.command(name="modhelp")
+async def mod_help(ctx):
+    """
+    Show all moderation commands
+    Usage: !modhelp
+    """
+    embed = discord.Embed(
+        title="🛡️ Moderation Commands",
+        description="Available commands for moderators and exempt users",
+        color=0x3498db
+    )
+
+    embed.add_field(
+        name="⏰ Timeout Management",
+        value=(
+            "`!timeout @user 1h reason` - Timeout user\n"
+            "`!untimeout @user reason` - Remove timeout\n"
+            "Duration formats: 1m, 30m, 1h, 12h, 1d, 7d"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚠️ Warnings & Actions",
+        value=(
+            "`!warn @user reason` - Warn a user\n"
+            "`!kick @user reason` - Kick from server\n"
+            "`!ban @user reason` - Ban from server"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🧹 Channel Management",
+        value=(
+            "`!purge 10` - Delete 10 messages\n"
+            "`!purge 50 @user` - Delete 50 from user\n"
+            "`!slowmode 5` - Set 5s slowmode\n"
+            "`!slowmode 0` - Disable slowmode"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📊 Automod Commands",
+        value=(
+            "`!automod status` - View automod status\n"
+            "`!enableautomod` - Enable automod\n"
+            "`!automod_exempt list` - View exempt users"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="Only moderators and exempt users can use these commands")
+
+    await ctx.send(embed=embed)
 
 
 # ============================================
@@ -4275,7 +4564,7 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
         # Show custom words preview if any
         if api_words:
             preview_words = api_words[:5]
-            preview_text = "• " + "\n• ".join(f"`{word}`" for word in preview_words)
+            preview_text = "• " + "\n".join(f"`{word}`" for word in preview_words)
             if len(api_words) > 5:
                 preview_text += f"\n... and {len(api_words) - 5} more"
             status_embed.add_field(
@@ -4363,10 +4652,6 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
         return await ctx.send(f"❌ Invalid action. Use: `!automod status`, `!automod enable`, or `!automod disable`")
 
 
-# ============================================
-# QUICK ENABLE COMMAND
-# ============================================
-
 @bot.command(name="enableautomod")
 async def quick_enable_automod(ctx):
     """
@@ -4401,10 +4686,6 @@ async def quick_enable_automod(ctx):
     await ctx.send(embed=embed)
     print(f"[AUTOMOD] Quick-enabled for {ctx.guild.name} ({guild_id})")
 
-
-# ============================================
-# GUILD ID FINDER COMMAND
-# ============================================
 
 @bot.command(name="guildid")
 async def get_guild_id(ctx):
@@ -4454,9 +4735,37 @@ async def on_ready():
     print("🌐 API INTEGRATION STATUS")
     print("=" * 60)
     print(f"✅ Bot instance registered with API")
-    print(f"✅ DM capabilities enabled for new guilds")
+    print(f"✅ DM capabilities enabled via API")
+    print(f"✅ Moderation commands active")
     print(f"✅ Automod API sync active")
     print(f"✅ Exempt users API mapping active")
+    print("=" * 60)
+
+    # Load and display welcome channel configs
+    print("\n📍 WELCOME CHANNEL CONFIGURATION:")
+    print("=" * 60)
+
+    configured_count = 0
+    not_configured_count = 0
+
+    for guild in bot.guilds:
+        guild_id = guild.id
+        channel_id = get_welcome_channel_id(guild_id)
+
+        if channel_id:
+            channel = guild.get_channel(channel_id)
+            if channel:
+                print(f"  ✅ {guild.name}: Welcome → #{channel.name} ({channel_id})")
+                configured_count += 1
+            else:
+                print(f"  ⚠️ {guild.name}: Invalid channel ({channel_id}) - DISABLED")
+                not_configured_count += 1
+        else:
+            print(f"  ❌ {guild.name}: NOT CONFIGURED - Welcome messages disabled")
+            not_configured_count += 1
+
+    print("=" * 60)
+    print(f"📊 Summary: {configured_count} active, {not_configured_count} disabled")
     print("=" * 60)
 
 
