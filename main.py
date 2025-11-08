@@ -50,7 +50,7 @@ from keep_alive import (
 
 
 # ============================================
-# WELCOME MESSAGE EVENT HANDLER
+# FIXED WELCOME MESSAGE EVENT HANDLER
 # ============================================
 
 @bot.event
@@ -63,12 +63,17 @@ async def on_member_join(member: discord.Member):
     channel_id = get_welcome_channel_id(guild_id)
 
     if channel_id:
+        # Try to get the configured channel
         channel = member.guild.get_channel(channel_id)
-    else:
-        channel = member.guild.system_channel  # fallback to system channel
 
-    if not channel:
-        return  # no channel found, do nothing
+        if not channel:
+            # Channel was deleted or bot doesn't have access
+            print(f"⚠️ Configured welcome channel {channel_id} not found in {member.guild.name}")
+            return
+    else:
+        # No welcome channel configured - DO NOT send message
+        print(f"ℹ️ No welcome channel configured for {member.guild.name} - skipping welcome message")
+        return
 
     # Make the embed
     embed = discord.Embed(
@@ -84,7 +89,7 @@ async def on_member_join(member: discord.Member):
 
     try:
         await channel.send(embed=embed)
-        print(f"✅ Sent welcome message for {member.name} in {member.guild.name}")
+        print(f"✅ Sent welcome message for {member.name} in {member.guild.name} to #{channel.name}")
     except discord.Forbidden:
         print(f"⚠️ Cannot send welcome message in {channel.name} - missing permissions")
     except Exception as e:
@@ -92,7 +97,80 @@ async def on_member_join(member: discord.Member):
 
 
 # ============================================
-# BOT READY EVENT
+# UPDATED WELCOME INFO COMMAND
+# ============================================
+
+@bot.command(name='welcomeinfo')
+async def welcome_info(ctx):
+    """
+    Show current welcome channel configuration
+    Usage: !welcomeinfo
+    """
+    guild_id = ctx.guild.id
+    channel_id = get_welcome_channel_id(guild_id)
+
+    embed = discord.Embed(
+        title="👋 Welcome Channel Info",
+        description=f"Welcome message configuration for **{ctx.guild.name}**",
+        color=discord.Color.blue()
+    )
+
+    if channel_id:
+        channel = ctx.guild.get_channel(channel_id)
+        if channel:
+            embed.add_field(
+                name="📍 Current Channel",
+                value=f"{channel.mention}\n**Name:** #{channel.name}\n**ID:** `{channel_id}`",
+                inline=False
+            )
+            embed.add_field(
+                name="✅ Status",
+                value="Welcome messages are **ACTIVE** for this server",
+                inline=False
+            )
+            embed.color = discord.Color.green()
+        else:
+            embed.add_field(
+                name="⚠️ Channel Not Found",
+                value=f"Configured channel ID `{channel_id}` no longer exists.\n**Welcome messages are DISABLED until you set a new channel.**",
+                inline=False
+            )
+            embed.add_field(
+                name="🔧 Fix This",
+                value="Use `!setwelcome #channel-name` to set a new welcome channel",
+                inline=False
+            )
+            embed.color = discord.Color.orange()
+    else:
+        embed.add_field(
+            name="❌ Not Configured",
+            value="No welcome channel is set for this server.\n**Welcome messages are currently DISABLED.**",
+            inline=False
+        )
+        embed.add_field(
+            name="🔧 Setup Instructions",
+            value="Use `!setwelcome #channel-name` to enable welcome messages.\n\nExample: `!setwelcome #general`",
+            inline=False
+        )
+        embed.color = discord.Color.red()
+
+    embed.add_field(
+        name="🔧 Admin Commands",
+        value=(
+            "`!setwelcome #channel` - Set welcome channel\n"
+            "`!testwelcome` - Test welcome message\n"
+            "`!welcomeinfo` - Show this info"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="Powered by OLIT API")
+
+    await ctx.send(embed=embed)
+
+
+# ============================================
+# UPDATED BOT READY EVENT
 # ============================================
 
 @bot.event
@@ -113,17 +191,30 @@ async def on_ready():
     print("=" * 60)
 
     # Load and display welcome channel configs
+    print("\n📍 WELCOME CHANNEL CONFIGURATION:")
+    print("=" * 60)
+
+    configured_count = 0
+    not_configured_count = 0
+
     for guild in bot.guilds:
         guild_id = guild.id
         channel_id = get_welcome_channel_id(guild_id)
 
         if channel_id:
             channel = guild.get_channel(channel_id)
-            channel_name = channel.name if channel else "Unknown Channel"
-            print(f"  📍 {guild.name}: Welcome channel → #{channel_name} ({channel_id})")
+            if channel:
+                print(f"  ✅ {guild.name}: Welcome → #{channel.name} ({channel_id})")
+                configured_count += 1
+            else:
+                print(f"  ⚠️ {guild.name}: Invalid channel ({channel_id}) - DISABLED")
+                not_configured_count += 1
         else:
-            print(f"  ⚪ {guild.name}: Using system channel (fallback)")
+            print(f"  ❌ {guild.name}: NOT CONFIGURED - Welcome messages disabled")
+            not_configured_count += 1
 
+    print("=" * 60)
+    print(f"📊 Summary: {configured_count} active, {not_configured_count} disabled")
     print("=" * 60)
 
 
@@ -231,65 +322,6 @@ async def test_welcome(ctx):
         await ctx.send(f"❌ I don't have permission to send messages in {channel.mention}")
     except Exception as e:
         await ctx.send(f"❌ Error sending test message: {str(e)}")
-
-
-@bot.command(name='welcomeinfo')
-async def welcome_info(ctx):
-    """
-    Show current welcome channel configuration
-    Usage: !welcomeinfo
-    """
-    guild_id = ctx.guild.id
-    channel_id = get_welcome_channel_id(guild_id)
-
-    embed = discord.Embed(
-        title="👋 Welcome Channel Info",
-        description=f"Welcome message configuration for **{ctx.guild.name}**",
-        color=discord.Color.blue()
-    )
-
-    if channel_id:
-        channel = ctx.guild.get_channel(channel_id)
-        if channel:
-            embed.add_field(
-                name="📍 Current Channel",
-                value=f"{channel.mention}\n**Name:** #{channel.name}\n**ID:** `{channel_id}`",
-                inline=False
-            )
-            embed.color = discord.Color.green()
-        else:
-            embed.add_field(
-                name="⚠️ Channel Not Found",
-                value=f"Configured channel ID `{channel_id}` no longer exists.\nWill fallback to system channel.",
-                inline=False
-            )
-            embed.color = discord.Color.orange()
-    else:
-        system_channel = ctx.guild.system_channel
-        if system_channel:
-            embed.add_field(
-                name="⚪ Default Configuration",
-                value=f"No custom channel set.\nUsing system channel: {system_channel.mention}",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="❌ No Channel Available",
-                value="No welcome channel configured and no system channel available!",
-                inline=False
-            )
-            embed.color = discord.Color.red()
-
-    embed.add_field(
-        name="🔧 Admin Commands",
-        value="`!setwelcome #channel` - Set welcome channel\n`!testwelcome` - Test welcome message",
-        inline=False
-    )
-
-    embed.set_footer(text="Powered by OLIT API")
-
-    await ctx.send(embed=embed)
-
 
 # ============================================
 # ERROR HANDLER
@@ -4071,29 +4103,22 @@ async def timeout_users(ctx):
         await ctx.send("❌ No users are configured for this server.")
 
 
-import sys
+# ============================================
+# FIXED AUTOMOD CONFIGURATION
+# ============================================
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# Import API functions
-from keep_alive import (
-    get_guild_commands,
-    get_automod_words,
-    get_automod_enabled_status,
-    get_allowed_users_list,
-    set_bot_instance
-)
-
-# Static configuration (hardcoded for specific guilds) - UPDATED
-# This will be dynamically merged with API automod_enabled
+# Static configuration (hardcoded for specific guilds)
+# Add your guild ID here if you want automod always enabled
 AUTOMOD_ENABLED_GUILDS = {
     1210475350119813120: True,
     1397218218535424090: True,
     1411425019434766499: True,
     1341485158129205278: True,
+    # Add your guild ID below:
+    # YOUR_GUILD_ID: True,
 }
 
-# Users exempt from auto-moderation - WILL BE MERGED WITH API allowed_users
+# Users exempt from auto-moderation
 AUTOMOD_EXEMPT_USERS = [
     814791086114865233,
     1085236492571529287,
@@ -4105,7 +4130,7 @@ AUTOMOD_EXEMPT_USERS = [
     1187981682280775733,
 ]
 
-# Built-in N-word variations (always active)
+# Built-in N-word variations (always active when automod is enabled)
 BUILTIN_NWORD_VARIATIONS = [
     'nigger', 'nigga', 'n1gger', 'n1gga', 'nig ger', 'nig ga',
     'n-word', 'nword', 'n word', 'nigg3r', 'nigg4', 'n!gger',
@@ -4116,204 +4141,46 @@ BUILTIN_NWORD_VARIATIONS = [
 def get_combined_automod_enabled(guild_id):
     """
     Check if automod is enabled for a guild
-    Combines hardcoded AUTOMOD_ENABLED_GUILDS with API automod_enabled
-    API settings take priority
+    Priority: API > Hardcoded config
     """
     guild_id_int = int(guild_id)
 
     # Check API first (priority)
     api_enabled = get_automod_enabled_status(guild_id_int)
-    if api_enabled:
-        return True
 
-    # Fall back to hardcoded config
-    return AUTOMOD_ENABLED_GUILDS.get(guild_id_int, False)
+    # Check hardcoded config
+    hardcoded_enabled = AUTOMOD_ENABLED_GUILDS.get(guild_id_int, False)
+
+    # Return True if EITHER is enabled (OR logic)
+    return api_enabled or hardcoded_enabled
 
 
 def get_combined_exempt_users(guild_id):
     """
     Get all exempt users for a guild
-    Combines hardcoded AUTOMOD_EXEMPT_USERS with API allowed_users
-    Returns a merged list (no duplicates)
+    Combines hardcoded + API exempt users
     """
-    # Get API allowed users (these are mapped to exempt users)
+    # Get API allowed users
     api_exempt = get_allowed_users_list(str(guild_id))
-
-    # Convert to integers
     api_exempt_ids = [int(user_id) for user_id in api_exempt]
 
-    # Merge with hardcoded exempt users
+    # Merge with hardcoded (no duplicates)
     combined = list(set(AUTOMOD_EXEMPT_USERS + api_exempt_ids))
-
     return combined
 
 
 # ============================================
-# ENHANCED AUTO-MODERATION EVENT HANDLER
-# ============================================
-
-@bot.event
-async def on_message(message):
-    """Enhanced message handler with API-integrated automod"""
-
-    # Don't moderate bots or DMs
-    if message.author.bot or message.guild is None:
-        await bot.process_commands(message)
-        return
-
-    guild_id = int(message.guild.id)
-    author_id = int(message.author.id)
-
-    # ===== CHECK IF AUTOMOD IS ENABLED (API + Hardcoded) =====
-    if not get_combined_automod_enabled(guild_id):
-        await bot.process_commands(message)
-        return
-
-    # ===== GET COMBINED EXEMPT USERS (API + Hardcoded) =====
-    all_exempt_users = get_combined_exempt_users(guild_id)
-
-    # Don't timeout exempt users
-    if author_id in all_exempt_users:
-        await bot.process_commands(message)
-        return
-
-    # ===== COMBINED AUTOMOD CHECK (Built-in + API) =====
-    # Get API-configured banned words for this guild
-    api_banned_words = get_automod_words(str(guild_id))
-
-    # Combine built-in N-word variations with API words
-    all_banned_words = BUILTIN_NWORD_VARIATIONS + api_banned_words
-
-    # Prepare message content for checking
-    message_content = message.content.lower().replace(' ', '').replace('-', '').replace('_', '')
-
-    detected_word = None
-    is_nword = False
-    is_custom = False
-
-    # Check for violations
-    for word in all_banned_words:
-        clean_word = word.lower().replace(' ', '').replace('-', '').replace('_', '')
-        if clean_word in message_content:
-            detected_word = word
-            is_nword = word in BUILTIN_NWORD_VARIATIONS
-            is_custom = word in api_banned_words
-            break
-
-    if detected_word:
-        try:
-            # Delete the message first
-            await message.delete()
-
-            # Timeout the user for 24 hours
-            duration = timedelta(hours=24)
-            await message.author.timeout(duration,
-                                         reason=f"Auto-moderation: {'Built-in filter' if is_nword else 'Custom API filter'}")
-
-            # Create embed for auto-timeout
-            embed = discord.Embed(
-                title="🚫 Auto-Moderation Activated",
-                description=f"{message.author.mention} has been automatically sanctioned",
-                color=0xff2b2b,
-                timestamp=message.created_at
-            )
-            embed.set_thumbnail(url=message.author.display_avatar.url)
-            embed.add_field(name="👤 User", value=f"{message.author.name}", inline=True)
-            embed.add_field(name="⏰ Duration", value="24 hours", inline=True)
-
-            # Different violation type based on source
-            if is_nword:
-                embed.add_field(name="📝 Violation", value="Inappropriate language", inline=True)
-                embed.add_field(name="🔍 Detection", value="Built-in N-word filter", inline=True)
-            elif is_custom:
-                embed.add_field(name="📝 Violation", value="Custom banned word", inline=True)
-                embed.add_field(name="🔍 Detection", value="API Custom Filter", inline=True)
-            else:
-                embed.add_field(name="📝 Violation", value="Banned word usage", inline=True)
-                embed.add_field(name="🔍 Detection", value="Auto-moderation", inline=True)
-
-            # Calculate when timeout ends
-            end_time = message.created_at + duration
-            embed.add_field(name="🔚 Ends At", value=f"<t:{int(end_time.timestamp())}:F>", inline=True)
-            embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
-            embed.add_field(name="🤖 System", value="Auto-Moderation", inline=True)
-
-            embed.set_footer(text=f"User ID: {message.author.id} | Message auto-deleted")
-
-            # Send the embed
-            await message.channel.send(embed=embed)
-
-            filter_type = "N-word" if is_nword else ("Custom API" if is_custom else "Unknown")
-            print(
-                f"[AUTO-MOD] User {message.author.name} ({message.author.id}) timed out in {message.guild.name} - {filter_type}: {detected_word}")
-
-        except discord.Forbidden:
-            warning_embed = discord.Embed(
-                title="⚠️ Auto-Moderation Alert",
-                description=f"{message.author.mention} used prohibited content, but I lack timeout permissions.",
-                color=0xff9900,
-                timestamp=message.created_at
-            )
-            warning_embed.set_thumbnail(url=message.author.display_avatar.url)
-            warning_embed.add_field(name="⚡ Action Needed", value="Manual moderation required", inline=False)
-            warning_embed.add_field(name="🔍 Detected",
-                                    value=f"{'Built-in filter' if is_nword else 'Custom API filter'}", inline=True)
-            warning_embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
-            await message.channel.send(embed=warning_embed)
-
-        except Exception as e:
-            print(f"[AUTO-MOD ERROR] Failed to moderate {message.author.name}: {e}")
-            try:
-                if not message.flags.ephemeral:
-                    await message.delete()
-            except:
-                pass
-
-        # Don't process commands if automod triggered
-        return
-
-    # ===== DYNAMIC COMMAND CHECK (from API) =====
-    content = message.content.lower()
-
-    if content.startswith('!'):
-        command_name = content[1:].split()[0].lower()
-        guild_commands = get_guild_commands(str(guild_id))
-
-        if command_name in guild_commands:
-            cmd_data = guild_commands[command_name]
-
-            embed = discord.Embed(
-                title=f"**{command_name.title()}**",
-                description=cmd_data.get('description', f"Here is your {command_name}!"),
-                color=discord.Color.blurple()
-            )
-
-            # Check if response is a URL (for image commands)
-            response_text = cmd_data.get('response', '')
-            if response_text.startswith('http'):
-                embed.set_image(url=response_text)
-            else:
-                embed.add_field(name="Response", value=response_text, inline=False)
-
-            embed.set_footer(text=f"Custom command • {message.guild.name}")
-
-            await message.channel.send(embed=embed)
-            return
-
-    # Process normal commands
-    await bot.process_commands(message)
-
-
-# ============================================
-# ENHANCED AUTOMOD COMMANDS WITH API INTEGRATION
+# ENHANCED AUTOMOD STATUS COMMAND
 # ============================================
 
 @bot.command(name="automod")
 async def manage_automod(ctx, action: str = None, server_id: int = None):
     """
     Manage auto-moderation settings
-    Usage: !automod [status/enable/disable] [server_id]
-    Shows both built-in filters and API custom words
+    Usage:
+        !automod status - Show current status
+        !automod enable - Enable for current server (adds to hardcoded config)
+        !automod disable - Disable for current server
     """
     if ctx.guild is None:
         return await ctx.send("❌ This command must be used in a server.")
@@ -4321,6 +4188,7 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
     author_id = int(ctx.author.id)
     current_guild_id = int(ctx.guild.id)
 
+    # Only master can manage automod
     if author_id != MASTER_ID:
         error_embed = discord.Embed(
             title="❌ Access Denied",
@@ -4333,182 +4201,177 @@ async def manage_automod(ctx, action: str = None, server_id: int = None):
     if action is None or action.lower() == "status":
         target_guild = server_id if server_id else current_guild_id
 
-        # Check combined status (API + hardcoded)
-        is_enabled = get_combined_automod_enabled(target_guild)
+        # Get status from both sources
+        api_enabled = get_automod_enabled_status(target_guild)
+        hardcoded_enabled = AUTOMOD_ENABLED_GUILDS.get(target_guild, False)
+        combined_enabled = get_combined_automod_enabled(target_guild)
 
-        # Get API banned words
+        # Get words and exempt users
         api_words = get_automod_words(str(target_guild))
-
-        # Get combined exempt users
-        all_exempt = get_combined_exempt_users(target_guild)
         api_exempt = get_allowed_users_list(str(target_guild))
+        all_exempt = get_combined_exempt_users(target_guild)
 
         status_embed = discord.Embed(
             title="🤖 Auto-Moderation Status",
-            description="Comprehensive server moderation overview (API + Hardcoded)",
-            color=0x00ff00 if is_enabled else 0xff6b6b
+            description=f"Configuration for **{ctx.guild.name}**",
+            color=0x00ff00 if combined_enabled else 0xff6b6b
         )
 
-        # Server info
-        if server_id:
-            try:
-                guild_name = bot.get_guild(server_id).name if bot.get_guild(server_id) else f"Server ID: {server_id}"
-                status_embed.add_field(name="🏠 Server", value=guild_name, inline=False)
-            except:
-                status_embed.add_field(name="🏠 Server", value=f"Server ID: {server_id}", inline=False)
-        else:
-            status_embed.add_field(name="🏠 Current Server", value=ctx.guild.name, inline=False)
-
-        # Status fields
+        # Overall Status
+        status_icon = "🟢" if combined_enabled else "🔴"
+        status_text = "**ACTIVE**" if combined_enabled else "**DISABLED**"
         status_embed.add_field(
-            name="📊 System Status",
-            value="🟢 **ENABLED**" if is_enabled else "🔴 **DISABLED**",
+            name="📊 Overall Status",
+            value=f"{status_icon} {status_text}",
+            inline=False
+        )
+
+        # Configuration Sources
+        sources = []
+        if hardcoded_enabled:
+            sources.append("✅ Hardcoded Config")
+        else:
+            sources.append("❌ Hardcoded Config")
+
+        if api_enabled:
+            sources.append("✅ API Enabled")
+        else:
+            sources.append("❌ API Enabled")
+
+        status_embed.add_field(
+            name="🔧 Configuration Sources",
+            value="\n".join(sources),
             inline=True
         )
+
         status_embed.add_field(
             name="⏰ Timeout Duration",
             value="24 hours",
             inline=True
         )
-        status_embed.add_field(
-            name="🛡️ Protected Users",
-            value=f"{len(all_exempt)} total\n({len(api_exempt)} from API)",
-            inline=True
-        )
 
-        # Filter breakdown
+        # Filter Details
         status_embed.add_field(
             name="🔍 Active Filters",
-            value=f"**Built-in N-word filter:** {len(BUILTIN_NWORD_VARIATIONS)} variations\n**Custom API words:** {len(api_words)} configured",
+            value=(
+                f"**Built-in N-word:** {len(BUILTIN_NWORD_VARIATIONS)} variations\n"
+                f"**Custom API words:** {len(api_words)} configured\n"
+                f"**Total:** {len(BUILTIN_NWORD_VARIATIONS) + len(api_words)} banned words"
+            ),
             inline=False
         )
 
-        # Show some custom words if configured
+        # Exempt Users
+        status_embed.add_field(
+            name="🛡️ Protected Users",
+            value=(
+                f"**Hardcoded:** {len(AUTOMOD_EXEMPT_USERS)} users\n"
+                f"**API:** {len(api_exempt)} users\n"
+                f"**Total:** {len(all_exempt)} (no duplicates)"
+            ),
+            inline=False
+        )
+
+        # Show custom words preview if any
         if api_words:
             preview_words = api_words[:5]
             preview_text = "• " + "\n• ".join(f"`{word}`" for word in preview_words)
             if len(api_words) > 5:
                 preview_text += f"\n... and {len(api_words) - 5} more"
-
             status_embed.add_field(
                 name="📝 Custom API Words (Preview)",
                 value=preview_text,
                 inline=False
             )
-        else:
+
+        # Instructions
+        if not combined_enabled:
             status_embed.add_field(
-                name="📝 Custom API Words",
-                value="*No custom words configured via API*",
+                name="🔧 How to Enable",
+                value=(
+                    "**Option 1 (Hardcoded):** Use `!automod enable` (instant)\n"
+                    "**Option 2 (API):** Use the admin panel to enable automod\n"
+                    "**Option 3 (API):** Add a custom word via API (auto-enables)\n\n"
+                    f"**Your Guild ID:** `{target_guild}`"
+                ),
                 inline=False
             )
 
-        # API integration status
-        api_enabled_via_api = get_automod_enabled_status(target_guild)
-        api_status = "✅ Enabled via API" if api_enabled_via_api else "⚪ Not enabled via API"
-
-        status_embed.add_field(
-            name="🔗 API Integration Status",
-            value=f"**Automod:** {api_status}\n**Exempt Users:** {len(api_exempt)} configured\n**Custom Words:** {len(api_words)} configured",
-            inline=False
-        )
-
-        status_embed.set_footer(text="API settings auto-sync with bot • Use admin panel for custom words")
+        status_embed.set_footer(text="API changes sync automatically • No restart needed")
         return await ctx.send(embed=status_embed)
 
-    # Note: enable/disable would modify AUTOMOD_ENABLED_GUILDS
-    # For full API integration, you'd want to call the API to enable/disable
-    # For now, keeping the existing enable/disable logic
+    # Enable automod (adds to hardcoded config)
+    elif action.lower() == "enable":
+        AUTOMOD_ENABLED_GUILDS[current_guild_id] = True
 
-    await ctx.send("Use `!automod status` to view current settings. API integration is active!")
-
-
-@bot.command(name="automod_exempt")
-async def manage_exempt_users(ctx, action: str = None, user_id: int = None):
-    """
-    Manage users exempt from auto-moderation
-    Shows both hardcoded and API exempt users
-    """
-    author_id = int(ctx.author.id)
-
-    if author_id != MASTER_ID:
-        error_embed = discord.Embed(
-            title="❌ Access Denied",
-            description="Only the master user can manage exemptions.",
-            color=0xff0000
+        embed = discord.Embed(
+            title="✅ Automod Enabled",
+            description=f"Auto-moderation is now **ACTIVE** for {ctx.guild.name}",
+            color=0x00ff00
         )
-        return await ctx.send(embed=error_embed)
+        embed.add_field(
+            name="⚡ Changes Applied",
+            value=(
+                "• Added to hardcoded enabled guilds\n"
+                "• Built-in N-word filter active\n"
+                "• 24-hour timeout on violations\n"
+                "• Takes effect immediately"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="📝 Note",
+            value="This setting is stored in bot code. For persistent API-based config, use the admin panel.",
+            inline=False
+        )
+        embed.set_footer(text=f"Guild ID: {current_guild_id}")
 
-    if action is None or action.lower() == "list":
-        if not ctx.guild:
-            return await ctx.send("❌ Use this command in a server to see server-specific exempt users.")
+        print(f"[AUTOMOD] Enabled for guild {current_guild_id} ({ctx.guild.name})")
+        return await ctx.send(embed=embed)
 
-        # Get combined exempt users for this guild
-        all_exempt = get_combined_exempt_users(ctx.guild.id)
-        api_exempt_ids = [int(uid) for uid in get_allowed_users_list(str(ctx.guild.id))]
+    # Disable automod
+    elif action.lower() == "disable":
+        if current_guild_id in AUTOMOD_ENABLED_GUILDS:
+            del AUTOMOD_ENABLED_GUILDS[current_guild_id]
 
-        exempt_embed = discord.Embed(
-            title="🛡️ Auto-Moderation Exempt Users",
-            description=f"**{len(all_exempt)}** users exempt from automod (Hardcoded + API)",
-            color=0x3498db
+        # Note: This only disables hardcoded. If API is enabled, it will still be active
+        api_enabled = get_automod_enabled_status(current_guild_id)
+
+        embed = discord.Embed(
+            title="⚠️ Automod Disabled (Hardcoded)",
+            description=f"Hardcoded automod setting removed for {ctx.guild.name}",
+            color=0xff9900
         )
 
-        # Categorize users
-        hardcoded_only = []
-        api_only = []
-        both = []
-
-        for uid in all_exempt:
-            in_hardcoded = uid in AUTOMOD_EXEMPT_USERS
-            in_api = uid in api_exempt_ids
-
-            try:
-                user = await bot.fetch_user(uid)
-                user_str = f"{user.mention} ({user.name})"
-            except:
-                user_str = f"User ID: {uid}"
-
-            if uid == MASTER_ID:
-                user_str += " - **Master**"
-
-            if in_hardcoded and in_api:
-                both.append(f"🔗 {user_str}")
-            elif in_api:
-                api_only.append(f"🌐 {user_str} - *API*")
-            else:
-                hardcoded_only.append(f"🔧 {user_str} - *Hardcoded*")
-
-        if both:
-            exempt_embed.add_field(
-                name="🔗 Both (Hardcoded + API)",
-                value="\n".join(both[:10]),
+        if api_enabled:
+            embed.add_field(
+                name="⚠️ Important",
+                value="**API automod is still ENABLED** for this server.\nAutomod will remain active until you disable it via API.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="✅ Status",
+                value="Auto-moderation is now **DISABLED** for this server.",
                 inline=False
             )
 
-        if api_only:
-            exempt_embed.add_field(
-                name="🌐 API Only",
-                value="\n".join(api_only[:10]),
-                inline=False
-            )
+        embed.set_footer(text=f"Guild ID: {current_guild_id}")
+        return await ctx.send(embed=embed)
 
-        if hardcoded_only:
-            exempt_embed.add_field(
-                name="🔧 Hardcoded Only",
-                value="\n".join(hardcoded_only[:10]),
-                inline=False
-            )
-
-        exempt_embed.set_footer(text="API exempt users are automatically synced • Manage via admin panel")
-        return await ctx.send(embed=exempt_embed)
-
-    await ctx.send("Use `!automod_exempt list` to view all exempt users (API + Hardcoded)")
+    else:
+        return await ctx.send(f"❌ Invalid action. Use: `!automod status`, `!automod enable`, or `!automod disable`")
 
 
-@bot.command(name="automod_sync")
-async def sync_automod(ctx):
+# ============================================
+# QUICK ENABLE COMMAND
+# ============================================
+
+@bot.command(name="enableautomod")
+async def quick_enable_automod(ctx):
     """
-    Show current API sync status for automod
-    Master only command
+    Quick command to enable automod for current server
+    Usage: !enableautomod
     """
     if ctx.author.id != MASTER_ID:
         return await ctx.send("❌ Master only command")
@@ -4517,46 +4380,60 @@ async def sync_automod(ctx):
         return await ctx.send("❌ Use this command in a server")
 
     guild_id = ctx.guild.id
-
-    # Get all relevant data
-    api_enabled = get_automod_enabled_status(guild_id)
-    api_words = get_automod_words(str(guild_id))
-    api_exempt = get_allowed_users_list(str(guild_id))
-
-    combined_enabled = get_combined_automod_enabled(guild_id)
-    combined_exempt = get_combined_exempt_users(guild_id)
+    AUTOMOD_ENABLED_GUILDS[guild_id] = True
 
     embed = discord.Embed(
-        title="🔄 Automod API Sync Status",
-        description=f"Current synchronization status for **{ctx.guild.name}**",
-        color=0x00ff00 if api_enabled else 0x808080
+        title="✅ Automod Enabled!",
+        description=f"Auto-moderation is now active for **{ctx.guild.name}**",
+        color=0x00ff00
     )
-
     embed.add_field(
-        name="🛡️ Automod Status",
-        value=f"**API Enabled:** {'✅ Yes' if api_enabled else '❌ No'}\n**Combined Status:** {'✅ Active' if combined_enabled else '❌ Inactive'}",
+        name="🔍 Active Filters",
+        value=f"• Built-in N-word filter ({len(BUILTIN_NWORD_VARIATIONS)} variations)\n• 24-hour timeout\n• Instant activation",
+        inline=False
+    )
+    embed.add_field(
+        name="💡 Tip",
+        value="Use `!automod status` to see detailed configuration",
         inline=False
     )
 
-    embed.add_field(
-        name="📝 Banned Words",
-        value=f"**Built-in:** {len(BUILTIN_NWORD_VARIATIONS)} variations\n**API Custom:** {len(api_words)} words\n**Total Active:** {len(BUILTIN_NWORD_VARIATIONS) + len(api_words)}",
-        inline=True
-    )
+    await ctx.send(embed=embed)
+    print(f"[AUTOMOD] Quick-enabled for {ctx.guild.name} ({guild_id})")
 
-    embed.add_field(
-        name="🛡️ Exempt Users",
-        value=f"**Hardcoded:** {len(AUTOMOD_EXEMPT_USERS)} users\n**API:** {len(api_exempt)} users\n**Total:** {len(combined_exempt)} (no duplicates)",
-        inline=True
-    )
 
+# ============================================
+# GUILD ID FINDER COMMAND
+# ============================================
+
+@bot.command(name="guildid")
+async def get_guild_id(ctx):
+    """
+    Get the current guild ID (for configuration)
+    Usage: !guildid
+    """
+    if not ctx.guild:
+        return await ctx.send("❌ This command must be used in a server")
+
+    embed = discord.Embed(
+        title="🏠 Server Information",
+        description=f"**{ctx.guild.name}**",
+        color=discord.Color.blue()
+    )
     embed.add_field(
-        name="✨ Auto-Features",
-        value="✅ API words auto-enable automod\n✅ API users auto-exempt from automod\n✅ Real-time sync\n✅ GitHub backup",
+        name="🆔 Guild ID",
+        value=f"`{ctx.guild.id}`",
+        inline=False
+    )
+    embed.add_field(
+        name="💡 Usage",
+        value="Copy this ID to enable automod:\n```python\nAUTOMOD_ENABLED_GUILDS = {\n    " + str(
+            ctx.guild.id) + ": True,\n}\n```",
         inline=False
     )
 
-    embed.set_footer(text="All API changes take effect immediately • No bot restart required")
+    if ctx.guild.icon:
+        embed.set_thumbnail(url=ctx.guild.icon.url)
 
     await ctx.send(embed=embed)
 
