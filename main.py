@@ -3987,6 +3987,367 @@ def is_user_moderator(user_id, guild_id):
 
 
 # ============================================
+# FIXED AUTO-MODERATION EVENT HANDLER
+# ============================================
+
+@bot.event
+async def on_message(message):
+    """Enhanced message handler with API-integrated automod"""
+
+    # Don't moderate bots or DMs
+    if message.author.bot or message.guild is None:
+        await bot.process_commands(message)
+        return
+
+    guild_id = int(message.guild.id)
+    author_id = int(message.author.id)
+
+    # ===== CHECK IF AUTOMOD IS ENABLED (API + Hardcoded) =====
+    automod_enabled = get_combined_automod_enabled(guild_id)
+
+    if not automod_enabled:
+        await bot.process_commands(message)
+        return
+
+    # ===== GET COMBINED EXEMPT USERS (API + Hardcoded) =====
+    all_exempt_users = get_combined_exempt_users(guild_id)
+
+    # Don't timeout exempt users
+    if author_id in all_exempt_users:
+        await bot.process_commands(message)
+        return
+
+    # ===== COMBINED AUTOMOD CHECK (Built-in + API) =====
+    # Get API-configured banned words for this guild
+    api_banned_words = get_automod_words(str(guild_id))
+
+    # Combine built-in N-word variations with API words
+    all_banned_words = BUILTIN_NWORD_VARIATIONS + api_banned_words
+
+    # Prepare message content for checking
+    message_content_lower = message.content.lower()
+
+    # Remove common separators for evasion detection
+    message_content_clean = message_content_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.',
+                                                                                                             '').replace(
+        '*', '')
+
+    detected_word = None
+    is_nword = False
+    is_custom = False
+
+    # Check for violations
+    for word in all_banned_words:
+        word_lower = word.lower()
+        clean_word = word_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.', '').replace('*', '')
+
+        # Check both original and cleaned versions
+        if word_lower in message_content_lower or clean_word in message_content_clean:
+            detected_word = word
+            is_nword = word in BUILTIN_NWORD_VARIATIONS
+            is_custom = word in api_banned_words
+            break
+
+    if detected_word:
+        try:
+            # Delete the message first
+            await message.delete()
+            print(f"[AUTO-MOD] Deleted message from {message.author.name} containing: {detected_word}")
+
+            # Timeout the user for 24 hours
+            duration = timedelta(hours=24)
+            await message.author.timeout(duration,
+                                         reason=f"Auto-moderation: {'Built-in filter' if is_nword else 'Custom API filter'}")
+
+            # Create embed for auto-timeout
+            embed = discord.Embed(
+                title="🚫 Auto-Moderation Activated",
+                description=f"{message.author.mention} has been automatically sanctioned",
+                color=0xff2b2b,
+                timestamp=datetime.now()
+            )
+            embed.set_thumbnail(url=message.author.display_avatar.url)
+            embed.add_field(name="👤 User", value=f"{message.author.name}", inline=True)
+            embed.add_field(name="⏰ Duration", value="24 hours", inline=True)
+
+            # Different violation type based on source
+            if is_nword:
+                embed.add_field(name="📝 Violation", value="Inappropriate language", inline=True)
+                embed.add_field(name="🔍 Detection", value="Built-in N-word filter", inline=True)
+            elif is_custom:
+                embed.add_field(name="📝 Violation", value="Custom banned word", inline=True)
+                embed.add_field(name="🔍 Detection", value="API Custom Filter", inline=True)
+            else:
+                embed.add_field(name="📝 Violation", value="Banned word usage", inline=True)
+                embed.add_field(name="🔍 Detection", value="Auto-moderation", inline=True)
+
+            # Calculate when timeout ends
+            end_time = datetime.now() + duration
+            embed.add_field(name="🔚 Ends At", value=f"<t:{int(end_time.timestamp())}:F>", inline=True)
+            embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
+            embed.add_field(name="🤖 System", value="Auto-Moderation", inline=True)
+
+            embed.set_footer(text=f"User ID: {message.author.id} | Message auto-deleted")
+
+            # Send the embed
+            await message.channel.send(embed=embed)
+
+            filter_type = "N-word" if is_nword else ("Custom API" if is_custom else "Unknown")
+            print(
+                f"[AUTO-MOD] ✅ User {message.author.name} ({message.author.id}) timed out in {message.guild.name} - {filter_type}: {detected_word}")
+
+        except discord.Forbidden:
+            warning_embed = discord.Embed(
+                title="⚠️ Auto-Moderation Alert",
+                description=f"{message.author.mention} used prohibited content, but I lack timeout permissions.",
+                color=0xff9900,
+                timestamp=datetime.now()
+            )
+            warning_embed.set_thumbnail(url=message.author.display_avatar.url)
+            warning_embed.add_field(name="⚡ Action Needed", value="Manual moderation required", inline=False)
+            warning_embed.add_field(name="🔍 Detected",
+                                    value=f"{'Built-in filter' if is_nword else 'Custom API filter'}", inline=True)
+            warning_embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
+            await message.channel.send(embed=warning_embed)
+            print(f"[AUTO-MOD] ⚠️ Missing permissions to timeout {message.author.name}")
+
+        except Exception as e:
+            print(f"[AUTO-MOD ERROR] Failed to moderate {message.author.name}: {e}")
+            try:
+                if not message.flags.ephemeral:
+                    await message.delete()
+            except:
+                pass
+
+        # Don't process commands if automod triggered
+        return
+
+    # ===== DYNAMIC COMMAND CHECK (from API) =====
+    content = message.content.lower()
+
+    if content.startswith('!'):
+        command_name = content[1:].split()[0].lower()
+        guild_commands = get_guild_commands(str(guild_id))
+
+        if command_name in guild_commands:
+            cmd_data = guild_commands[command_name]
+
+            embed = discord.Embed(
+                title=f"**{command_name.title()}**",
+                description=cmd_data.get('description', f"Here is your {command_name}!"),
+                color=discord.Color.blurple()
+            )
+
+            # Check if response is a URL (for image commands)
+            response_text = cmd_data.get('response', '')
+            if response_text.startswith('http'):
+                embed.set_image(url=response_text)
+            else:
+                embed.add_field(name="Response", value=response_text, inline=False)
+
+            embed.set_footer(text=f"Custom command • {message.guild.name}")
+
+            await message.channel.send(embed=embed)
+            return
+
+    # Process normal commands
+    await bot.process_commands(message)
+
+
+# ============================================
+# DEBUG COMMAND TO TEST AUTOMOD
+# ============================================
+
+@bot.command(name="testfilter")
+async def test_filter(ctx, *, test_word: str = None):
+    """
+    Test if a word would trigger automod (Master only)
+    Usage: !testfilter word
+    """
+    if ctx.author.id != MASTER_ID:
+        return await ctx.send("❌ Master only command")
+
+    if not test_word:
+        return await ctx.send("❌ Please provide a word to test!\nUsage: `!testfilter word`")
+
+    guild_id = ctx.guild.id
+
+    # Check if automod is enabled
+    automod_enabled = get_combined_automod_enabled(guild_id)
+
+    # Get all banned words
+    api_banned_words = get_automod_words(str(guild_id))
+    all_banned_words = BUILTIN_NWORD_VARIATIONS + api_banned_words
+
+    # Test the word
+    test_word_lower = test_word.lower()
+    test_word_clean = test_word_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.', '').replace('*',
+                                                                                                                  '')
+
+    detected = False
+    matched_word = None
+    is_builtin = False
+    is_api = False
+
+    for word in all_banned_words:
+        word_lower = word.lower()
+        clean_word = word_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.', '').replace('*', '')
+
+        if word_lower in test_word_lower or clean_word in test_word_clean:
+            detected = True
+            matched_word = word
+            is_builtin = word in BUILTIN_NWORD_VARIATIONS
+            is_api = word in api_banned_words
+            break
+
+    # Create result embed
+    embed = discord.Embed(
+        title="🧪 Automod Filter Test",
+        description=f"Testing word: `{test_word}`",
+        color=0xff0000 if detected else 0x00ff00
+    )
+
+    embed.add_field(
+        name="📊 Automod Status",
+        value=f"{'🟢 Enabled' if automod_enabled else '🔴 Disabled'}",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🔍 Detection Result",
+        value=f"{'❌ WOULD TRIGGER' if detected else '✅ Safe'}",
+        inline=True
+    )
+
+    if detected:
+        filter_type = []
+        if is_builtin:
+            filter_type.append("Built-in N-word filter")
+        if is_api:
+            filter_type.append("Custom API filter")
+
+        embed.add_field(
+            name="⚠️ Matched Word",
+            value=f"`{matched_word}`",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔍 Filter Type",
+            value=" + ".join(filter_type),
+            inline=False
+        )
+
+        if automod_enabled:
+            embed.add_field(
+                name="⚡ What Would Happen",
+                value="• Message deleted immediately\n• User timed out for 24 hours\n• Notification sent to channel",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="ℹ️ Note",
+                value="Automod is currently DISABLED, so this would not trigger any action.",
+                inline=False
+            )
+    else:
+        embed.add_field(
+            name="✅ Result",
+            value="This word would NOT trigger automod filters.",
+            inline=False
+        )
+
+    # Show filter statistics
+    embed.add_field(
+        name="📊 Filter Statistics",
+        value=f"**Built-in words:** {len(BUILTIN_NWORD_VARIATIONS)}\n**Custom API words:** {len(api_banned_words)}\n**Total filters:** {len(all_banned_words)}",
+        inline=False
+    )
+
+    embed.set_footer(text="This is a safe test - no action will be taken")
+
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="listfilters")
+async def list_filters(ctx):
+    """
+    List all active automod filters (Master only)
+    Usage: !listfilters
+    """
+    if ctx.author.id != MASTER_ID:
+        return await ctx.send("❌ Master only command")
+
+    guild_id = ctx.guild.id
+
+    # Check if automod is enabled
+    automod_enabled = get_combined_automod_enabled(guild_id)
+
+    # Get filters
+    api_words = get_automod_words(str(guild_id))
+    builtin_count = len(BUILTIN_NWORD_VARIATIONS)
+
+    embed = discord.Embed(
+        title="🔍 Active Automod Filters",
+        description=f"Configuration for **{ctx.guild.name}**",
+        color=0x00ff00 if automod_enabled else 0xff6b6b
+    )
+
+    embed.add_field(
+        name="📊 Status",
+        value=f"{'🟢 ACTIVE' if automod_enabled else '🔴 DISABLED'}",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🛡️ Built-in Filter",
+        value=f"{builtin_count} N-word variations",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🌐 Custom API Words",
+        value=f"{len(api_words)} configured",
+        inline=True
+    )
+
+    # Show built-in filter (don't list actual words)
+    embed.add_field(
+        name="🛡️ Built-in N-word Filter",
+        value=f"✅ Active ({builtin_count} variations)\n*Words not shown for safety*",
+        inline=False
+    )
+
+    # Show custom API words
+    if api_words:
+        words_preview = api_words[:10]
+        words_text = "• " + "\n• ".join(f"`{word}`" for word in words_preview)
+        if len(api_words) > 10:
+            words_text += f"\n... and {len(api_words) - 10} more"
+
+        embed.add_field(
+            name="🌐 Custom API Words",
+            value=words_text,
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="🌐 Custom API Words",
+            value="*No custom words configured*",
+            inline=False
+        )
+
+    embed.add_field(
+        name="💡 Commands",
+        value="`!testfilter word` - Test a specific word\n`!enableautomod` - Enable automod\n`!automod status` - Full status",
+        inline=False
+    )
+
+    embed.set_footer(text="Filters apply to all non-exempt users")
+
+    await ctx.send(embed=embed)
+
+# ============================================
 # MODERATION COMMANDS (For Exempt Users)
 # ============================================
 
