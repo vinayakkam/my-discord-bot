@@ -19,6 +19,7 @@ GUILD_COMMANDS_FILE = os.path.join(CONFIG_DIR, "guild_commands.json")
 AUTOMOD_FILE = os.path.join(CONFIG_DIR, "automod_config.json")
 AUTOMOD_ENABLED_FILE = os.path.join(CONFIG_DIR, "automod_enabled.json")
 ALLOWED_USERS_FILE = os.path.join(CONFIG_DIR, "allowed_users.json")
+WELCOME_CHANNELS_FILE = os.path.join(CONFIG_DIR, "welcome_channels.json")
 API_LOGS_FILE = os.path.join(CONFIG_DIR, "api_logs.json")
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -26,8 +27,9 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 # In-memory storage
 guild_commands = {}
 automod_config = {}
-automod_enabled = {}  # {guild_id: True/False} - tracks if automod is enabled
+automod_enabled = {}
 allowed_users = {}
+welcome_channels = {}  # {guild_id: channel_id}
 api_logs = []
 
 # API Key
@@ -44,7 +46,7 @@ bot_instance = None
 
 def load_all_data():
     """Load all configuration data from JSON files"""
-    global guild_commands, automod_config, automod_enabled, allowed_users, api_logs
+    global guild_commands, automod_config, automod_enabled, allowed_users, welcome_channels, api_logs
 
     try:
         if os.path.exists(GUILD_COMMANDS_FILE):
@@ -67,9 +69,8 @@ def load_all_data():
     try:
         if os.path.exists(AUTOMOD_ENABLED_FILE):
             with open(AUTOMOD_ENABLED_FILE, 'r') as f:
-                automod_enabled = json.load(f)
-                # Convert string keys to int for consistency
-                automod_enabled = {int(k): v for k, v in automod_enabled.items()}
+                data = json.load(f)
+                automod_enabled = {int(k): v for k, v in data.items()}
                 print(f"✅ Loaded {len(automod_enabled)} automod enabled states")
     except Exception as e:
         print(f"⚠️ Error loading automod enabled: {e}")
@@ -83,6 +84,16 @@ def load_all_data():
     except Exception as e:
         print(f"⚠️ Error loading allowed users: {e}")
         allowed_users = {}
+
+    try:
+        if os.path.exists(WELCOME_CHANNELS_FILE):
+            with open(WELCOME_CHANNELS_FILE, 'r') as f:
+                data = json.load(f)
+                welcome_channels = {int(k): int(v) for k, v in data.items()}
+                print(f"✅ Loaded {len(welcome_channels)} welcome channel configs")
+    except Exception as e:
+        print(f"⚠️ Error loading welcome channels: {e}")
+        welcome_channels = {}
 
     try:
         if os.path.exists(API_LOGS_FILE):
@@ -114,7 +125,6 @@ def save_automod_config():
 
 def save_automod_enabled():
     try:
-        # Convert int keys to strings for JSON
         enabled_str_keys = {str(k): v for k, v in automod_enabled.items()}
         with open(AUTOMOD_ENABLED_FILE, 'w') as f:
             json.dump(enabled_str_keys, f, indent=2)
@@ -132,6 +142,16 @@ def save_allowed_users():
         print(f"❌ Error saving allowed users: {e}")
 
 
+def save_welcome_channels():
+    try:
+        channels_str_keys = {str(k): str(v) for k, v in welcome_channels.items()}
+        with open(WELCOME_CHANNELS_FILE, 'w') as f:
+            json.dump(channels_str_keys, f, indent=2)
+        print(f"💾 Saved welcome channels")
+    except Exception as e:
+        print(f"❌ Error saving welcome channels: {e}")
+
+
 def save_api_logs():
     try:
         with open(API_LOGS_FILE, 'w') as f:
@@ -141,7 +161,6 @@ def save_api_logs():
 
 
 def commit_to_github(file_path, content, commit_message):
-    """Commit a file to GitHub repository"""
     if not GITHUB_TOKEN or not GITHUB_REPO:
         return {'success': False, 'message': 'GitHub integration not configured'}
 
@@ -171,7 +190,7 @@ def commit_to_github(file_path, content, commit_message):
 
         if r.status_code in [200, 201]:
             res = r.json()
-            print(f"✅ GitHub commit success: {res['commit']['html_url']}")
+            print(f"✅ GitHub commit success")
             return {'success': True, 'commit_url': res['commit']['html_url']}
         else:
             print(f"❌ GitHub commit failed: {r.status_code}")
@@ -183,7 +202,6 @@ def commit_to_github(file_path, content, commit_message):
 
 
 def log_api_request(endpoint, method, data, ip_address):
-    """Log API request for monitoring"""
     log_entry = {
         'timestamp': datetime.now().isoformat(),
         'endpoint': endpoint,
@@ -197,99 +215,12 @@ def log_api_request(endpoint, method, data, ip_address):
 
 
 def set_bot_instance(bot):
-    """Set bot instance for DM capabilities"""
     global bot_instance
     bot_instance = bot
     print("✅ Bot instance set for API integration")
 
 
-async def send_welcome_dm_to_owner(guild_id):
-    """Send beautiful welcome DM to server owner"""
-    if not bot_instance:
-        print("⚠️ Bot instance not set, cannot send DM")
-        return False
-
-    try:
-        import discord
-
-        guild = bot_instance.get_guild(int(guild_id))
-        if not guild or not guild.owner:
-            print(f"⚠️ Guild {guild_id} or owner not found")
-            return False
-
-        embed = discord.Embed(
-            title="🎉 Welcome to OLIT Bot!",
-            description=f"Thank you for adding OLIT Bot to **{guild.name}**!\n\nYour server is now connected to our API system.",
-            color=0x5865F2  # Discord Blurple
-        )
-
-        if bot_instance.user.avatar:
-            embed.set_thumbnail(url=bot_instance.user.avatar.url)
-
-        embed.add_field(
-            name="✨ Quick Setup Complete",
-            value="Your server has been automatically configured and is ready to use!",
-            inline=False
-        )
-
-        embed.add_field(
-            name="📋 Custom Commands",
-            value="• Create custom commands via the admin panel\n• Commands are instantly available server-wide\n• Edit and remove commands anytime",
-            inline=False
-        )
-
-        embed.add_field(
-            name="🛡️ Auto-Moderation",
-            value="• Built-in N-word filter (always active)\n• Add custom banned words via API\n• 24-hour timeout for violations\n• Automatic message deletion",
-            inline=False
-        )
-
-        embed.add_field(
-            name="👥 User Management",
-            value="• Configure allowed/exempt users\n• API-based permission system\n• Flexible access control",
-            inline=False
-        )
-
-        embed.add_field(
-            name="🔧 Admin Panel Access",
-            value=f"**Server ID:** `{guild_id}`\n\nUse this ID to manage your server in the admin panel.",
-            inline=False
-        )
-
-        embed.add_field(
-            name="📚 Useful Commands",
-            value="`!help` - View all commands\n`!api_status` - Check API connection\n`!listcommands` - See custom commands\n`!automod status` - Check automod settings",
-            inline=False
-        )
-
-        embed.add_field(
-            name="🔗 GitHub Integration",
-            value="All configuration changes are automatically backed up to GitHub for version control and disaster recovery.",
-            inline=False
-        )
-
-        embed.set_footer(
-            text=f"{guild.name} • OLIT Bot API v2.2",
-            icon_url=guild.icon.url if guild.icon else None
-        )
-
-        embed.timestamp = datetime.now()
-
-        await guild.owner.send(embed=embed)
-        print(f"✅ Welcome DM sent to owner of {guild.name} ({guild_id})")
-        return True
-
-    except discord.Forbidden:
-        print(f"⚠️ Cannot DM owner of guild {guild_id} - DMs disabled")
-        return False
-    except Exception as e:
-        print(f"❌ Error sending welcome DM: {e}")
-        return False
-
-
 def require_api_key(f):
-    """Decorator to require API key authentication"""
-
     def decorated_function(*args, **kwargs):
         provided_key = request.headers.get('X-API-Key')
         if not provided_key:
@@ -297,7 +228,6 @@ def require_api_key(f):
         if provided_key != API_KEY:
             return jsonify({'success': False, 'error': 'Invalid API key'}), 403
         return f(*args, **kwargs)
-
     decorated_function.__name__ = f.__name__
     return decorated_function
 
@@ -307,17 +237,14 @@ def home():
     return jsonify({
         'status': 'running',
         'service': 'OLIT Discord Bot API',
-        'version': '2.3',
+        'version': '2.4',
         'endpoints': {
             'health': '/',
-            'add_command': '/api/add_command [POST]',
-            'remove_command': '/api/remove_command [POST]',
-            'get_commands': '/api/commands/<guild_id> [GET]',
-            'automod': '/api/automod [POST]',
-            'automod_status': '/api/automod/<guild_id> [GET]',
-            'automod_enabled': '/api/automod_enabled/<guild_id> [GET]',
-            'users': '/api/allowed_users [POST]',
-            'get_users': '/api/allowed_users/<guild_id> [GET]',
+            'commands': '/api/commands/<guild_id> [GET]',
+            'automod': '/api/automod [POST/GET]',
+            'automod_enable': '/api/automod_enable [POST]',
+            'users': '/api/allowed_users [POST/GET]',
+            'welcome': '/api/welcome_channel [POST/GET]',
             'config': '/api/config/<guild_id> [GET]',
             'stats': '/api/stats [GET]'
         }
@@ -342,13 +269,6 @@ def add_command():
         if not guild_id or not command or not response:
             return jsonify({'success': False, 'error': 'Missing required fields'}), 400
 
-        # Check if this is a new guild (not in config)
-        is_new_guild = (
-                guild_id not in guild_commands and
-                guild_id not in automod_config and
-                guild_id not in allowed_users
-        )
-
         if guild_id not in guild_commands:
             guild_commands[guild_id] = {}
 
@@ -360,42 +280,24 @@ def add_command():
 
         save_guild_commands()
 
-        # Send welcome DM if new guild
-        if is_new_guild and bot_instance:
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(send_welcome_dm_to_owner(guild_id))
-                loop.close()
-            except Exception as e:
-                print(f"⚠️ Failed to send welcome DM: {e}")
-
-        github_sync_result = None
         if GITHUB_TOKEN and GITHUB_REPO:
             try:
-                sync_result = commit_to_github(
+                commit_to_github(
                     'config/guild_commands.json',
                     guild_commands,
                     f'🤖 Add command "{command}" for guild {guild_id}'
                 )
-                github_sync_result = sync_result.get('success', False)
             except Exception as e:
                 print(f"⚠️ GitHub sync failed: {e}")
 
         log_api_request('/api/add_command', 'POST', data, request.remote_addr)
 
-        response_data = {
+        return jsonify({
             'success': True,
-            'message': f'Command "{command}" added/updated for guild {guild_id}',
+            'message': f'Command "{command}" added/updated',
             'command': command,
-            'guild_id': guild_id,
-            'new_guild_welcome_sent': is_new_guild
-        }
-
-        if github_sync_result is not None:
-            response_data['github_synced'] = github_sync_result
-
-        return jsonify(response_data)
+            'guild_id': guild_id
+        })
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -418,16 +320,12 @@ def remove_command():
 
             if GITHUB_TOKEN and GITHUB_REPO:
                 try:
-                    commit_to_github(
-                        'config/guild_commands.json',
-                        guild_commands,
-                        f'🗑️ Remove command "{command}" from guild {guild_id}'
-                    )
-                except Exception as e:
-                    print(f"⚠️ GitHub sync failed: {e}")
+                    commit_to_github('config/guild_commands.json', guild_commands, f'🗑️ Remove command "{command}"')
+                except:
+                    pass
 
             log_api_request('/api/remove_command', 'POST', data, request.remote_addr)
-            return jsonify({'success': True, 'message': f'Command "{command}" removed'})
+            return jsonify({'success': True, 'message': f'Command removed'})
         else:
             return jsonify({'success': False, 'error': 'Command not found'}), 404
 
@@ -438,14 +336,8 @@ def remove_command():
 @app.route('/api/commands/<guild_id>', methods=['GET'])
 def get_commands_public(guild_id):
     try:
-        guild_id = str(guild_id)
-        commands = guild_commands.get(guild_id, {})
-        return jsonify({
-            'success': True,
-            'guild_id': guild_id,
-            'commands': commands,
-            'count': len(commands)
-        })
+        commands = guild_commands.get(str(guild_id), {})
+        return jsonify({'success': True, 'guild_id': str(guild_id), 'commands': commands, 'count': len(commands)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -453,7 +345,6 @@ def get_commands_public(guild_id):
 @app.route('/api/automod', methods=['POST'])
 @require_api_key
 def manage_automod():
-    """Add/remove banned words and AUTO-ENABLE automod"""
     try:
         data = request.json
         guild_id_str = str(data.get('guild_id'))
@@ -467,77 +358,44 @@ def manage_automod():
         if action not in ['add', 'remove']:
             return jsonify({'success': False, 'error': 'Action must be "add" or "remove"'}), 400
 
-        # Check if this is a new guild
-        is_new_guild = (
-                guild_id_str not in guild_commands and
-                guild_id_str not in automod_config and
-                guild_id_str not in allowed_users
-        )
-
         if guild_id_str not in automod_config:
             automod_config[guild_id_str] = []
 
         if action == 'add':
             if word not in automod_config[guild_id_str]:
                 automod_config[guild_id_str].append(word)
-                message = f'Word "{word}" added to automod for guild {guild_id_str}'
+                message = f'Word "{word}" added to automod'
 
-                # ✨ AUTO-ENABLE AUTOMOD when first word is added
+                # Auto-enable automod
                 if guild_id_int not in automod_enabled or not automod_enabled[guild_id_int]:
                     automod_enabled[guild_id_int] = True
                     save_automod_enabled()
-                    message += ' | ✅ Auto-moderation ENABLED for this server'
-                    print(f"🛡️ Auto-enabled automod for guild {guild_id_int}")
+                    message += ' | ✅ Automod ENABLED'
             else:
-                message = f'Word "{word}" already in automod list'
+                message = f'Word already in automod list'
         else:
             if word in automod_config[guild_id_str]:
                 automod_config[guild_id_str].remove(word)
-                message = f'Word "{word}" removed from automod for guild {guild_id_str}'
+                message = f'Word removed from automod'
             else:
                 return jsonify({'success': False, 'error': 'Word not found'}), 404
 
         save_automod_config()
-
-        # Send welcome DM if new guild
-        if is_new_guild and bot_instance:
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(send_welcome_dm_to_owner(guild_id_str))
-                loop.close()
-            except Exception as e:
-                print(f"⚠️ Failed to send welcome DM: {e}")
-
         log_api_request('/api/automod', 'POST', data, request.remote_addr)
 
         if GITHUB_TOKEN and GITHUB_REPO:
             try:
-                # Commit both automod config and enabled state
-                commit_to_github(
-                    'config/automod_config.json',
-                    automod_config,
-                    f'🛡️ {"Add" if action == "add" else "Remove"} automod word "{word}" for guild {guild_id_str}'
-                )
-
+                commit_to_github('config/automod_config.json', automod_config, f'🛡️ Automod update')
                 if action == 'add':
-                    enabled_str_keys = {str(k): v for k, v in automod_enabled.items()}
-                    commit_to_github(
-                        'config/automod_enabled.json',
-                        enabled_str_keys,
-                        f'🛡️ Auto-enable automod for guild {guild_id_str}'
-                    )
-            except Exception as e:
-                print(f"⚠️ GitHub sync failed: {e}")
+                    enabled_str = {str(k): v for k, v in automod_enabled.items()}
+                    commit_to_github('config/automod_enabled.json', enabled_str, f'🛡️ Auto-enable automod')
+            except:
+                pass
 
         return jsonify({
             'success': True,
             'message': message,
-            'guild_id': guild_id_str,
-            'word': word,
-            'action': action,
-            'automod_enabled': automod_enabled.get(guild_id_int, False),
-            'new_guild_welcome_sent': is_new_guild
+            'automod_enabled': automod_enabled.get(guild_id_int, False)
         })
 
     except Exception as e:
@@ -546,31 +404,49 @@ def manage_automod():
 
 @app.route('/api/automod/<guild_id>', methods=['GET'])
 def get_automod_public(guild_id):
-    """Get automod words for a guild"""
     try:
-        guild_id = str(guild_id)
-        words = automod_config.get(guild_id, [])
+        words = automod_config.get(str(guild_id), [])
+        return jsonify({'success': True, 'guild_id': str(guild_id), 'words': words, 'count': len(words)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/automod_enable', methods=['POST'])
+@require_api_key
+def set_automod_enable():
+    """Enable or disable automod for a guild"""
+    try:
+        data = request.json
+        guild_id = int(data.get('guild_id'))
+        enabled = data.get('enabled', True)
+
+        automod_enabled[guild_id] = enabled
+        save_automod_enabled()
+
+        if GITHUB_TOKEN and GITHUB_REPO:
+            try:
+                enabled_str = {str(k): v for k, v in automod_enabled.items()}
+                commit_to_github('config/automod_enabled.json', enabled_str, f'🛡️ {"Enable" if enabled else "Disable"} automod')
+            except:
+                pass
+
+        log_api_request('/api/automod_enable', 'POST', data, request.remote_addr)
+
         return jsonify({
             'success': True,
-            'guild_id': guild_id,
-            'words': words,
-            'count': len(words)
+            'message': f'Automod {"enabled" if enabled else "disabled"}',
+            'automod_enabled': enabled
         })
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/automod_enabled/<guild_id>', methods=['GET'])
 def get_automod_enabled(guild_id):
-    """Check if automod is enabled for a guild"""
     try:
-        guild_id_int = int(guild_id)
-        enabled = automod_enabled.get(guild_id_int, False)
-        return jsonify({
-            'success': True,
-            'guild_id': str(guild_id),
-            'automod_enabled': enabled
-        })
+        enabled = automod_enabled.get(int(guild_id), False)
+        return jsonify({'success': True, 'guild_id': str(guild_id), 'automod_enabled': enabled})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -578,7 +454,6 @@ def get_automod_enabled(guild_id):
 @app.route('/api/allowed_users', methods=['POST'])
 @require_api_key
 def manage_allowed_users():
-    """Add/remove allowed users (exempt from automod)"""
     try:
         data = request.json
         guild_id = str(data.get('guild_id'))
@@ -591,61 +466,32 @@ def manage_allowed_users():
         if action not in ['add', 'remove']:
             return jsonify({'success': False, 'error': 'Action must be "add" or "remove"'}), 400
 
-        # Check if new guild
-        is_new_guild = (
-                guild_id not in guild_commands and
-                guild_id not in automod_config and
-                guild_id not in allowed_users
-        )
-
         if guild_id not in allowed_users:
             allowed_users[guild_id] = []
 
         if action == 'add':
             if user_id not in allowed_users[guild_id]:
                 allowed_users[guild_id].append(user_id)
-                message = f'User {user_id} added to allowed users (automod exempt) for guild {guild_id}'
+                message = f'User {user_id} added to exempt list'
             else:
-                message = f'User {user_id} already in allowed users list'
+                message = f'User already in exempt list'
         else:
             if user_id in allowed_users[guild_id]:
                 allowed_users[guild_id].remove(user_id)
-                message = f'User {user_id} removed from allowed users for guild {guild_id}'
+                message = f'User {user_id} removed from exempt list'
             else:
                 return jsonify({'success': False, 'error': 'User not found'}), 404
 
         save_allowed_users()
-
-        # Send welcome DM if new guild
-        if is_new_guild and bot_instance:
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(send_welcome_dm_to_owner(guild_id))
-                loop.close()
-            except Exception as e:
-                print(f"⚠️ Failed to send welcome DM: {e}")
-
         log_api_request('/api/allowed_users', 'POST', data, request.remote_addr)
 
         if GITHUB_TOKEN and GITHUB_REPO:
             try:
-                commit_to_github(
-                    'config/allowed_users.json',
-                    allowed_users,
-                    f'👥 {"Add" if action == "add" else "Remove"} exempt user {user_id} for guild {guild_id}'
-                )
-            except Exception as e:
-                print(f"⚠️ GitHub sync failed: {e}")
+                commit_to_github('config/allowed_users.json', allowed_users, f'👥 User management')
+            except:
+                pass
 
-        return jsonify({
-            'success': True,
-            'message': message,
-            'guild_id': guild_id,
-            'user_id': user_id,
-            'action': action,
-            'new_guild_welcome_sent': is_new_guild
-        })
+        return jsonify({'success': True, 'message': message})
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -653,15 +499,53 @@ def manage_allowed_users():
 
 @app.route('/api/allowed_users/<guild_id>', methods=['GET'])
 def get_allowed_users_public(guild_id):
-    """Get allowed/exempt users for a guild"""
     try:
-        guild_id = str(guild_id)
-        users = allowed_users.get(guild_id, [])
+        users = allowed_users.get(str(guild_id), [])
+        return jsonify({'success': True, 'guild_id': str(guild_id), 'users': users, 'count': len(users)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/welcome_channel', methods=['POST'])
+@require_api_key
+def set_welcome_channel():
+    """Set welcome channel for a guild"""
+    try:
+        data = request.json
+        guild_id = int(data.get('guild_id'))
+        channel_id = int(data.get('channel_id'))
+
+        welcome_channels[guild_id] = channel_id
+        save_welcome_channels()
+
+        if GITHUB_TOKEN and GITHUB_REPO:
+            try:
+                channels_str = {str(k): str(v) for k, v in welcome_channels.items()}
+                commit_to_github('config/welcome_channels.json', channels_str, f'👋 Set welcome channel')
+            except:
+                pass
+
+        log_api_request('/api/welcome_channel', 'POST', data, request.remote_addr)
+
         return jsonify({
             'success': True,
-            'guild_id': guild_id,
-            'users': users,
-            'count': len(users)
+            'message': f'Welcome channel set to {channel_id}',
+            'guild_id': str(guild_id),
+            'channel_id': str(channel_id)
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/welcome_channel/<guild_id>', methods=['GET'])
+def get_welcome_channel(guild_id):
+    try:
+        channel_id = welcome_channels.get(int(guild_id))
+        return jsonify({
+            'success': True,
+            'guild_id': str(guild_id),
+            'channel_id': str(channel_id) if channel_id else None
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -680,6 +564,7 @@ def get_config(guild_id):
             'automod_words': automod_config.get(guild_id_str, []),
             'automod_enabled': automod_enabled.get(guild_id_int, False),
             'allowed_users': allowed_users.get(guild_id_str, []),
+            'welcome_channel': welcome_channels.get(guild_id_int),
             'timestamp': datetime.now().isoformat()
         }
 
@@ -696,26 +581,35 @@ def get_stats():
         total_guilds = len(set(
             list(guild_commands.keys()) +
             list(automod_config.keys()) +
-            list(allowed_users.keys())
+            list(allowed_users.keys()) +
+            [str(k) for k in welcome_channels.keys()]
         ))
-
-        total_commands = sum(len(cmds) for cmds in guild_commands.values())
-        total_automod_words = sum(len(words) for words in automod_config.values())
-        total_allowed_users = sum(len(users) for users in allowed_users.values())
-        automod_enabled_count = sum(1 for enabled in automod_enabled.values() if enabled)
 
         stats = {
             'total_guilds_configured': total_guilds,
-            'total_custom_commands': total_commands,
-            'total_automod_words': total_automod_words,
-            'total_allowed_users': total_allowed_users,
-            'automod_enabled_guilds': automod_enabled_count,
+            'total_custom_commands': sum(len(cmds) for cmds in guild_commands.values()),
+            'total_automod_words': sum(len(words) for words in automod_config.values()),
+            'total_allowed_users': sum(len(users) for users in allowed_users.values()),
+            'automod_enabled_guilds': sum(1 for enabled in automod_enabled.values() if enabled),
+            'welcome_channels_configured': len(welcome_channels),
             'api_requests_logged': len(api_logs),
             'timestamp': datetime.now().isoformat()
         }
 
         return jsonify({'success': True, 'stats': stats})
 
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/logs', methods=['GET'])
+@require_api_key
+def get_logs():
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        limit = min(limit, 500)
+        recent_logs = api_logs[-limit:]
+        return jsonify({'success': True, 'logs': recent_logs, 'total': len(api_logs)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -729,12 +623,15 @@ def get_automod_words(guild_id):
 
 
 def get_automod_enabled_status(guild_id):
-    """Check if automod is enabled for a guild"""
     return automod_enabled.get(int(guild_id), False)
 
 
 def get_allowed_users_list(guild_id):
     return allowed_users.get(str(guild_id), [])
+
+
+def get_welcome_channel_id(guild_id):
+    return welcome_channels.get(int(guild_id))
 
 
 def run():
@@ -746,6 +643,7 @@ def run():
     print(f"✅ Guilds with automod: {len(automod_config)}")
     print(f"✅ Guilds with automod enabled: {sum(1 for v in automod_enabled.values() if v)}")
     print(f"✅ Guilds with allowed users: {len(allowed_users)}")
+    print(f"✅ Welcome channels configured: {len(welcome_channels)}")
     print(f"🔑 API Key configured: {'Yes' if API_KEY else 'No'}")
     print(f"🔗 GitHub sync: {'Enabled' if GITHUB_TOKEN and GITHUB_REPO else 'Disabled'}")
     print("=" * 50)

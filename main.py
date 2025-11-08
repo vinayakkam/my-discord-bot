@@ -38,24 +38,35 @@ async def on_ready():
     print(f"✅ Synced slash commands to {GUILD_ID}")
     print(f"Logged in as {bot.user}")
 
-# Dictionary mapping guild (server) IDs to their welcome channel IDs
-welcome_channels = {
-    1411425019434766499: 1411426415450263585,  # Example: Server A channel
-    1210475350119813120: 1418594720774619218,  # Example: Server B channel
-    # Add more servers here
-}
+
+from keep_alive import (
+    get_guild_commands,
+    get_automod_words,
+    get_automod_enabled_status,
+    get_allowed_users_list,
+    get_welcome_channel_id,
+    set_bot_instance
+)
+
+
+# ============================================
+# WELCOME MESSAGE EVENT HANDLER
+# ============================================
 
 @bot.event
 async def on_member_join(member: discord.Member):
     """Send an embed welcome message with profile pic to the correct channel per server."""
 
     guild_id = member.guild.id
-    channel_id = welcome_channels.get(guild_id)
+
+    # Get welcome channel from API
+    channel_id = get_welcome_channel_id(guild_id)
 
     if channel_id:
         channel = member.guild.get_channel(channel_id)
     else:
         channel = member.guild.system_channel  # fallback to system channel
+
     if not channel:
         return  # no channel found, do nothing
 
@@ -63,15 +74,240 @@ async def on_member_join(member: discord.Member):
     embed = discord.Embed(
         title=f"🎉 Welcome to {member.guild.name}!",
         description=(
-            f"Hey {member.mention}, welcome aboard! We’re excited to have you here.\n\n"
+            f"Hey {member.mention}, welcome aboard! We're excited to have you here.\n\n"
             f"Take a look at the rules, introduce yourself, and enjoy your stay 🚀"
         ),
         color=discord.Color.blurple()
     )
     embed.set_thumbnail(url=member.display_avatar.url)  # user's profile picture
-    embed.set_footer(text=f"You’re member #{len(member.guild.members)} in {member.guild.name}!")
+    embed.set_footer(text=f"You're member #{len(member.guild.members)} in {member.guild.name}!")
 
-    await channel.send(embed=embed)
+    try:
+        await channel.send(embed=embed)
+        print(f"✅ Sent welcome message for {member.name} in {member.guild.name}")
+    except discord.Forbidden:
+        print(f"⚠️ Cannot send welcome message in {channel.name} - missing permissions")
+    except Exception as e:
+        print(f"❌ Error sending welcome message: {e}")
+
+
+# ============================================
+# BOT READY EVENT
+# ============================================
+
+@bot.event
+async def on_ready():
+    """Enhanced startup with API integration"""
+    print(f'✅ {bot.user} has connected to Discord!')
+
+    # SET BOT INSTANCE IN API FOR DM CAPABILITIES (if needed)
+    set_bot_instance(bot)
+
+    print("=" * 60)
+    print("🌐 API INTEGRATION STATUS")
+    print("=" * 60)
+    print(f"✅ Bot instance registered with API")
+    print(f"✅ Welcome message system active")
+    print(f"✅ Automod API sync active")
+    print(f"✅ Exempt users API mapping active")
+    print("=" * 60)
+
+    # Load and display welcome channel configs
+    for guild in bot.guilds:
+        guild_id = guild.id
+        channel_id = get_welcome_channel_id(guild_id)
+
+        if channel_id:
+            channel = guild.get_channel(channel_id)
+            channel_name = channel.name if channel else "Unknown Channel"
+            print(f"  📍 {guild.name}: Welcome channel → #{channel_name} ({channel_id})")
+        else:
+            print(f"  ⚪ {guild.name}: Using system channel (fallback)")
+
+    print("=" * 60)
+
+
+# ============================================
+# ADMIN COMMANDS FOR WELCOME MANAGEMENT
+# ============================================
+
+@bot.command(name='setwelcome')
+@commands.has_permissions(administrator=True)
+async def set_welcome_channel(ctx, channel: discord.TextChannel):
+    """
+    Set the welcome channel for this server
+    Usage: !setwelcome #channel-name
+    """
+    import requests
+
+    guild_id = ctx.guild.id
+    channel_id = channel.id
+
+    # Update via API
+    try:
+        API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8080')
+        API_KEY = os.getenv('API_KEY')
+
+        response = requests.post(
+            f"{API_BASE_URL}/api/welcome_channel",
+            headers={
+                'Content-Type': 'application/json',
+                'X-API-Key': API_KEY
+            },
+            json={
+                'guild_id': str(guild_id),
+                'channel_id': str(channel_id)
+            },
+            timeout=5
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+
+            if data.get('success'):
+                embed = discord.Embed(
+                    title="✅ Welcome Channel Updated",
+                    description=f"Welcome messages will now be sent to {channel.mention}",
+                    color=discord.Color.green()
+                )
+                embed.add_field(
+                    name="📍 Channel Info",
+                    value=f"**Name:** #{channel.name}\n**ID:** `{channel_id}`",
+                    inline=False
+                )
+                embed.set_footer(text="Changes take effect immediately")
+
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send(f"❌ API Error: {data.get('error', 'Unknown error')}")
+        else:
+            await ctx.send(f"❌ API request failed with status {response.status_code}")
+
+    except requests.exceptions.RequestException as e:
+        await ctx.send(f"❌ Connection error: {str(e)}")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)}")
+
+
+@bot.command(name='testwelcome')
+@commands.has_permissions(administrator=True)
+async def test_welcome(ctx):
+    """
+    Test the welcome message (simulates a new member joining)
+    Usage: !testwelcome
+    """
+    guild_id = ctx.guild.id
+    channel_id = get_welcome_channel_id(guild_id)
+
+    if channel_id:
+        channel = ctx.guild.get_channel(channel_id)
+    else:
+        channel = ctx.guild.system_channel
+
+    if not channel:
+        await ctx.send("❌ No welcome channel configured and no system channel available!")
+        return
+
+    # Create test embed
+    embed = discord.Embed(
+        title=f"🎉 Welcome to {ctx.guild.name}!",
+        description=(
+            f"Hey {ctx.author.mention}, welcome aboard! We're excited to have you here.\n\n"
+            f"Take a look at the rules, introduce yourself, and enjoy your stay 🚀"
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.set_footer(text=f"You're member #{len(ctx.guild.members)} in {ctx.guild.name}!")
+
+    try:
+        test_msg = await channel.send(embed=embed)
+
+        await ctx.send(
+            f"✅ Test welcome message sent to {channel.mention}!\n"
+            f"**Message ID:** {test_msg.id}"
+        )
+    except discord.Forbidden:
+        await ctx.send(f"❌ I don't have permission to send messages in {channel.mention}")
+    except Exception as e:
+        await ctx.send(f"❌ Error sending test message: {str(e)}")
+
+
+@bot.command(name='welcomeinfo')
+async def welcome_info(ctx):
+    """
+    Show current welcome channel configuration
+    Usage: !welcomeinfo
+    """
+    guild_id = ctx.guild.id
+    channel_id = get_welcome_channel_id(guild_id)
+
+    embed = discord.Embed(
+        title="👋 Welcome Channel Info",
+        description=f"Welcome message configuration for **{ctx.guild.name}**",
+        color=discord.Color.blue()
+    )
+
+    if channel_id:
+        channel = ctx.guild.get_channel(channel_id)
+        if channel:
+            embed.add_field(
+                name="📍 Current Channel",
+                value=f"{channel.mention}\n**Name:** #{channel.name}\n**ID:** `{channel_id}`",
+                inline=False
+            )
+            embed.color = discord.Color.green()
+        else:
+            embed.add_field(
+                name="⚠️ Channel Not Found",
+                value=f"Configured channel ID `{channel_id}` no longer exists.\nWill fallback to system channel.",
+                inline=False
+            )
+            embed.color = discord.Color.orange()
+    else:
+        system_channel = ctx.guild.system_channel
+        if system_channel:
+            embed.add_field(
+                name="⚪ Default Configuration",
+                value=f"No custom channel set.\nUsing system channel: {system_channel.mention}",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="❌ No Channel Available",
+                value="No welcome channel configured and no system channel available!",
+                inline=False
+            )
+            embed.color = discord.Color.red()
+
+    embed.add_field(
+        name="🔧 Admin Commands",
+        value="`!setwelcome #channel` - Set welcome channel\n`!testwelcome` - Test welcome message",
+        inline=False
+    )
+
+    embed.set_footer(text="Powered by OLIT API")
+
+    await ctx.send(embed=embed)
+
+
+# ============================================
+# ERROR HANDLER
+# ============================================
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Handle command errors"""
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You don't have permission to use this command!")
+    elif isinstance(error, commands.ChannelNotFound):
+        await ctx.send("❌ Channel not found! Please mention a valid channel.")
+    elif isinstance(error, commands.CommandNotFound):
+        pass  # Ignore - might be custom command
+    else:
+        print(f"Error: {error}")
+        await ctx.send(f"❌ An error occurred: {str(error)}")
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
