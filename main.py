@@ -18,6 +18,7 @@ from typing import Dict, Any, List, Optional
 import requests
 import base64
 
+
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = os.getenv("GUILD_ID")
