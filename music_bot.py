@@ -301,7 +301,7 @@ YDL_OPTIONS = {
     'no_warnings': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    'cookiefile': None,
+    'cookiefile': 'cookies.txt',
     'extract_flat': False,
     'geo_bypass': True,
     'nocheckcertificate': True,
