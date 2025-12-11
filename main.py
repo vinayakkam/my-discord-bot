@@ -18,7 +18,6 @@ from typing import Dict, Any, List, Optional
 import requests
 import base64
 
-
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = os.getenv("GUILD_ID")
@@ -5223,6 +5222,18 @@ async def gif(ctx):
         color=discord.Color.from_rgb(128, 0, 0)
     )
     embed.set_image(url="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExZnpmam1qOXdmb2Y0eDFja2wwaWt0cGRpNXV0NjRtbWppMWljZnRiaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/CKu1S2EgBdNNLxD6hu/giphy.gif")
+    # Replace with any GIF URL
+
+    await ctx.send(embed=embed)
+@bot.command(name="destructivecryo")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="**Destructive Cryo**",
+        description="Your vehicle didn't hold up to your expectations!",
+        color=discord.Color.from_rgb(255, 255, 255)
+    )
+    embed.set_image(url="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExbWxnODUybmFzNzUzaWxpaHo0Znc5dWF4a3lqOGlrMTAzZThsbHZ1NCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/23OBfFWEyJSYj6fvhY/giphy.gif")
     # Replace with any GIF URL
 
     await ctx.send(embed=embed)
