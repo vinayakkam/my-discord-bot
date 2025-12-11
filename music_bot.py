@@ -139,12 +139,16 @@ YDL_OPTIONS = {
     'no_warnings': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    'extract_flat': False
+    'extract_flat': False,
+    'geo_bypass': True,
+    'nocheckcertificate': True,
+    'socket_timeout': 30,
+    'retries': 3
 }
 
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn'
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin -loglevel warning',
+    'options': '-vn -b:a 128k'
 }
 
 # Store music queues per guild
@@ -195,9 +199,16 @@ async def play_next(ctx):
                     info = ydl.extract_info(song['url'], download=False)
                     url = info['url']
 
+                # Use PCMVolumeTransformer for better audio control
                 source = discord.FFmpegPCMAudio(url, **FFMPEG_OPTIONS)
-                queue.voice_client.play(source,
-                                        after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), ctx.bot.loop))
+                source = discord.PCMVolumeTransformer(source, volume=0.5)
+
+                def after_playing(error):
+                    if error:
+                        print(f"Player error: {error}")
+                    asyncio.run_coroutine_threadsafe(play_next(ctx), ctx.bot.loop)
+
+                queue.voice_client.play(source, after=after_playing)
 
                 embed = discord.Embed(title="🎵 Now Playing", description=f"**{song['title']}**",
                                       color=discord.Color.green())
@@ -206,6 +217,7 @@ async def play_next(ctx):
                 await ctx.send(embed=embed)
             except Exception as e:
                 await ctx.send(f"❌ Error playing song: {str(e)}")
+                print(f"Playback error: {e}")
                 await play_next(ctx)
         else:
             queue.current = None
