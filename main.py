@@ -8133,6 +8133,18 @@ async def github_info_command(ctx):
 
 
 
+from music_bot import setup_music_commands
+setup_music_commands(bot)
+
+
+
+
+
+
+
+
+
+
 
 
 
