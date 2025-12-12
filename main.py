@@ -3910,6 +3910,7 @@ async def personal_stats(ctx):
 
 import os
 import asyncio
+import traceback
 from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands
@@ -3921,26 +3922,22 @@ try:
     def now_in_ist():
         return datetime.now(IST)
 except Exception:
-    # If pytz is missing or unavailable, use fixed offset UTC+5:30
     IST = timezone(timedelta(hours=5, minutes=30))
     def now_in_ist():
         return datetime.now(IST)
 
 # ---------- Configuration ----------
-TIMEZONE_NAME = "Asia/Kolkata"  # display only
+TIMEZONE_NAME = "Asia/Kolkata"
 ACTIVE_MONTH = 12
 ACTIVE_START_DAY = 1
 ACTIVE_END_DAY = 25
 
-# Festive image
 FESTIVE_IMAGE = "https://img.freepik.com/free-vector/flat-christmas-season-celebration-background_23-2149872289.jpg?semt=ais_hybrid&w=740&q=80"
-
 COMMAND_NAME = "merrychristmas"
-# -----------------------------------
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
+# track active games per channel to avoid overlapping games
+active_games = {}  # channel_id -> True while a game is running
 
 def is_christmas_active() -> bool:
     now = now_in_ist()
@@ -3948,7 +3945,6 @@ def is_christmas_active() -> bool:
 
 # ---------- Embeds ----------
 def make_game_embed(animation_line: str = ""):
-    """Initial embed shown when command invoked. `animation_line` is appended to description for animation."""
     embed = discord.Embed(
         title="🎄 Merry Christmas!",
         description=(
@@ -3981,8 +3977,9 @@ def make_result_embed(*, winner: str):
 class GrinchView(discord.ui.View):
     def __init__(self, timeout: float = 5.0):
         super().__init__(timeout=timeout)
-        self.result = None  # "stopped" or "grinch_won"
+        self.result = None
         self._message = None
+        self.winner_user = None  # store who clicked
 
     @discord.ui.button(label="Stop the Grinch!", style=discord.ButtonStyle.primary)
     async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3990,7 +3987,9 @@ class GrinchView(discord.ui.View):
             await interaction.response.send_message("The game already finished.", ephemeral=True)
             return
 
+        # first click wins — record the user
         self.result = "stopped"
+        self.winner_user = interaction.user
         button.disabled = True
         try:
             await interaction.response.edit_message(embed=make_result_embed(winner="you"), view=self)
@@ -4012,21 +4011,16 @@ class GrinchView(discord.ui.View):
 
 # ---------- Animation helper ----------
 async def run_presents_animation(message: discord.Message, view: GrinchView, interval: float = 0.6):
-    """
-    Simple emoji animation that edits the embed description to show a character receiving presents.
-    Runs until view.result is set (a click or timeout) or until canceled.
-    """
     frames = [
-        "🙂",              # starting: no presents
-        "🙂 🎁",           # one present
-        "🙂 🎁🎁",         # two presents
-        "🙂 🎁🎁🎁",       # three presents
-        "🙂 🎁🎁🎁🎉",     # celebration
+        "🙂",
+        "🙂 🎁",
+        "🙂 🎁🎁",
+        "🙂 🎁🎁🎁",
+        "🙂 🎁🎁🎁🎉",
     ]
     idx = 0
     try:
         while True:
-            # Stop if game finished
             if view.result is not None:
                 return
             animation_line = f"**Presents:** {frames[idx % len(frames)]}"
@@ -4034,21 +4028,120 @@ async def run_presents_animation(message: discord.Message, view: GrinchView, int
             try:
                 await message.edit(embed=new_embed, view=view)
             except Exception:
-                # If edit fails (permissions, deleted message), quietly exit animation
                 return
             idx += 1
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
-        # Task cancelled - exit cleanly
         return
 
-# ---------- Command ----------
+# ---------- Central runner ----------
+async def start_grinch_sim_in_channel(channel: discord.abc.Messageable, invoked_by: discord.Member | None = None):
+    channel_id = getattr(channel, "id", None)
+    if channel_id is None:
+        print("[GrinchSim] channel has no id; aborting.")
+        return
+
+    if active_games.get(channel_id):
+        print(f"[GrinchSim] Game already active in channel {channel_id}; skipping.")
+        return
+
+    active_games[channel_id] = True
+    print(f"[GrinchSim] Starting game in channel {channel_id} (invoked_by={getattr(invoked_by,'id',None)})")
+    try:
+        view = GrinchView(timeout=5.0)
+        initial_embed = make_game_embed(animation_line="**Presents:** 🙂")
+        message = await channel.send(embed=initial_embed, view=view)
+        view._message = message
+
+        animation_task = asyncio.create_task(run_presents_animation(message, view, interval=0.6))
+        await view.wait()
+
+        if not animation_task.done():
+            animation_task.cancel()
+            try:
+                await animation_task
+            except asyncio.CancelledError:
+                pass
+
+        # Announce who won (if known)
+        if view.result == "stopped" and getattr(view, "winner_user", None):
+            try:
+                await channel.send(f"🎉 {view.winner_user.mention} stopped the Grinch and saved Christmas!")
+            except Exception:
+                pass
+        else:
+            try:
+                await channel.send("The Grinch escaped... better luck next time. 😈")
+            except Exception:
+                pass
+
+    except Exception as e:
+        print("[GrinchSim] Exception in start_grinch_sim_in_channel:")
+        traceback.print_exc()
+    finally:
+        # short cooldown to avoid immediate retriggers if needed (optional)
+        active_games[channel_id] = False
+        # Small sleep avoids instant re-trigger if many messages arrive
+        await asyncio.sleep(0.1)
+
+# ---------- on_message with debug prints ----------
+@bot.event
+async def on_message(message: discord.Message):
+    try:
+        print(f"[on_message] {message.author} in {getattr(message.channel,'name',message.channel)}: {message.content!r}")
+
+        # ignore bot messages
+        if message.author.bot:
+            print("[on_message] message from bot — ignoring")
+            return
+
+        # allow commands still
+        if message.content.startswith(BOT_PREFIX):
+            print("[on_message] detected command prefix — letting command handler process it")
+            await bot.process_commands(message)
+            return
+
+        # only in guilds (if you want DM triggering remove this)
+        if message.guild is None:
+            print("[on_message] DM message — ignoring for auto-trigger")
+            await bot.process_commands(message)
+            return
+
+        # Check active window
+        if not is_christmas_active():
+            print("[on_message] not in active Christmas window — skipping auto-trigger")
+            await bot.process_commands(message)
+            return
+
+        # Check bot permissions to send messages in channel (best-effort)
+        try:
+            me = message.guild.me or await message.guild.fetch_member(bot.user.id)
+            perms = message.channel.permissions_for(me)
+            if not perms.send_messages:
+                print("[on_message] bot lacks send_messages permission in this channel — aborting auto-trigger")
+                await bot.process_commands(message)
+                return
+        except Exception:
+            # If fetching member/perms fails, keep going — will show error in start
+            pass
+
+        # Start game in background so we don't block the event loop
+        # This returns immediately; start_grinch_sim_in_channel will handle active_games checks
+        asyncio.create_task(start_grinch_sim_in_channel(message.channel, invoked_by=message.author))
+
+    except Exception:
+        print("[on_message] Unexpected error:")
+        traceback.print_exc()
+    finally:
+        # Always let the command processor run (so commands still work)
+        try:
+            await bot.process_commands(message)
+        except Exception:
+            pass
+
+# ---------- Command fallback ----------
 @bot.command(name=COMMAND_NAME)
 async def merrychristmas(ctx: commands.Context):
-    """
-    Usage: !merrychristmas
-    Active only in the configured Xmas window (Dec 1–25 IST by default).
-    """
     try:
         if not is_christmas_active():
             now = now_in_ist()
@@ -4058,44 +4151,16 @@ async def merrychristmas(ctx: commands.Context):
                 f"Dec {ACTIVE_START_DAY} through Dec {ACTIVE_END_DAY} (IST). "
                 f"Current date/time ({TIMEZONE_NAME}): {formatted}."
             )
-
-        view = GrinchView(timeout=5.0)
-        initial_embed = make_game_embed(animation_line="**Presents:** 🙂")
-        message = await ctx.send(embed=initial_embed, view=view)
-        view._message = message
-
-        # Start the animation task
-        animation_task = asyncio.create_task(run_presents_animation(message, view, interval=0.6))
-
-        # Wait until view finishes (clicked or timed out)
-        await view.wait()
-
-        # Stop animation task if still running
-        if not animation_task.done():
-            animation_task.cancel()
-            try:
-                await animation_task
-            except asyncio.CancelledError:
-                pass
-
-        # Optional praise message for the invoker if they saved Christmas
-        if view.result == "stopped":
-            try:
-                await ctx.reply("Nice! You saved Christmas — well done! 🎉", mention_author=False)
-            except:
-                pass
-
+        await start_grinch_sim_in_channel(ctx.channel, invoked_by=ctx.author)
     except Exception as e:
         await ctx.reply(f"An unexpected error occurred: `{e}`")
 
-# ---------- Help ----------
 @bot.command(name="christmashelp")
 async def christmas_help(ctx: commands.Context):
     text = (
         "🎄 **merrychristmas** command\n"
-        f"Use `!{COMMAND_NAME}` to start the 5-second Grinch Sim (Dec 1–25 IST).\n"
-        "First person to click the button within 5 seconds stops the Grinch.\n"
-        "A small emoji animation shows a character receiving presents while the game runs."
+        f"Use `{BOT_PREFIX}{COMMAND_NAME}` to start the 5-second Grinch Sim (Dec 1–25 IST).\n"
+        "The bot also automatically starts the Grinch Sim when someone chats in a channel (first person to click the button wins).\n"
     )
     await ctx.send(text)
 
