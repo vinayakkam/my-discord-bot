@@ -3908,6 +3908,200 @@ async def personal_stats(ctx):
     await ctx.send(embed=embed)
 #trolling
 
+import os
+import asyncio
+from datetime import datetime, timedelta, timezone
+import discord
+from discord.ext import commands
+
+# ---------- Timezone helper (tries pytz, falls back to fixed UTC+5:30) ----------
+try:
+    import pytz
+    IST = pytz.timezone("Asia/Kolkata")
+    def now_in_ist():
+        return datetime.now(IST)
+except Exception:
+    # If pytz is missing or unavailable, use fixed offset UTC+5:30
+    IST = timezone(timedelta(hours=5, minutes=30))
+    def now_in_ist():
+        return datetime.now(IST)
+
+# ---------- Configuration ----------
+TIMEZONE_NAME = "Asia/Kolkata"  # display only
+ACTIVE_MONTH = 12
+ACTIVE_START_DAY = 1
+ACTIVE_END_DAY = 25
+
+# Festive image
+FESTIVE_IMAGE = "https://img.freepik.com/free-vector/flat-christmas-season-celebration-background_23-2149872289.jpg?semt=ais_hybrid&w=740&q=80"
+
+COMMAND_NAME = "merrychristmas"
+# -----------------------------------
+
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
+def is_christmas_active() -> bool:
+    now = now_in_ist()
+    return (now.month == ACTIVE_MONTH) and (ACTIVE_START_DAY <= now.day <= ACTIVE_END_DAY)
+
+# ---------- Embeds ----------
+def make_game_embed(animation_line: str = ""):
+    """Initial embed shown when command invoked. `animation_line` is appended to description for animation."""
+    embed = discord.Embed(
+        title="🎄 Merry Christmas!",
+        description=(
+            "The Grinch is trying to steal the presents! 🎁\n\n"
+            "Click **Stop the Grinch!** within **5 seconds** to save Christmas!\n\n"
+            f"{animation_line}"
+        ),
+        color=0xE63946
+    )
+    embed.set_image(url=FESTIVE_IMAGE)
+    embed.set_footer(text=f"Grinch Sim • 5 second challenge • Timezone: {TIMEZONE_NAME}")
+    return embed
+
+def make_result_embed(*, winner: str):
+    if winner == "you":
+        title = "🎉 You saved Christmas!"
+        desc = "You stopped the Grinch — all presents are safe. Merry Christmas! 🎅🤍"
+        color = 0x2ECC71
+    else:
+        title = "😈 The Grinch got away..."
+        desc = "The Grinch stole the presents this time — better luck next year. 🎁💨"
+        color = 0x6C757D
+
+    embed = discord.Embed(title=title, description=desc, color=color)
+    embed.set_image(url=FESTIVE_IMAGE)
+    embed.set_footer(text="Grinch Sim result")
+    return embed
+
+# ---------- Minigame view ----------
+class GrinchView(discord.ui.View):
+    def __init__(self, timeout: float = 5.0):
+        super().__init__(timeout=timeout)
+        self.result = None  # "stopped" or "grinch_won"
+        self._message = None
+
+    @discord.ui.button(label="Stop the Grinch!", style=discord.ButtonStyle.primary)
+    async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.result is not None:
+            await interaction.response.send_message("The game already finished.", ephemeral=True)
+            return
+
+        self.result = "stopped"
+        button.disabled = True
+        try:
+            await interaction.response.edit_message(embed=make_result_embed(winner="you"), view=self)
+        except Exception:
+            await interaction.response.send_message("You stopped the Grinch! 🎉", ephemeral=True)
+        self.stop()
+
+    async def on_timeout(self):
+        if self.result is None:
+            self.result = "grinch_won"
+            for child in self.children:
+                if isinstance(child, discord.ui.Button):
+                    child.disabled = True
+            try:
+                if self._message:
+                    await self._message.edit(embed=make_result_embed(winner="grinch"), view=self)
+            except Exception:
+                pass
+
+# ---------- Animation helper ----------
+async def run_presents_animation(message: discord.Message, view: GrinchView, interval: float = 0.6):
+    """
+    Simple emoji animation that edits the embed description to show a character receiving presents.
+    Runs until view.result is set (a click or timeout) or until canceled.
+    """
+    frames = [
+        "🙂",              # starting: no presents
+        "🙂 🎁",           # one present
+        "🙂 🎁🎁",         # two presents
+        "🙂 🎁🎁🎁",       # three presents
+        "🙂 🎁🎁🎁🎉",     # celebration
+    ]
+    idx = 0
+    try:
+        while True:
+            # Stop if game finished
+            if view.result is not None:
+                return
+            animation_line = f"**Presents:** {frames[idx % len(frames)]}"
+            new_embed = make_game_embed(animation_line=animation_line)
+            try:
+                await message.edit(embed=new_embed, view=view)
+            except Exception:
+                # If edit fails (permissions, deleted message), quietly exit animation
+                return
+            idx += 1
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        # Task cancelled - exit cleanly
+        return
+
+# ---------- Command ----------
+@bot.command(name=COMMAND_NAME)
+async def merrychristmas(ctx: commands.Context):
+    """
+    Usage: !merrychristmas
+    Active only in the configured Xmas window (Dec 1–25 IST by default).
+    """
+    try:
+        if not is_christmas_active():
+            now = now_in_ist()
+            formatted = now.strftime("%Y-%m-%d %H:%M %Z") if hasattr(now, "tzname") else now.strftime("%Y-%m-%d %H:%M")
+            return await ctx.reply(
+                f"Sorry — the **{COMMAND_NAME}** command is available from "
+                f"Dec {ACTIVE_START_DAY} through Dec {ACTIVE_END_DAY} (IST). "
+                f"Current date/time ({TIMEZONE_NAME}): {formatted}."
+            )
+
+        view = GrinchView(timeout=5.0)
+        initial_embed = make_game_embed(animation_line="**Presents:** 🙂")
+        message = await ctx.send(embed=initial_embed, view=view)
+        view._message = message
+
+        # Start the animation task
+        animation_task = asyncio.create_task(run_presents_animation(message, view, interval=0.6))
+
+        # Wait until view finishes (clicked or timed out)
+        await view.wait()
+
+        # Stop animation task if still running
+        if not animation_task.done():
+            animation_task.cancel()
+            try:
+                await animation_task
+            except asyncio.CancelledError:
+                pass
+
+        # Optional praise message for the invoker if they saved Christmas
+        if view.result == "stopped":
+            try:
+                await ctx.reply("Nice! You saved Christmas — well done! 🎉", mention_author=False)
+            except:
+                pass
+
+    except Exception as e:
+        await ctx.reply(f"An unexpected error occurred: `{e}`")
+
+# ---------- Help ----------
+@bot.command(name="christmashelp")
+async def christmas_help(ctx: commands.Context):
+    text = (
+        "🎄 **merrychristmas** command\n"
+        f"Use `!{COMMAND_NAME}` to start the 5-second Grinch Sim (Dec 1–25 IST).\n"
+        "First person to click the button within 5 seconds stops the Grinch.\n"
+        "A small emoji animation shows a character receiving presents while the game runs."
+    )
+    await ctx.send(text)
+
+
+
+
 
 MASTER_ID = 814791086114865233  # make sure this is an int, no quotes
 
