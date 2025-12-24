@@ -72,7 +72,9 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 
 > 🔒 **Restricted Access:** Only OLIT Technologies maintainers may install or deploy this bot.
 > © Copyright Notice for OLIT Bot
+> 
 > © 2025 OLIT Technologies. All Rights Reserved.
+> 
 > OLIT Bot, including its codebase, features, artwork, and branding, is the intellectual property of OLIT Technologies.
 > No part of this bot — including its source code, graphics, data, or branding — may be copied, reproduced, modified, distributed, or otherwise exploited without
 > prior written permission from OLIT Technologies.
