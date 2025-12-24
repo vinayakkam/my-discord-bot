@@ -71,7 +71,7 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 ## ⚙️ Installation (Internal Use Only)
 
 > 🔒 **Restricted Access:** Only OLIT Technologies maintainers may install or deploy this bot.
-> 
+
 > © Copyright Notice for OLIT Bot
 > 
 > © 2025 OLIT Technologies. All Rights Reserved.
