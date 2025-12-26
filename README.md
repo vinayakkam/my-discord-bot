@@ -40,6 +40,8 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 | 🧮 Math Quiz | Solve random math questions. |
 | 🔤 Word Unscramble | Unscramble words by difficulty level. |
 | 🎓 Space Trivia | Test your knowledge of space and science. |
+| 🥢 Booster Catch | An interactive simulation of catching a booster. |
+| 🌌 Galaxy Explorer | procedurally generated galaxy and solar system explore and gain credits. | 
 
 ### 🏆 Leaderboards & Roles  
 - Tracks scores from all games.  
@@ -55,6 +57,9 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 | `!rolemapping` | Configure Leader roles per server. |
 | `!starship` | Predict Starship launch success interactively. |
 | `!hello`, `!vent`, `!catch`, `!behero` | Fun themed responses. |
+| `!catchbooster` | Catch boosters for fun. |
+| `!galaxy` | Galaxy explorer game in development. |
+
 
 ### 👋 Welcome System  
 - Sends embedded welcome messages for new members.  
@@ -67,6 +72,7 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 - Available as both keyword and slash commands.
 
 ---
+
 
 ## ⚙️ Installation (Internal Use Only)
 
