@@ -211,7 +211,7 @@ def create_now_playing_embed(track_name, requester=None):
         description=f"**{track_name}**",
         color=discord.Color.from_rgb(114, 137, 218)
     )
-    embed.set_thumbnail(url="https://i.imgur.com/QPgW0vC.gif")
+    embed.set_thumbnail(url="https://chatgpt.com/s/m_694eb62401b48191b2100fe2f0696083")
 
     if requester:
         embed.set_footer(text=f"Requested by {requester}", icon_url=requester.avatar.url if requester.avatar else None)
