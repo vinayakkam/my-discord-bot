@@ -27,16 +27,11 @@ GUILD = discord.Object(id=int(GUILD_ID)) if GUILD_ID else None
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
 intents.message_content=True
+intents.voice_states=True
 intents.members=True
 
 bot=commands.Bot(command_prefix='!',intents=intents)
 
-
-@bot.event
-async def on_ready():
-    await bot.tree.sync(guild=GUILD)  # instant for this server
-    print(f"✅ Synced slash commands to {GUILD_ID}")
-    print(f"Logged in as {bot.user}")
 
 
 from keep_alive import (
@@ -172,50 +167,6 @@ async def welcome_info(ctx):
 # ============================================
 # UPDATED BOT READY EVENT
 # ============================================
-
-@bot.event
-async def on_ready():
-    """Enhanced startup with API integration"""
-    print(f'✅ {bot.user} has connected to Discord!')
-
-    # SET BOT INSTANCE IN API FOR DM CAPABILITIES (if needed)
-    set_bot_instance(bot)
-
-    print("=" * 60)
-    print("🌐 API INTEGRATION STATUS")
-    print("=" * 60)
-    print(f"✅ Bot instance registered with API")
-    print(f"✅ Welcome message system active")
-    print(f"✅ Automod API sync active")
-    print(f"✅ Exempt users API mapping active")
-    print("=" * 60)
-
-    # Load and display welcome channel configs
-    print("\n📍 WELCOME CHANNEL CONFIGURATION:")
-    print("=" * 60)
-
-    configured_count = 0
-    not_configured_count = 0
-
-    for guild in bot.guilds:
-        guild_id = guild.id
-        channel_id = get_welcome_channel_id(guild_id)
-
-        if channel_id:
-            channel = guild.get_channel(channel_id)
-            if channel:
-                print(f"  ✅ {guild.name}: Welcome → #{channel.name} ({channel_id})")
-                configured_count += 1
-            else:
-                print(f"  ⚠️ {guild.name}: Invalid channel ({channel_id}) - DISABLED")
-                not_configured_count += 1
-        else:
-            print(f"  ❌ {guild.name}: NOT CONFIGURED - Welcome messages disabled")
-            not_configured_count += 1
-
-    print("=" * 60)
-    print(f"📊 Summary: {configured_count} active, {not_configured_count} disabled")
-    print("=" * 60)
 
 
 # ============================================
@@ -563,14 +514,7 @@ async def slash_appsheriff(interaction: discord.Interaction):
 
 
 # Don't forget to sync the commands when the bot starts up
-@bot.event
-async def on_ready():
-    print(f'{bot.user} has logged in!')
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} command(s)")
-    except Exception as e:
-        print(f"Failed to sync commands: {e}")
+
 @bot.command()
 async def hello(ctx):
     await ctx.send(f"Hello I am Launch Tower")
@@ -5342,50 +5286,6 @@ async def get_guild_id(ctx):
 # BOT READY EVENT - SET BOT INSTANCE IN API
 # ============================================
 
-@bot.event
-async def on_ready():
-    """Enhanced startup with API integration"""
-    print(f'✅ {bot.user} has connected to Discord!')
-
-    # SET BOT INSTANCE IN API FOR DM CAPABILITIES
-    set_bot_instance(bot)
-
-    print("=" * 60)
-    print("🌐 API INTEGRATION STATUS")
-    print("=" * 60)
-    print(f"✅ Bot instance registered with API")
-    print(f"✅ DM capabilities enabled via API")
-    print(f"✅ Moderation commands active")
-    print(f"✅ Automod API sync active")
-    print(f"✅ Exempt users API mapping active")
-    print("=" * 60)
-
-    # Load and display welcome channel configs
-    print("\n📍 WELCOME CHANNEL CONFIGURATION:")
-    print("=" * 60)
-
-    configured_count = 0
-    not_configured_count = 0
-
-    for guild in bot.guilds:
-        guild_id = guild.id
-        channel_id = get_welcome_channel_id(guild_id)
-
-        if channel_id:
-            channel = guild.get_channel(channel_id)
-            if channel:
-                print(f"  ✅ {guild.name}: Welcome → #{channel.name} ({channel_id})")
-                configured_count += 1
-            else:
-                print(f"  ⚠️ {guild.name}: Invalid channel ({channel_id}) - DISABLED")
-                not_configured_count += 1
-        else:
-            print(f"  ❌ {guild.name}: NOT CONFIGURED - Welcome messages disabled")
-            not_configured_count += 1
-
-    print("=" * 60)
-    print(f"📊 Summary: {configured_count} active, {not_configured_count} disabled")
-    print("=" * 60)
 
 
 
@@ -7284,36 +7184,7 @@ async def election_help(ctx):
 # ========================
 # Bot Events - FIXED VERSION
 # ========================
-@bot.event
-async def on_ready():
-    print(f"✅ Bot ready! Logged in as {bot.user}")
 
-    # Load persistent data
-    load_active_elections()
-
-    print(f"📊 Restoring {len(active_elections)} active elections...")
-
-    for election_id, election in list(active_elections.items()):
-        view = ElectionVoteView(election_id, list(election["options"].keys()))
-        bot.add_view(view, message_id=election_id)
-
-        now = datetime.now(UTC)
-        remaining_seconds = (election["end_time"] - now).total_seconds()
-
-        if remaining_seconds > 0:
-            # FIXED: Pass remaining time in hours (not seconds)
-            # start_election_timeout expects hours and converts to seconds internally
-            remaining_hours = remaining_seconds / 3600
-            task = asyncio.create_task(start_election_timeout(election_id, remaining_hours))
-            election_tasks[election_id] = task
-            print(f"  ✓ Restored: {election['title']} (ends in {remaining_hours:.1f}h)")
-        else:
-            # Election should have already ended
-            print(f"  ⏰ Processing overdue election: {election['title']}")
-            await end_election_process(election_id)
-            print(f"  ✓ Ended expired: {election['title']}")
-
-    print(f"✨ Bot is fully operational!")
 
 
 # Add these imports at the top of your main.py file
@@ -7482,18 +7353,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-@bot.event
-async def on_ready():
-    """Bot startup event"""
-    print(f'✅ {bot.user} has connected to Discord!')
-    print(f'🔗 API Base URL: {API_BASE_URL}')
-    print(f'📦 Connected to {len(bot.guilds)} guilds')
 
-    # Preload commands for all guilds
-    for guild in bot.guilds:
-        guild_id = str(guild.id)
-        commands = get_cached_commands(guild_id)
-        print(f'  └─ Guild: {guild.name} ({guild_id}) - {len(commands)} custom commands')
 
 
 # ============================================
@@ -7891,28 +7751,7 @@ async def restricted_command(ctx):
 # STARTUP LOG
 # ============================================
 
-@bot.event
-async def on_ready():
-    """Enhanced startup logging with API info"""
 
-    # Your existing on_ready code...
-
-    print("=" * 60)
-    print("🌐 API SERVER STATUS")
-    print("=" * 60)
-
-    from keep_alive import guild_commands, automod_config, allowed_users
-
-    print(f"✅ Guilds with commands: {len(guild_commands)}")
-    print(f"✅ Guilds with automod: {len(automod_config)}")
-    print(f"✅ Guilds with allowed users: {len(allowed_users)}")
-
-    total_commands = sum(len(cmds) for cmds in guild_commands.values())
-    print(f"✅ Total custom commands: {total_commands}")
-
-    print("=" * 60)
-    print("🚀 Bot is ready and API server is running on port 8080")
-    print("=" * 60)
 
 
 # ============================================
@@ -8383,17 +8222,134 @@ async def github_info_command(ctx):
     await ctx.send(embed=embed)
 
 
+import discord
+from discord.ext import commands
+import os
+import wavelink
+from music_bot import setup_music_commands, play_next
+import logging
 
 
-
-
-
-
-
-
-
-from music_bot import setup_music_commands
+# Setup music commands
 setup_music_commands(bot)
+
+
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    print(f"📊 Servers: {len(bot.guilds)}")
+
+    try:
+        # Wavelink 3.x - Connect to Lavalink node
+        nodes = [wavelink.Node(
+            uri="wss://lava-v4.ajieblogs.eu.org:443",
+            password="https://dsc.gg/ajidevserver"
+        )]
+
+        await wavelink.Pool.connect(nodes=nodes, client=bot)
+        print("🎵 Lavalink connected to AJI v4 node")
+    except Exception as e:
+        print(f"❌ Lavalink connection failed: {e}")
+        print("⚠️ Music commands will not work without Lavalink")
+
+
+@bot.event
+async def on_wavelink_track_end(payload: wavelink.TrackEndEventPayload):
+    """Auto-play next song when current track ends"""
+    player = payload.player
+    if not player:
+        return
+
+    # Only auto-play if track finished normally
+    if payload.reason == "finished":
+        ctx = getattr(player, 'ctx', None)
+        if ctx:
+            try:
+                await play_next(ctx)
+            except Exception as e:
+                print(f"Error playing next track: {e}")
+                try:
+                    await ctx.send(f"❌ Error playing next track: {e}")
+                except:
+                    pass
+
+
+@bot.event
+async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
+    """Called when Lavalink node is ready"""
+    print(f"🎵 Lavalink node {payload.node.identifier} is ready!")
+
+
+@bot.event
+async def on_wavelink_websocket_closed(payload: wavelink.WebsocketClosedEventPayload):
+    """Handle Lavalink disconnections"""
+    print(f"⚠️ Lavalink websocket closed: {payload.reason} (code: {payload.code})")
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Global error handler"""
+    if isinstance(error, commands.CommandNotFound):
+        return
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ Missing argument: `{error.param.name}`")
+    elif isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ You don't have permission to use this command")
+    else:
+        await ctx.send(f"❌ Error: {str(error)}")
+        print(f"Command error: {error}")
+
+
+
+@bot.command()
+async def voicetest(ctx):
+    """Test voice connection step by step"""
+
+    # Check 1: User in VC?
+    if not ctx.author.voice:
+        return await ctx.send("❌ Step 1 Failed: You're not in a VC")
+    await ctx.send("✅ Step 1: You're in a VC")
+
+    # Check 2: Bot has permissions?
+    channel = ctx.author.voice.channel
+    perms = channel.permissions_for(ctx.guild.me)
+    if not perms.connect or not perms.speak:
+        return await ctx.send("❌ Step 2 Failed: Missing Connect/Speak permissions")
+    await ctx.send("✅ Step 2: Bot has permissions")
+
+    # Check 3: Lavalink connected?
+    if not wavelink.Pool.nodes:
+        return await ctx.send("❌ Step 3 Failed: Lavalink not connected")
+    await ctx.send(f"✅ Step 3: Lavalink connected")
+
+    # Check 4: Can connect?
+    try:
+        if ctx.voice_client:
+            await ctx.send("✅ Step 4: Already connected to VC")
+        else:
+            await channel.connect(cls=wavelink.Player)
+            await ctx.send("✅ Step 4: Connected successfully!")
+    except Exception as e:
+        await ctx.send(f"❌ Step 4 Failed: {e}")
+
+
+@bot.command()
+async def nodeinfo(ctx):
+    """Check Lavalink node status"""
+    if not wavelink.Pool.nodes:
+        return await ctx.send("❌ No Lavalink nodes connected")
+
+    node = wavelink.Pool.nodes[0]
+    players_count = len([p for p in wavelink.Pool.players.values() if p.node == node])
+
+    await ctx.send(
+        f"🎵 **Lavalink Node Info**\n"
+        f"Identifier: `{node.identifier}`\n"
+        f"URI: `{node.uri}`\n"
+        f"Players: `{players_count}`\n"
+        f"Status: `{'Connected' if node.status == wavelink.NodeStatus.CONNECTED else 'Disconnected'}`"
+    )
+
 
 
 

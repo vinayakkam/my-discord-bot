@@ -1,354 +1,40 @@
 import discord
 from discord.ext import commands
-import asyncio
-import yt_dlp
+from discord import ui
+import wavelink
 import os
-import sys
-import zipfile
-import requests
-import platform
+import random
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+from dotenv import load_dotenv
+import asyncio
 
+load_dotenv()
 
-# Auto-download FFmpeg if not found
-def download_ffmpeg():
-    """Download FFmpeg static binary (works on Render free plan and all systems)"""
-    system = platform.system()
-    machine = platform.machine().lower()
+RADIO_STREAMS = [
+    "https://stream.revma.ihrhls.com/zc185",  # Pop
+    "https://stream.revma.ihrhls.com/zc438",  # EDM
+    "https://stream.revma.ihrhls.com/zc506",  # Hip Hop
+    "https://stream.revma.ihrhls.com/zc488",  # Rock
+    "https://stream.revma.ihrhls.com/zc891",  # Bollywood
+]
 
-    print(f"Downloading FFmpeg for {system}...")
-
-    # Create directory for FFmpeg in current working directory
-    ffmpeg_dir = os.path.join(os.getcwd(), "ffmpeg_bin")
-    os.makedirs(ffmpeg_dir, exist_ok=True)
-
-    if system == "Windows":
-        url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-        filename = os.path.join(ffmpeg_dir, "ffmpeg.zip")
-        executable = "ffmpeg.exe"
-
-    elif system == "Linux":
-        # Use static builds that work without installation
-        if "arm" in machine or "aarch64" in machine:
-            url = "https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-arm64-static.tar.xz"
-        else:
-            url = "https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
-        filename = os.path.join(ffmpeg_dir, "ffmpeg.tar.xz")
-        executable = "ffmpeg"
-
-    elif system == "Darwin":  # macOS
-        url = "https://evermeet.cx/ffmpeg/ffmpeg-6.1.zip"
-        filename = os.path.join(ffmpeg_dir, "ffmpeg.zip")
-        executable = "ffmpeg"
-    else:
-        print(f"❌ Unsupported operating system: {system}")
-        sys.exit(1)
-
-    try:
-        # Download FFmpeg
-        print(f"Downloading from {url}...")
-        response = requests.get(url, stream=True, timeout=60)
-        response.raise_for_status()
-
-        with open(filename, "wb") as f:
-            total = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total > 0:
-                    percent = (downloaded / total) * 100
-                    print(f"Progress: {percent:.1f}%", end='\r')
-
-        print("\n📦 Extracting FFmpeg...")
-
-        # Extract based on file type
-        extract_dir = os.path.join(ffmpeg_dir, "extracted")
-        os.makedirs(extract_dir, exist_ok=True)
-
-        if filename.endswith(".zip"):
-            with zipfile.ZipFile(filename, "r") as zip_ref:
-                zip_ref.extractall(extract_dir)
-        else:  # tar.xz for Linux
-            import tarfile
-            with tarfile.open(filename, "r:xz") as tar_ref:
-                tar_ref.extractall(extract_dir)
-
-        # Find and setup FFmpeg executable
-        ffmpeg_path = None
-        for root, dirs, files in os.walk(extract_dir):
-            if executable in files:
-                ffmpeg_path = os.path.join(root, executable)
-                break
-
-        if ffmpeg_path:
-            # Copy to bin directory for easier access
-            final_path = os.path.join(ffmpeg_dir, executable)
-            import shutil
-            shutil.copy2(ffmpeg_path, final_path)
-
-            # Make executable on Unix systems
-            if system in ["Linux", "Darwin"]:
-                os.chmod(final_path, 0o755)
-
-            # Add to PATH
-            os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
-
-            print(f"✅ FFmpeg ready at: {final_path}")
-
-            # Cleanup downloaded archive and extracted files
-            try:
-                if os.path.exists(filename):
-                    os.remove(filename)
-                if os.path.exists(extract_dir):
-                    shutil.rmtree(extract_dir)
-            except:
-                pass  # Cleanup is optional
-
-            return final_path
-        else:
-            print("❌ Could not find FFmpeg executable after extraction")
-            sys.exit(1)
-
-    except Exception as e:
-        print(f"❌ Error downloading FFmpeg: {e}")
-        print("\n⚠️ Manual installation instructions:")
-        if system == "Windows":
-            print("Windows: Download from https://ffmpeg.org/download.html")
-        elif system == "Linux":
-            print("Linux: sudo apt install ffmpeg")
-        elif system == "Darwin":
-            print("Mac: brew install ffmpeg")
-        sys.exit(1)
-
-
-def download_nodejs():
-    """Auto-download and install Node.js for the bot (portable)"""
-    system = platform.system()
-    machine = platform.machine().lower()
-
-    print("📦 Downloading Node.js...")
-
-    # Create directory for Node.js in current working directory
-    node_dir = os.path.join(os.getcwd(), "nodejs_bin")
-    os.makedirs(node_dir, exist_ok=True)
-
-    try:
-        if system == "Windows":
-            # Download portable Node.js for Windows
-            if "64" in machine or "amd64" in machine:
-                url = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-win-x64.zip"
-            else:
-                url = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-win-x86.zip"
-            filename = os.path.join(node_dir, "nodejs.zip")
-
-        elif system == "Linux":
-            # Download portable Node.js for Linux
-            if "arm" in machine or "aarch64" in machine:
-                url = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-linux-arm64.tar.xz"
-            else:
-                url = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-linux-x64.tar.xz"
-            filename = os.path.join(node_dir, "nodejs.tar.xz")
-
-        elif system == "Darwin":  # macOS
-            if "arm" in machine:
-                url = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-darwin-arm64.tar.gz"
-            else:
-                url = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-darwin-x64.tar.gz"
-            filename = os.path.join(node_dir, "nodejs.tar.gz")
-        else:
-            print(f"❌ Unsupported OS for auto-install: {system}")
-            return False
-
-        # Download Node.js
-        print(f"Downloading from {url}...")
-        response = requests.get(url, stream=True, timeout=120)
-        response.raise_for_status()
-
-        with open(filename, "wb") as f:
-            total = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total > 0:
-                    percent = (downloaded / total) * 100
-                    print(f"Progress: {percent:.1f}%", end='\r')
-
-        print("\n📦 Extracting Node.js...")
-
-        # Extract based on file type
-        extract_dir = os.path.join(node_dir, "extracted")
-        os.makedirs(extract_dir, exist_ok=True)
-
-        if filename.endswith(".zip"):
-            with zipfile.ZipFile(filename, "r") as zip_ref:
-                zip_ref.extractall(extract_dir)
-        elif filename.endswith(".tar.xz"):
-            import tarfile
-            with tarfile.open(filename, "r:xz") as tar_ref:
-                tar_ref.extractall(extract_dir)
-        elif filename.endswith(".tar.gz"):
-            import tarfile
-            with tarfile.open(filename, "r:gz") as tar_ref:
-                tar_ref.extractall(extract_dir)
-
-        # Find node executable
-        node_executable = "node.exe" if system == "Windows" else "node"
-        node_path = None
-
-        for root, dirs, files in os.walk(extract_dir):
-            if node_executable in files:
-                node_path = os.path.join(root, node_executable)
-                bin_dir = root
-                break
-
-        if node_path:
-            # Add to PATH
-            os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-
-            # Make executable on Unix systems
-            if system in ["Linux", "Darwin"]:
-                os.chmod(node_path, 0o755)
-
-            print(f"✅ Node.js ready at: {node_path}")
-
-            # Test it
-            try:
-                result = subprocess.run([node_path, "--version"],
-                                        capture_output=True, text=True, timeout=5)
-                print(f"✅ Node.js version: {result.stdout.strip()}")
-            except Exception as e:
-                print(f"⚠️  Node.js installed but test failed: {e}")
-
-            # Cleanup
-            try:
-                if os.path.exists(filename):
-                    os.remove(filename)
-            except:
-                pass
-
-            return True
-        else:
-            print("❌ Could not find Node.js executable after extraction")
-            return False
-
-    except Exception as e:
-        print(f"❌ Error downloading Node.js: {e}")
-        print("\n⚠️  Manual installation instructions:")
-        print(f"  {system}: Visit https://nodejs.org/en/download/")
-        return False
-
-
-# Check if FFmpeg is available
+# Initialize Spotify client
 try:
-    import subprocess
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+        client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+        client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
+    ))
+except Exception as e:
+    print(f"⚠️ Spotify client initialization failed: {e}")
+    sp = None
 
-    subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print("✅ FFmpeg found!")
-except FileNotFoundError:
-    print("❌ FFmpeg not found. Attempting to download...")
-    download_ffmpeg()
-
-
-# Check for JavaScript runtime (Node.js or Deno)
-def check_js_runtime():
-    """Check if Node.js or Deno is available"""
-    has_runtime = False
-
-    # Check for Node.js
-    try:
-        subprocess.run(["node", "--version"], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, check=True)
-        print("✅ Node.js found!")
-        has_runtime = True
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
-
-    # Check for Deno
-    if not has_runtime:
-        try:
-            subprocess.run(["deno", "--version"], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, check=True)
-            print("✅ Deno found!")
-            has_runtime = True
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            pass
-
-    # If no runtime found, try to auto-install Node.js
-    if not has_runtime:
-        print("\n⚠️  No JavaScript runtime detected!")
-        print("YouTube search requires Node.js or Deno.")
-        print("Attempting to download Node.js automatically...\n")
-
-        if download_nodejs():
-            has_runtime = True
-        else:
-            print("\n❌ Auto-install failed. Please install manually:")
-            print("   Windows: https://nodejs.org/en/download/")
-            print("   Linux: sudo apt install nodejs")
-            print("   Mac: brew install node")
-
-    return has_runtime
-
-
-check_js_runtime()
-
-# yt-dlp options with better error handling
-YDL_OPTIONS = {
-    'format': 'bestaudio/best',
-    'noplaylist': True,
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'ytsearch',
-    'source_address': '0.0.0.0',
-    'cookiefile': 'cookies.txt',
-    'extract_flat': False,
-    'geo_bypass': True,
-    'nocheckcertificate': True,
-    'socket_timeout': 30,
-    'retries': 10,
-    'fragment_retries': 10,
-    'ignoreerrors': False,
-    'no_color': True,
-    'age_limit': None,
-}
-
-# Search-only options (no download needed for search)
-SEARCH_OPTIONS = {
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'ytsearch',
-    'extract_flat': 'in_playlist',
-    'nocheckcertificate': True,
-    'geo_bypass': True,
-}
-
-FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin -loglevel warning',
-    'options': '-vn -b:a 128k'
-}
-
-# Store music queues per guild
 music_queues = {}
 
 
 class MusicQueue:
     def __init__(self):
         self.queue = []
-        self.current = None
-        self.voice_client = None
-        self.loop = False
-
-    def add(self, song):
-        self.queue.append(song)
-
-    def get_next(self):
-        if self.queue:
-            return self.queue.pop(0)
-        return None
-
-    def clear(self):
-        self.queue.clear()
         self.current = None
         self.loop = False
 
@@ -359,332 +45,583 @@ def get_queue(guild_id):
     return music_queues[guild_id]
 
 
+def spotify_meta(query):
+    """Search Spotify for better track metadata"""
+    if not sp:
+        return query
+
+    try:
+        r = sp.search(q=query, type="track", limit=1)
+        if r["tracks"]["items"]:
+            t = r["tracks"]["items"][0]
+            return f"{t['name']} {t['artists'][0]['name']}"
+    except Exception as e:
+        print(f"Spotify search error: {e}")
+
+    return query
+
+
+# ============= UI COMPONENTS =============
+
+class MusicControlView(ui.View):
+    """Interactive music control buttons"""
+
+    def __init__(self, ctx):
+        super().__init__(timeout=None)
+        self.ctx = ctx
+
+    @ui.button(label="⏸️ Pause", style=discord.ButtonStyle.primary, custom_id="pause_btn")
+    async def pause_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.ctx.voice_client:
+            return await interaction.response.send_message("❌ Not in a voice channel", ephemeral=True)
+
+        player: wavelink.Player = self.ctx.voice_client
+        if player.playing and not player.paused:
+            await player.pause(True)
+            button.label = "▶️ Resume"
+            button.style = discord.ButtonStyle.success
+            await interaction.response.edit_message(view=self)
+            await interaction.followup.send("⏸️ Paused", ephemeral=True)
+        elif player.paused:
+            await player.pause(False)
+            button.label = "⏸️ Pause"
+            button.style = discord.ButtonStyle.primary
+            await interaction.response.edit_message(view=self)
+            await interaction.followup.send("▶️ Resumed", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Nothing is playing", ephemeral=True)
+
+    @ui.button(label="⏭️ Skip", style=discord.ButtonStyle.secondary, custom_id="skip_btn")
+    async def skip_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.ctx.voice_client:
+            return await interaction.response.send_message("❌ Not in a voice channel", ephemeral=True)
+
+        player: wavelink.Player = self.ctx.voice_client
+        if player.playing:
+            await player.stop()
+            await interaction.response.send_message("⏭️ Skipped", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Nothing is playing", ephemeral=True)
+
+    @ui.button(label="⏹️ Stop", style=discord.ButtonStyle.danger, custom_id="stop_btn")
+    async def stop_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.ctx.voice_client:
+            return await interaction.response.send_message("❌ Not in a voice channel", ephemeral=True)
+
+        player: wavelink.Player = self.ctx.voice_client
+        await player.stop()
+        get_queue(self.ctx.guild.id).queue.clear()
+        get_queue(self.ctx.guild.id).current = None
+        await interaction.response.send_message("⏹️ Stopped and cleared queue", ephemeral=True)
+
+    @ui.button(label="🔁 Loop: OFF", style=discord.ButtonStyle.secondary, custom_id="loop_btn")
+    async def loop_button(self, interaction: discord.Interaction, button: ui.Button):
+        q = get_queue(self.ctx.guild.id)
+        q.loop = not q.loop
+
+        if q.loop:
+            button.label = "🔁 Loop: ON"
+            button.style = discord.ButtonStyle.success
+        else:
+            button.label = "🔁 Loop: OFF"
+            button.style = discord.ButtonStyle.secondary
+
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(f"🔁 Loop {'enabled' if q.loop else 'disabled'}", ephemeral=True)
+
+    @ui.button(label="📋 Queue", style=discord.ButtonStyle.secondary, custom_id="queue_btn")
+    async def queue_button(self, interaction: discord.Interaction, button: ui.Button):
+        q = get_queue(self.ctx.guild.id)
+
+        if not q.queue and not q.current:
+            return await interaction.response.send_message("📭 Queue is empty", ephemeral=True)
+
+        embed = create_queue_embed(self.ctx.guild.id)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class VolumeModal(ui.Modal, title="Set Volume"):
+    volume_input = ui.TextInput(
+        label="Volume (0-100)",
+        placeholder="Enter volume level...",
+        default="50",
+        min_length=1,
+        max_length=3
+    )
+
+    def __init__(self, ctx):
+        super().__init__()
+        self.ctx = ctx
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            vol = int(self.volume_input.value)
+            if not 0 <= vol <= 100:
+                return await interaction.response.send_message("❌ Volume must be between 0 and 100", ephemeral=True)
+
+            if not self.ctx.voice_client:
+                return await interaction.response.send_message("❌ Not in a voice channel", ephemeral=True)
+
+            player: wavelink.Player = self.ctx.voice_client
+            await player.set_volume(vol)
+            await interaction.response.send_message(f"🔊 Volume set to **{vol}%**", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ Please enter a valid number", ephemeral=True)
+
+
+class VolumeControlView(ui.View):
+    """Volume control buttons"""
+
+    def __init__(self, ctx):
+        super().__init__(timeout=180)
+        self.ctx = ctx
+
+    @ui.button(label="🔉 -10", style=discord.ButtonStyle.secondary)
+    async def volume_down(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.ctx.voice_client:
+            return await interaction.response.send_message("❌ Not in a voice channel", ephemeral=True)
+
+        player: wavelink.Player = self.ctx.voice_client
+        new_vol = max(0, player.volume - 10)
+        await player.set_volume(new_vol)
+        await interaction.response.send_message(f"🔉 Volume: **{new_vol}%**", ephemeral=True)
+
+    @ui.button(label="🔊 +10", style=discord.ButtonStyle.secondary)
+    async def volume_up(self, interaction: discord.Interaction, button: ui.Button):
+        if not self.ctx.voice_client:
+            return await interaction.response.send_message("❌ Not in a voice channel", ephemeral=True)
+
+        player: wavelink.Player = self.ctx.voice_client
+        new_vol = min(100, player.volume + 10)
+        await player.set_volume(new_vol)
+        await interaction.response.send_message(f"🔊 Volume: **{new_vol}%**", ephemeral=True)
+
+    @ui.button(label="🎚️ Custom", style=discord.ButtonStyle.primary)
+    async def volume_custom(self, interaction: discord.Interaction, button: ui.Button):
+        modal = VolumeModal(self.ctx)
+        await interaction.response.send_modal(modal)
+
+
+# ============= EMBED CREATORS =============
+
+def create_now_playing_embed(track_name, requester=None):
+    """Create a beautiful now playing embed"""
+    embed = discord.Embed(
+        title="🎵 Now Playing",
+        description=f"**{track_name}**",
+        color=discord.Color.from_rgb(114, 137, 218)
+    )
+    embed.set_thumbnail(url="https://i.imgur.com/QPgW0vC.gif")
+
+    if requester:
+        embed.set_footer(text=f"Requested by {requester}", icon_url=requester.avatar.url if requester.avatar else None)
+
+    return embed
+
+
+def create_queue_embed(guild_id):
+    """Create a beautiful queue embed"""
+    q = get_queue(guild_id)
+
+    embed = discord.Embed(
+        title="🎵 Music Queue",
+        color=discord.Color.from_rgb(88, 101, 242)
+    )
+
+    if q.current:
+        embed.add_field(
+            name="▶️ Now Playing",
+            value=f"```{q.current}```",
+            inline=False
+        )
+
+    if q.queue:
+        queue_list = "\n".join([f"`{i + 1}.` {t}" for i, t in enumerate(q.queue[:10])])
+        if len(q.queue) > 10:
+            queue_list += f"\n*... and {len(q.queue) - 10} more*"
+        embed.add_field(
+            name=f"📋 Up Next ({len(q.queue)} songs)",
+            value=queue_list,
+            inline=False
+        )
+
+    if q.loop:
+        embed.set_footer(text="🔁 Loop mode enabled")
+
+    embed.set_thumbnail(url="https://i.imgur.com/cLvW9ND.gif")
+
+    return embed
+
+
+def create_added_embed(track_name, position=None):
+    """Create embed for added song"""
+    embed = discord.Embed(
+        title="➕ Added to Queue",
+        description=f"**{track_name}**",
+        color=discord.Color.green()
+    )
+
+    if position:
+        embed.add_field(name="Position", value=f"#{position}")
+
+    return embed
+
+
+# ============= PLAYBACK FUNCTIONS =============
+
 async def play_next(ctx):
-    queue = get_queue(ctx.guild.id)
+    """Play the next song in queue"""
+    q = get_queue(ctx.guild.id)
 
-    if queue.voice_client:
-        # If loop is enabled, re-add current song to queue
-        if queue.loop and queue.current:
-            queue.add(queue.current)
+    if not ctx.voice_client or not q.queue:
+        q.current = None
+        if ctx.voice_client and not ctx.voice_client.playing:
+            embed = discord.Embed(
+                title="✅ Queue Finished",
+                description="All songs have been played!",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+        return
 
-        if len(queue.queue) > 0:
-            song = queue.get_next()
-            queue.current = song
+    if q.loop and q.current:
+        q.queue.append(q.current)
 
-            try:
-                with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                    print(f"🔍 Extracting URL for: {song['title']}")
-                    info = ydl.extract_info(song['url'], download=False)
+    q.current = q.queue.pop(0)
+    query = spotify_meta(q.current)
 
-                    if info is None:
-                        raise Exception("Could not extract video information")
+    player: wavelink.Player = ctx.voice_client
+    player.ctx = ctx
 
-                    # Get the best audio URL
-                    url = None
-                    if 'url' in info:
-                        url = info['url']
-                    elif 'formats' in info:
-                        # Find best audio format
-                        audio_formats = [f for f in info['formats'] if f.get('acodec') != 'none']
-                        if audio_formats:
-                            url = audio_formats[0]['url']
+    try:
+        tracks: wavelink.Search = await wavelink.Playable.search(query)
 
-                    if not url:
-                        raise Exception("Could not find audio stream URL")
+        if tracks:
+            await player.play(tracks[0])
 
-                # Use PCMVolumeTransformer for better audio control
-                source = discord.FFmpegPCMAudio(url, **FFMPEG_OPTIONS)
-                source = discord.PCMVolumeTransformer(source, volume=0.5)
-
-                def after_playing(error):
-                    if error:
-                        print(f"Player error: {error}")
-                    asyncio.run_coroutine_threadsafe(play_next(ctx), ctx.bot.loop)
-
-                queue.voice_client.play(source, after=after_playing)
-
-                embed = discord.Embed(title="🎵 Now Playing", description=f"**{song['title']}**",
-                                      color=discord.Color.green())
-                if queue.loop:
-                    embed.set_footer(text="🔁 Loop enabled")
-                await ctx.send(embed=embed)
-            except Exception as e:
-                await ctx.send(f"❌ Error playing song: {str(e)}")
-                print(f"Playback error details: {e}")
-                import traceback
-                traceback.print_exc()
-                await play_next(ctx)
-        else:
-            queue.current = None
-
-
-def setup_music_commands(bot):
-    """Setup music commands for your existing bot"""
-
-    @bot.command(name='join', aliases=['j'], help='Makes the bot join your voice channel')
-    async def join(ctx):
-        if not ctx.author.voice:
-            await ctx.send("❌ You need to be in a voice channel!")
+            embed = create_now_playing_embed(tracks[0].title, ctx.author)
+            view = MusicControlView(ctx)
+            await ctx.send(embed=embed, view=view)
             return
 
-        channel = ctx.author.voice.channel
-        queue = get_queue(ctx.guild.id)
-
-        if queue.voice_client:
-            await queue.voice_client.move_to(channel)
-        else:
-            queue.voice_client = await channel.connect()
-
-        await ctx.send(f"✅ Joined **{channel.name}**")
-
-    @bot.command(name='leave', aliases=['disconnect', 'dc'], help='Makes the bot leave the voice channel')
-    async def leave(ctx):
-        queue = get_queue(ctx.guild.id)
-
-        if queue.voice_client:
-            queue.clear()
-            await queue.voice_client.disconnect()
-            queue.voice_client = None
-            await ctx.send("👋 Left the voice channel")
-        else:
-            await ctx.send("❌ I'm not in a voice channel!")
-
-    @bot.command(name='play', aliases=['p'], help='Plays a song from YouTube (usage: !play <song name or URL>)')
-    async def play(ctx, *, query):
-        if not ctx.author.voice:
-            await ctx.send("❌ You need to be in a voice channel!")
-            return
-
-        queue = get_queue(ctx.guild.id)
-
-        if not queue.voice_client:
-            channel = ctx.author.voice.channel
-            queue.voice_client = await channel.connect()
-
-        async with ctx.typing():
-            try:
-                print(f"🔍 Searching for: {query}")
-
-                # Check if it's a URL or search query
-                is_url = query.startswith('http://') or query.startswith('https://') or query.startswith('www.')
-
-                if is_url:
-                    print("📌 Direct URL detected")
-                    with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                        info = ydl.extract_info(query, download=False)
-                else:
-                    print("🔎 Performing YouTube search")
-                    # Try multiple search methods
-                    info = None
-
-                    # Method 1: Standard ytsearch
-                    try:
-                        with yt_dlp.YoutubeDL(SEARCH_OPTIONS) as ydl:
-                            search_result = ydl.extract_info(f"ytsearch5:{query}", download=False)
-                            if search_result and 'entries' in search_result and len(search_result['entries']) > 0:
-                                # Get first valid entry
-                                for entry in search_result['entries']:
-                                    if entry:
-                                        video_url = f"https://www.youtube.com/watch?v={entry['id']}"
-                                        print(f"Found video: {video_url}")
-                                        # Now extract full info
-                                        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl2:
-                                            info = ydl2.extract_info(video_url, download=False)
-                                        break
-                    except Exception as search_error:
-                        print(f"Search method 1 failed: {search_error}")
-
-                    # Method 2: Direct search if method 1 failed
-                    if info is None:
-                        try:
-                            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                                info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-                                if 'entries' in info and len(info['entries']) > 0:
-                                    info = info['entries'][0]
-                        except Exception as search_error2:
-                            print(f"Search method 2 failed: {search_error2}")
-
-                if info is None:
-                    await ctx.send(
-                        "❌ Could not find any results. YouTube might be blocking requests. Try:\n1. Update yt-dlp: `pip install -U yt-dlp`\n2. Use a direct YouTube URL instead")
-                    return
-
-                # Handle entries
-                if 'entries' in info:
-                    if len(info['entries']) == 0 or info['entries'][0] is None:
-                        await ctx.send("❌ No results found for that query")
-                        return
-                    info = info['entries'][0]
-
-                if info is None:
-                    await ctx.send("❌ Could not extract video information")
-                    return
-
-                song = {
-                    'url': info.get('webpage_url') or info.get(
-                        'url') or f"https://www.youtube.com/watch?v={info.get('id')}",
-                    'title': info.get('title', 'Unknown Title'),
-                    'duration': info.get('duration', 0),
-                    'thumbnail': info.get('thumbnail', '')
-                }
-
-                print(f"✅ Found: {song['title']}")
-
-                queue.add(song)
-
-                if not queue.voice_client.is_playing():
-                    await play_next(ctx)
-                else:
-                    embed = discord.Embed(title="➕ Added to Queue", description=f"**{song['title']}**",
-                                          color=discord.Color.blue())
-                    embed.add_field(name="Position", value=f"#{len(queue.queue)}", inline=True)
-                    if song['thumbnail']:
-                        embed.set_thumbnail(url=song['thumbnail'])
-                    await ctx.send(embed=embed)
-
-            except yt_dlp.utils.DownloadError as e:
-                error_msg = str(e)
-                print(f"yt-dlp Download Error: {error_msg}")
-
-                if 'Sign in' in error_msg or 'login' in error_msg.lower():
-                    await ctx.send(
-                        f"❌ YouTube is requiring sign-in. This video may be age-restricted or private.\n**Solution:** Update yt-dlp: `pip install -U yt-dlp`")
-                elif 'JavaScript runtime' in error_msg or 'node' in error_msg.lower():
-                    await ctx.send(
-                        f"❌ Missing JavaScript runtime!\n**Fix:** Install Node.js from https://nodejs.org\nThen restart your bot.")
-                else:
-                    await ctx.send(f"❌ YouTube error: {error_msg[:200]}")
-            except Exception as e:
-                error_msg = str(e)
-                print(f"Play command error: {error_msg}")
-                import traceback
-                traceback.print_exc()
-                await ctx.send(f"❌ Error: {error_msg[:150]}\n\n**Try:** `pip install --upgrade yt-dlp`")
-
-    @bot.command(name='pause', help='Pauses the current song')
-    async def pause(ctx):
-        queue = get_queue(ctx.guild.id)
-
-        if queue.voice_client and queue.voice_client.is_playing():
-            queue.voice_client.pause()
-            await ctx.send("⏸️ Paused")
-        else:
-            await ctx.send("❌ Nothing is playing!")
-
-    @bot.command(name='resume', aliases=['r'], help='Resumes the paused song')
-    async def resume(ctx):
-        queue = get_queue(ctx.guild.id)
-
-        if queue.voice_client and queue.voice_client.is_paused():
-            queue.voice_client.resume()
-            await ctx.send("▶️ Resumed")
-        else:
-            await ctx.send("❌ Nothing is paused!")
-
-    @bot.command(name='skip', aliases=['s'], help='Skips the current song')
-    async def skip(ctx):
-        queue = get_queue(ctx.guild.id)
-
-        if queue.voice_client and queue.voice_client.is_playing():
-            queue.voice_client.stop()
-            await ctx.send("⏭️ Skipped")
-        else:
-            await ctx.send("❌ Nothing is playing!")
-
-    @bot.command(name='queue', aliases=['q'], help='Shows the current music queue')
-    async def show_queue(ctx):
-        queue = get_queue(ctx.guild.id)
-
-        if not queue.queue and not queue.current:
-            await ctx.send("📭 Queue is empty!")
-            return
-
-        embed = discord.Embed(title="🎵 Music Queue", color=discord.Color.blue())
-
-        if queue.current:
-            embed.add_field(name="Now Playing", value=f"**{queue.current['title']}**", inline=False)
-
-        if queue.queue:
-            upcoming = "\n".join([f"{i + 1}. {song['title']}" for i, song in enumerate(queue.queue[:10])])
-            embed.add_field(name="Up Next", value=upcoming, inline=False)
-
-            if len(queue.queue) > 10:
-                embed.set_footer(text=f"And {len(queue.queue) - 10} more...")
-
-        if queue.loop:
-            embed.add_field(name="Loop", value="🔁 Enabled", inline=True)
-
-        await ctx.send(embed=embed)
-
-    @bot.command(name='clear', aliases=['c'], help='Clears the music queue')
-    async def clear(ctx):
-        queue = get_queue(ctx.guild.id)
-        queue.clear()
-
-        if queue.voice_client and queue.voice_client.is_playing():
-            queue.voice_client.stop()
-
-        await ctx.send("🗑️ Queue cleared!")
-
-    @bot.command(name='nowplaying', aliases=['np'], help='Shows the currently playing song')
-    async def now_playing(ctx):
-        queue = get_queue(ctx.guild.id)
-
-        if queue.current:
-            embed = discord.Embed(title="🎵 Now Playing", description=f"**{queue.current['title']}**",
-                                  color=discord.Color.green())
-            if queue.current.get('thumbnail'):
-                embed.set_thumbnail(url=queue.current['thumbnail'])
-            if queue.loop:
-                embed.set_footer(text="🔁 Loop enabled")
+        # Fallback to radio stream
+        stream = random.choice(RADIO_STREAMS)
+        radio = await wavelink.Playable.search(stream)
+        if radio:
+            await player.play(radio[0])
+            embed = discord.Embed(
+                title="📻 Radio Station",
+                description="Playing live radio (fallback)",
+                color=discord.Color.blue()
+            )
             await ctx.send(embed=embed)
         else:
-            await ctx.send("❌ Nothing is playing!")
+            await ctx.send("❌ Could not find any playable content")
 
-    @bot.command(name='loop', aliases=['repeat'], help='Toggle loop for current song')
-    async def loop(ctx):
-        queue = get_queue(ctx.guild.id)
-        queue.loop = not queue.loop
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ Playback Error",
+            description=f"```{str(e)}```",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+        print(f"Playback error: {e}")
 
-        status = "enabled" if queue.loop else "disabled"
-        await ctx.send(f"🔁 Loop {status}")
 
-    @bot.command(name='volume', aliases=['vol'], help='Adjust volume (0-100)')
-    async def volume(ctx, vol: int):
-        queue = get_queue(ctx.guild.id)
+# ============= SETUP COMMANDS =============
 
-        if not queue.voice_client or not queue.voice_client.is_playing():
-            await ctx.send("❌ Nothing is playing!")
-            return
+def setup_music_commands(bot):
+    @bot.command(aliases=["j", "connect", "summon"])
+    async def join(ctx):
+        """Join your voice channel"""
+        if not ctx.author.voice:
+            embed = discord.Embed(
+                title="❌ Error",
+                description="You need to be in a voice channel first!",
+                color=discord.Color.red()
+            )
+            return await ctx.send(embed=embed)
 
-        if 0 <= vol <= 100:
-            queue.voice_client.source.volume = vol / 100
-            await ctx.send(f"🔊 Volume set to {vol}%")
+        try:
+            channel = ctx.author.voice.channel
+
+            perms = channel.permissions_for(ctx.guild.me)
+            if not perms.connect or not perms.speak:
+                embed = discord.Embed(
+                    title="❌ Missing Permissions",
+                    description="I need **Connect** and **Speak** permissions in that channel.",
+                    color=discord.Color.red()
+                )
+                return await ctx.send(embed=embed)
+
+            if ctx.voice_client:
+                if ctx.voice_client.channel.id == channel.id:
+                    embed = discord.Embed(
+                        title="✅ Already Connected",
+                        description=f"I'm already in **{channel.name}**",
+                        color=discord.Color.green()
+                    )
+                    return await ctx.send(embed=embed)
+                else:
+                    await ctx.voice_client.move_to(channel)
+                    embed = discord.Embed(
+                        title="✅ Moved",
+                        description=f"Moved to **{channel.name}**",
+                        color=discord.Color.green()
+                    )
+                    return await ctx.send(embed=embed)
+
+            await channel.connect(cls=wavelink.Player)
+            embed = discord.Embed(
+                title="✅ Connected",
+                description=f"Joined **{channel.name}**",
+                color=discord.Color.green()
+            )
+            embed.set_footer(text="Use !play <song> to start playing music")
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ Connection Error",
+                description=f"```{str(e)}```",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+
+    @bot.command(aliases=["dc", "disconnect", "bye", "leavevc"])
+    async def leave(ctx):
+        """Leave voice channel"""
+        if ctx.voice_client:
+            await ctx.voice_client.disconnect()
+            get_queue(ctx.guild.id).queue.clear()
+            get_queue(ctx.guild.id).current = None
+
+            embed = discord.Embed(
+                title="👋 Disconnected",
+                description="Cleared queue and left voice channel",
+                color=discord.Color.blue()
+            )
+            await ctx.send(embed=embed)
         else:
-            await ctx.send("❌ Volume must be between 0 and 100")
+            embed = discord.Embed(
+                title="❌ Error",
+                description="I'm not in a voice channel",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
 
-    @bot.command(name='debug', help='Test yt-dlp functionality')
-    async def debug(ctx, *, query):
-        """Debug command to test yt-dlp"""
-        async with ctx.typing():
+    @bot.command(name="play", aliases=["p", "add", "song"])
+    async def play(ctx, *, query: str):
+        """Play a song or add to queue"""
+        if not ctx.voice_client:
+            if not ctx.author.voice:
+                embed = discord.Embed(
+                    title="❌ Error",
+                    description="Join a voice channel first!",
+                    color=discord.Color.red()
+                )
+                return await ctx.send(embed=embed)
+
             try:
-                with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                    info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-                    if 'entries' in info:
-                        info = info['entries'][0]
-
-                    embed = discord.Embed(title="🔍 Debug Info", color=discord.Color.blue())
-                    embed.add_field(name="Title", value=info.get('title', 'N/A'), inline=False)
-                    embed.add_field(name="URL", value=info.get('webpage_url', 'N/A'), inline=False)
-                    embed.add_field(name="Duration", value=f"{info.get('duration', 0)}s", inline=True)
-                    await ctx.send(embed=embed)
+                channel = ctx.author.voice.channel
+                await channel.connect(cls=wavelink.Player)
             except Exception as e:
-                await ctx.send(f"❌ Debug error: {str(e)}")
-                import traceback
-                traceback.print_exc()
+                embed = discord.Embed(
+                    title="❌ Connection Error",
+                    description=f"```{str(e)}```",
+                    color=discord.Color.red()
+                )
+                return await ctx.send(embed=embed)
 
-    print("✅ Music commands loaded successfully!")
+        q = get_queue(ctx.guild.id)
+        q.queue.append(query)
 
-# Example usage with your existing bot:
-# from music_bot import setup_music_commands
-# setup_music_commands(bot)
+        player: wavelink.Player = ctx.voice_client
+        if not player.playing:
+            await play_next(ctx)
+        else:
+            embed = create_added_embed(query, len(q.queue))
+            await ctx.send(embed=embed)
+
+    @bot.command(aliases=["s", "next"])
+    async def skip(ctx):
+        """Skip current song"""
+        if not ctx.voice_client:
+            return await ctx.send("❌ Not in a voice channel")
+
+        player: wavelink.Player = ctx.voice_client
+        if player.playing:
+            await player.stop()
+            embed = discord.Embed(
+                title="⏭️ Skipped",
+                description="Playing next song...",
+                color=discord.Color.blue()
+            )
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ Nothing is playing")
+
+    @bot.command(aliases=["pause"])
+    async def pause_cmd(ctx):
+        """Pause playback"""
+        if not ctx.voice_client:
+            return await ctx.send("❌ Not in a voice channel")
+
+        player: wavelink.Player = ctx.voice_client
+        if player.playing and not player.paused:
+            await player.pause(True)
+            embed = discord.Embed(title="⏸️ Paused", color=discord.Color.blue())
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ Nothing is playing")
+
+    @bot.command(aliases=["resume", "unpause"])
+    async def resume_cmd(ctx):
+        """Resume playback"""
+        if not ctx.voice_client:
+            return await ctx.send("❌ Not in a voice channel")
+
+        player: wavelink.Player = ctx.voice_client
+        if player.paused:
+            await player.pause(False)
+            embed = discord.Embed(title="▶️ Resumed", color=discord.Color.green())
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ Not paused")
+
+    @bot.command(aliases=["repeat", "r"])
+    async def loop(ctx):
+        """Toggle loop mode"""
+        q = get_queue(ctx.guild.id)
+        q.loop = not q.loop
+
+        embed = discord.Embed(
+            title=f"🔁 Loop {'Enabled' if q.loop else 'Disabled'}",
+            description="Current song will repeat" if q.loop else "Loop mode turned off",
+            color=discord.Color.green() if q.loop else discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
+
+    @bot.command(aliases=["q", "list"])
+    async def queue(ctx):
+        """Show current queue"""
+        q = get_queue(ctx.guild.id)
+
+        if not q.queue and not q.current:
+            embed = discord.Embed(
+                title="📭 Queue Empty",
+                description="Add songs with `!play <song>`",
+                color=discord.Color.blue()
+            )
+            return await ctx.send(embed=embed)
+
+        embed = create_queue_embed(ctx.guild.id)
+        await ctx.send(embed=embed)
+
+    @bot.command(aliases=["np", "nowplaying", "current"])
+    async def now(ctx):
+        """Show currently playing song with controls"""
+        if not ctx.voice_client:
+            return await ctx.send("❌ Not in a voice channel")
+
+        player: wavelink.Player = ctx.voice_client
+        if not player.playing:
+            return await ctx.send("❌ Nothing is playing")
+
+        q = get_queue(ctx.guild.id)
+        if q.current:
+            embed = create_now_playing_embed(q.current, ctx.author)
+            view = MusicControlView(ctx)
+            await ctx.send(embed=embed, view=view)
+        else:
+            await ctx.send("❌ No track information available")
+
+    @bot.command(aliases=["vol"])
+    async def volume(ctx, vol: int = None):
+        """Volume control with buttons"""
+        if not ctx.voice_client:
+            return await ctx.send("❌ Not in a voice channel")
+
+        player: wavelink.Player = ctx.voice_client
+
+        if vol is None:
+            embed = discord.Embed(
+                title="🔊 Volume Control",
+                description=f"Current volume: **{player.volume}%**",
+                color=discord.Color.blue()
+            )
+            view = VolumeControlView(ctx)
+            await ctx.send(embed=embed, view=view)
+        else:
+            if not 0 <= vol <= 100:
+                return await ctx.send("❌ Volume must be between 0 and 100")
+
+            await player.set_volume(vol)
+            embed = discord.Embed(
+                title="🔊 Volume Changed",
+                description=f"Set to **{vol}%**",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+
+    @bot.command(aliases=["clear", "empty"])
+    async def clearqueue(ctx):
+        """Clear the queue"""
+        q = get_queue(ctx.guild.id)
+        cleared_count = len(q.queue)
+        q.queue.clear()
+
+        embed = discord.Embed(
+            title="🗑️ Queue Cleared",
+            description=f"Removed {cleared_count} songs",
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
+
+    @bot.command()
+    async def radio(ctx):
+        """Play random radio station"""
+        if not ctx.voice_client:
+            if not ctx.author.voice:
+                return await ctx.send("❌ Join a voice channel first.")
+            await ctx.author.voice.channel.connect(cls=wavelink.Player)
+
+        try:
+            stream = random.choice(RADIO_STREAMS)
+            radio = await wavelink.Playable.search(stream)
+
+            if radio:
+                player: wavelink.Player = ctx.voice_client
+                await player.play(radio[0])
+
+                embed = discord.Embed(
+                    title="📻 Radio Station",
+                    description="Playing random live radio",
+                    color=discord.Color.purple()
+                )
+                embed.set_thumbnail(url="https://i.imgur.com/YZ0H7GF.gif")
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Could not load radio stream")
+        except Exception as e:
+            await ctx.send(f"❌ Error playing radio: {e}")
+
+    @bot.command()
+    async def stop(ctx):
+        """Stop playback and clear queue"""
+        if not ctx.voice_client:
+            return await ctx.send("❌ Not in a voice channel")
+
+        player: wavelink.Player = ctx.voice_client
+        await player.stop()
+        get_queue(ctx.guild.id).queue.clear()
+        get_queue(ctx.guild.id).current = None
+
+        embed = discord.Embed(
+            title="⏹️ Stopped",
+            description="Playback stopped and queue cleared",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+    print("✅ Music commands loaded with UI elements")
