@@ -40,6 +40,8 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 | 🧮 Math Quiz | Solve random math questions. |
 | 🔤 Word Unscramble | Unscramble words by difficulty level. |
 | 🎓 Space Trivia | Test your knowledge of space and science. |
+| 🥢 Booster Catch | An interactive simulation of catching a booster. |
+| 🌌 Galaxy Explorer | procedurally generated galaxy and solar system explore and gain credits. | 
 
 ### 🏆 Leaderboards & Roles  
 - Tracks scores from all games.  
@@ -47,7 +49,7 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 - Automatically assigns “Leader” roles to top players.  
 - Fully configurable per guild.
 
-### 💬 Utility Commands  
+### 💬 Some Commands  
 | Command | Description |
 |----------|-------------|
 | `/ping` / `!ping` | Check bot latency and responsiveness. |
@@ -55,6 +57,9 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 | `!rolemapping` | Configure Leader roles per server. |
 | `!starship` | Predict Starship launch success interactively. |
 | `!hello`, `!vent`, `!catch`, `!behero` | Fun themed responses. |
+| `!catchbooster` | Catch boosters for fun. |
+| `!galaxy` | Galaxy explorer game in development. |
+
 
 ### 👋 Welcome System  
 - Sends embedded welcome messages for new members.  
@@ -68,33 +73,30 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 
 ---
 
+
 ## ⚙️ Installation (Internal Use Only)
 
 > 🔒 **Restricted Access:** Only OLIT Technologies maintainers may install or deploy this bot.
 
-© Copyright Notice for OLIT Bot
+---
 
-© 2025 OLIT Technologies. All Rights Reserved.
+## © Copyright Notice for OLIT Bot
 
-OLIT Bot, including its codebase, features, artwork, and branding, is the intellectual property of OLIT Technologies.
-No part of this bot — including its source code, graphics, data, or branding — may be copied, reproduced, modified, distributed, or otherwise exploited without prior written permission from OLIT Technologies.
+### © 2025 OLIT Technologies. All Rights Reserved.
+> 
+> OLIT Bot, including its codebase, features, artwork, and branding, is the intellectual property of OLIT Technologies.
+> No part of this bot — including its source code, graphics, data, or branding — may be copied, reproduced, modified, distributed, or otherwise exploited without
+> prior written permission from OLIT Technologies.
 
-You Are Allowed To:
-
-Use the bot in your Discord server in compliance with its Terms & Conditions.
-
-Share the bot’s invite link publicly.
-
-Provide feedback, suggestions, or bug reports to improve the bot.
-
-You Are Not Allowed To:
-
-Host, clone, or redistribute OLIT Bot without written permission.
-
-Remove, obscure, or alter copyright notices or trademarks.
-
-Sell or offer the bot or its features as your own.
-
-Trademark:
-
-The name “OLIT” and its associated logo/branding are trademarks of OLIT Technologies.
+### You Are Allowed To:
+- Use the bot in your Discord server in compliance with its Terms & Conditions.
+- Share the bot’s invite link publicly.
+- Provide feedback, suggestions, or bug reports to improve the bot.
+  
+### You Are Not Allowed To:
+- Host, clone, or redistribute OLIT Bot without written permission.
+- Remove, obscure, or alter copyright notices or trademarks.
+- Sell or offer the bot or its features as your own.
+  
+### Trademark:
+- The name “OLIT” and its associated logo/branding are trademarks of OLIT Technologies.
