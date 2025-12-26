@@ -49,7 +49,7 @@ It’s designed for **entertainment**, **automation**, and **community engagemen
 - Automatically assigns “Leader” roles to top players.  
 - Fully configurable per guild.
 
-### 💬 Utility Commands  
+### 💬 Some Commands  
 | Command | Description |
 |----------|-------------|
 | `/ping` / `!ping` | Check bot latency and responsiveness. |
