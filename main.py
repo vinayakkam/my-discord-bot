@@ -8229,6 +8229,8 @@ import wavelink
 from music_bot import setup_music_commands, play_next
 import logging
 
+# Your existing bot setup here (intents, prefix, etc.)
+# bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Setup music commands
 setup_music_commands(bot)
@@ -8240,14 +8242,26 @@ async def on_ready():
     print(f"📊 Servers: {len(bot.guilds)}")
 
     try:
-        # Wavelink 3.x - Connect to Lavalink node
-        nodes = [wavelink.Node(
-            uri="wss://lava-v4.ajieblogs.eu.org:443",
-            password="https://dsc.gg/ajidevserver"
-        )]
+        # Dual Lavalink System - Primary + Fallback
+        nodes = [
+            wavelink.Node(
+                identifier="PRIMARY",
+                uri="wss://lavalinkv4.serenetia.com:443",
+                password="https://dsc.gg/ajidevserver",
+                retries=3
+            ),
+            wavelink.Node(
+                identifier="FALLBACK",
+                uri="wss://lava-v4.ajieblogs.eu.org:443",
+                password="https://dsc.gg/ajidevserver",
+                retries=2
+            )
+        ]
 
         await wavelink.Pool.connect(nodes=nodes, client=bot)
-        print("🎵 Lavalink connected to AJI v4 node")
+        print("🎵 Dual Lavalink system initialized!")
+        print(f"   ├─ PRIMARY: lavalinkv4.serenetia.com")
+        print(f"   └─ FALLBACK: lava-v4.ajieblogs.eu.org")
     except Exception as e:
         print(f"❌ Lavalink connection failed: {e}")
         print("⚠️ Music commands will not work without Lavalink")
@@ -8260,30 +8274,118 @@ async def on_wavelink_track_end(payload: wavelink.TrackEndEventPayload):
     if not player:
         return
 
+    # Skip if player has skip_triggered flag (manual skip)
+    if hasattr(player, 'skip_triggered') and player.skip_triggered:
+        player.skip_triggered = False
+        return
+
     # Only auto-play if track finished normally
-    if payload.reason == "finished":
+    if payload.reason in ["finished", "loadFailed"]:
         ctx = getattr(player, 'ctx', None)
         if ctx:
             try:
+                # Check if already transitioning
+                from music_bot import is_playing_next
+                if ctx.guild.id in is_playing_next and is_playing_next[ctx.guild.id]:
+                    return
+
+                import asyncio
+                await asyncio.sleep(0.8)
                 await play_next(ctx)
             except Exception as e:
                 print(f"Error playing next track: {e}")
                 try:
-                    await ctx.send(f"❌ Error playing next track: {e}")
+                    await ctx.send(f"❌ Error playing next track: {str(e)[:100]}")
                 except:
                     pass
 
 
 @bot.event
+async def on_wavelink_track_start(payload: wavelink.TrackStartEventPayload):
+    """Log when tracks start playing"""
+    node_name = payload.player.node.identifier if payload.player and payload.player.node else "Unknown"
+    track_title = payload.track.title if payload.track else "Unknown"
+    print(f"▶️ [{node_name}] Started playing: {track_title}")
+
+
+@bot.event
+async def on_wavelink_track_exception(payload: wavelink.TrackExceptionEventPayload):
+    """Handle track playback errors"""
+    player = payload.player
+    if hasattr(player, 'ctx'):
+        ctx = player.ctx
+        embed = discord.Embed(
+            title="⚠️ Playback Issue",
+            description="Track encountered an error. Skipping to next song...",
+            color=discord.Color.orange()
+        )
+        try:
+            await ctx.send(embed=embed)
+        except:
+            pass
+        print(f"❌ Track exception: {payload.exception}")
+
+        # Try to play next song
+        try:
+            from music_bot import get_queue
+            q = get_queue(ctx.guild.id)
+            q.is_transitioning = False
+            if q.queue:
+                import asyncio
+                await asyncio.sleep(1)
+                await play_next(ctx)
+        except Exception as e:
+            print(f"Error recovering from track exception: {e}")
+
+
+@bot.event
+async def on_wavelink_track_stuck(payload: wavelink.TrackStuckEventPayload):
+    """Handle stuck tracks"""
+    player = payload.player
+    if hasattr(player, 'ctx'):
+        ctx = player.ctx
+        print(f"⚠️ Track stuck for {payload.threshold}ms on node {player.node.identifier}, skipping...")
+
+        # Force skip to next track
+        try:
+            from music_bot import get_queue
+            q = get_queue(ctx.guild.id)
+            q.is_transitioning = False
+            if player and player.connected:
+                await player.stop()
+            import asyncio
+            await asyncio.sleep(1)
+            await play_next(ctx)
+        except Exception as e:
+            print(f"Error recovering from stuck track: {e}")
+
+
+@bot.event
 async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
     """Called when Lavalink node is ready"""
-    print(f"🎵 Lavalink node {payload.node.identifier} is ready!")
+    node = payload.node
+
+    # Count players for this node
+    players_count = 0
+    for guild in bot.guilds:
+        vc = guild.voice_client
+        if vc and isinstance(vc, wavelink.Player) and vc.node == node:
+            players_count += 1
+
+    print(f"🎵 Lavalink node [{node.identifier}] is ready!")
+    print(f"   └─ URI: {node.uri}")
+    print(f"   └─ Players: {players_count}")
 
 
 @bot.event
 async def on_wavelink_websocket_closed(payload: wavelink.WebsocketClosedEventPayload):
     """Handle Lavalink disconnections"""
-    print(f"⚠️ Lavalink websocket closed: {payload.reason} (code: {payload.code})")
+    print(f"⚠️ Lavalink websocket closed on node {payload.player.node.identifier if payload.player else 'Unknown'}")
+    print(f"   └─ Reason: {payload.reason} (code: {payload.code})")
+
+    # Attempt to switch to fallback node if primary fails
+    if len(wavelink.Pool.nodes) > 1:
+        print(f"🔄 Attempting to use fallback node...")
 
 
 @bot.event
@@ -8295,10 +8397,12 @@ async def on_command_error(ctx, error):
         await ctx.send(f"❌ Missing argument: `{error.param.name}`")
     elif isinstance(error, commands.CheckFailure):
         await ctx.send("❌ You don't have permission to use this command")
+    elif isinstance(error, wavelink.LavalinkException):
+        await ctx.send("⚠️ Music service temporarily unavailable. Please try again.")
+        print(f"Lavalink error: {error}")
     else:
-        await ctx.send(f"❌ Error: {str(error)}")
+        await ctx.send(f"❌ Error: {str(error)[:100]}")
         print(f"Command error: {error}")
-
 
 
 @bot.command()
@@ -8318,37 +8422,189 @@ async def voicetest(ctx):
     await ctx.send("✅ Step 2: Bot has permissions")
 
     # Check 3: Lavalink connected?
-    if not wavelink.Pool.nodes:
-        return await ctx.send("❌ Step 3 Failed: Lavalink not connected")
-    await ctx.send(f"✅ Step 3: Lavalink connected")
+    try:
+        nodes = list(wavelink.Pool.nodes.values()) if hasattr(wavelink.Pool, 'nodes') and isinstance(
+            wavelink.Pool.nodes, dict) else []
+    except:
+        nodes = []
+
+    if not nodes:
+        return await ctx.send("❌ Step 3 Failed: No Lavalink nodes connected")
+
+    connected_nodes = [n for n in nodes if n.status == wavelink.NodeStatus.CONNECTED]
+    if not connected_nodes:
+        return await ctx.send("❌ Step 3 Failed: All Lavalink nodes disconnected")
+
+    await ctx.send(f"✅ Step 3: {len(connected_nodes)}/{len(nodes)} Lavalink nodes connected")
 
     # Check 4: Can connect?
     try:
         if ctx.voice_client:
-            await ctx.send("✅ Step 4: Already connected to VC")
+            node_name = ctx.voice_client.node.identifier if hasattr(ctx.voice_client,
+                                                                    'node') and ctx.voice_client.node else "Unknown"
+            await ctx.send(f"✅ Step 4: Already connected to VC (Node: {node_name})")
         else:
-            await channel.connect(cls=wavelink.Player)
-            await ctx.send("✅ Step 4: Connected successfully!")
+            player = await channel.connect(cls=wavelink.Player)
+            node_name = player.node.identifier if hasattr(player, 'node') and player.node else "Unknown"
+            await ctx.send(f"✅ Step 4: Connected successfully! (Node: {node_name})")
     except Exception as e:
         await ctx.send(f"❌ Step 4 Failed: {e}")
 
 
 @bot.command()
 async def nodeinfo(ctx):
-    """Check Lavalink node status"""
-    if not wavelink.Pool.nodes:
+    """Check all Lavalink nodes status"""
+    # Try different methods to get nodes based on wavelink version
+    try:
+        nodes = list(wavelink.Pool.nodes.values()) if hasattr(wavelink.Pool, 'nodes') and isinstance(
+            wavelink.Pool.nodes, dict) else []
+    except:
+        nodes = []
+
+    if not nodes:
         return await ctx.send("❌ No Lavalink nodes connected")
 
-    node = wavelink.Pool.nodes[0]
-    players_count = len([p for p in wavelink.Pool.players.values() if p.node == node])
-
-    await ctx.send(
-        f"🎵 **Lavalink Node Info**\n"
-        f"Identifier: `{node.identifier}`\n"
-        f"URI: `{node.uri}`\n"
-        f"Players: `{players_count}`\n"
-        f"Status: `{'Connected' if node.status == wavelink.NodeStatus.CONNECTED else 'Disconnected'}`"
+    embed = discord.Embed(
+        title="🎵 Lavalink Nodes Status",
+        color=discord.Color.blue()
     )
+
+    for i, node in enumerate(nodes, 1):
+        # Count players manually
+        players_count = 0
+        for guild in bot.guilds:
+            vc = guild.voice_client
+            if vc and isinstance(vc, wavelink.Player) and hasattr(vc, 'node') and vc.node == node:
+                players_count += 1
+
+        status_emoji = "🟢" if node.status == wavelink.NodeStatus.CONNECTED else "🔴"
+
+        node_info = (
+            f"{status_emoji} **Status:** {node.status.name}\n"
+            f"📍 **URI:** `{node.uri}`\n"
+            f"🎮 **Players:** {players_count}\n"
+        )
+
+        embed.add_field(
+            name=f"Node {i}: {node.identifier}",
+            value=node_info,
+            inline=False
+        )
+
+    # Add active player info if in voice
+    if ctx.voice_client and isinstance(ctx.voice_client, wavelink.Player) and hasattr(ctx.voice_client, 'node'):
+        active_node = ctx.voice_client.node.identifier
+        embed.set_footer(text=f"Currently using: {active_node}")
+
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+async def switchnode(ctx):
+    """Switch to a different Lavalink node (if available)"""
+    if not ctx.voice_client:
+        return await ctx.send("❌ Not connected to a voice channel")
+
+    try:
+        nodes = list(wavelink.Pool.nodes.values()) if hasattr(wavelink.Pool, 'nodes') and isinstance(
+            wavelink.Pool.nodes, dict) else []
+    except:
+        nodes = []
+
+    if len(nodes) < 2:
+        return await ctx.send("❌ No alternative nodes available")
+
+    player = ctx.voice_client
+    current_node = player.node if hasattr(player, 'node') else None
+
+    if not current_node:
+        return await ctx.send("❌ Unable to determine current node")
+
+    # Find an alternative node
+    alternative_nodes = [n for n in nodes
+                         if n != current_node and n.status == wavelink.NodeStatus.CONNECTED]
+
+    if not alternative_nodes:
+        return await ctx.send("❌ No connected alternative nodes available")
+
+    try:
+        new_node = alternative_nodes[0]
+
+        # Store current state
+        was_playing = player.playing if hasattr(player, 'playing') else False
+        current_position = player.position if hasattr(player, 'position') and player.current else 0
+        current_track = player.current if hasattr(player, 'current') else None
+
+        # Move to new node
+        await player.move_to(new_node)
+
+        embed = discord.Embed(
+            title="🔄 Node Switched",
+            description=f"**From:** {current_node.identifier}\n**To:** {new_node.identifier}",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+        # Resume playback if it was playing
+        if was_playing and current_track:
+            await player.play(current_track, start=current_position)
+
+    except Exception as e:
+        await ctx.send(f"❌ Failed to switch node: {e}")
+
+
+@bot.command()
+async def lavalinkstats(ctx):
+    """Show detailed Lavalink statistics"""
+    try:
+        nodes = list(wavelink.Pool.nodes.values()) if hasattr(wavelink.Pool, 'nodes') and isinstance(
+            wavelink.Pool.nodes, dict) else []
+    except:
+        nodes = []
+
+    if not nodes:
+        return await ctx.send("❌ No Lavalink nodes connected")
+
+    embed = discord.Embed(
+        title="📊 Lavalink Statistics",
+        color=discord.Color.from_rgb(88, 101, 242)
+    )
+
+    # Count total players across all guilds
+    total_players = 0
+    for guild in bot.guilds:
+        if guild.voice_client and isinstance(guild.voice_client, wavelink.Player):
+            total_players += 1
+
+    embed.add_field(name="Total Active Players", value=f"🎮 {total_players}", inline=False)
+
+    for node in nodes:
+        # Count players for this specific node
+        node_players = 0
+        for guild in bot.guilds:
+            vc = guild.voice_client
+            if vc and isinstance(vc, wavelink.Player) and hasattr(vc, 'node') and vc.node == node:
+                node_players += 1
+
+        status = "🟢 Online" if node.status == wavelink.NodeStatus.CONNECTED else "🔴 Offline"
+
+        node_info = (
+            f"**Status:** {status}\n"
+            f"**Players:** {node_players}/{total_players}\n"
+            f"**URI:** `{node.uri}`"
+        )
+
+        embed.add_field(
+            name=f"📡 {node.identifier}",
+            value=node_info,
+            inline=True
+        )
+
+    await ctx.send(embed=embed)
+
+
+# Your existing bot run code here
+# bot.run(os.getenv("DISCORD_TOKEN"))
 
 
 
