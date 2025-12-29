@@ -38,7 +38,7 @@ def get_queue(guild_id):
 
 
 def spotify_meta(query):
-    """Search Spotify for better track metadata (with caching)"""
+    """Search Spotify for better track metadata"""
     if not sp:
         return query
 
@@ -47,8 +47,8 @@ def spotify_meta(query):
         if r["tracks"]["items"]:
             t = r["tracks"]["items"][0]
             return f"{t['name']} {t['artists'][0]['name']}"
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Spotify search error: {e}")
 
     return query
 
@@ -120,7 +120,8 @@ class MusicControlView(ui.View):
             player.skip_triggered = True
             await player.stop()
 
-            # Immediately trigger next song
+            # Wait and manually trigger next
+            await asyncio.sleep(0.3)
             await play_next(self.ctx)
 
             await interaction.followup.send("⏭️ Skipped", ephemeral=True)
@@ -385,7 +386,7 @@ async def play_next(ctx):
         return
 
     if q.loop and q.current:
-        query = q.current
+        query = spotify_meta(q.current)
     else:
         if not q.queue:
             q.current = None
@@ -397,16 +398,15 @@ async def play_next(ctx):
         if q.loop_queue and previous:
             q.queue.append(previous)
 
-        query = q.current
+        query = spotify_meta(q.current)
 
     player = ctx.voice_client
     player.ctx = ctx
 
     try:
-        # Reduced timeout for faster response
         tracks = await asyncio.wait_for(
             wavelink.Playable.search(query),
-            timeout=5.0
+            timeout=10.0
         )
 
         if tracks:
@@ -425,42 +425,32 @@ async def play_next(ctx):
             control_messages[ctx.guild.id] = msg
             return
 
-        # If no tracks found, skip to next song
+        # If no tracks found, skip to next song instead of radio fallback
         embed = discord.Embed(
             title="❌ Track Not Found",
-            description=f"Could not find: **{query}**\nSkipping...",
+            description=f"Could not find: **{query}**\nSkipping to next song...",
             color=discord.Color.orange()
         )
-        msg = await ctx.send(embed=embed)
-
-        # Auto-delete error message
-        await asyncio.sleep(5)
-        try:
-            await msg.delete()
-        except:
-            pass
-
+        await ctx.send(embed=embed)
         if q.queue:
             await play_next(ctx)
 
     except asyncio.TimeoutError:
         embed = discord.Embed(
             title="⏱️ Search Timeout",
-            description="Skipping to next song...",
+            description="Search took too long. Skipping to next song...",
             color=discord.Color.orange()
         )
-        msg = await ctx.send(embed=embed)
-
-        # Auto-delete timeout message
-        await asyncio.sleep(5)
-        try:
-            await msg.delete()
-        except:
-            pass
-
+        await ctx.send(embed=embed)
         if q.queue:
             await play_next(ctx)
     except Exception as e:
+        embed = discord.Embed(
+            title="❌ Playback Error",
+            description=f"```{str(e)}```",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         print(f"Playback error: {e}")
         if q.queue:
             await play_next(ctx)
@@ -484,8 +474,10 @@ def setup_music_commands(bot):
         # Get the context from the player
         if hasattr(player, 'ctx'):
             ctx = player.ctx
-            # Immediate transition to next song
+            await asyncio.sleep(0.5)
             await play_next(ctx)
+        else:
+            print("⚠️ Player has no context, cannot auto-play next track")
 
     @bot.command(aliases=["musichelp", "mh", "commands"])
     async def mhelp(ctx):
@@ -601,14 +593,24 @@ def setup_music_commands(bot):
 
             if ctx.voice_client:
                 if ctx.voice_client.channel.id == channel.id:
-                    return await ctx.send("✅ Already connected!")
+                    embed = discord.Embed(
+                        title="✅ Already Connected",
+                        description=f"I'm already in **{channel.name}**",
+                        color=discord.Color.green()
+                    )
+                    return await ctx.send(embed=embed)
                 else:
                     await ctx.voice_client.move_to(channel)
-                    return await ctx.send(f"✅ Moved to **{channel.name}**")
+                    embed = discord.Embed(
+                        title="✅ Moved",
+                        description=f"Moved to **{channel.name}**",
+                        color=discord.Color.green()
+                    )
+                    return await ctx.send(embed=embed)
 
-            await asyncio.wait_for(
+            player = await asyncio.wait_for(
                 channel.connect(cls=wavelink.Player),
-                timeout=5.0
+                timeout=10.0
             )
 
             embed = discord.Embed(
@@ -616,20 +618,23 @@ def setup_music_commands(bot):
                 description=f"Joined **{channel.name}**",
                 color=discord.Color.green()
             )
-            embed.set_footer(text="Use !play <song> to start")
-            msg = await ctx.send(embed=embed)
-
-            # Auto-delete after 10 seconds
-            await asyncio.sleep(10)
-            try:
-                await msg.delete()
-            except:
-                pass
+            embed.set_footer(text="Use !play <song> to start playing music")
+            await ctx.send(embed=embed)
 
         except asyncio.TimeoutError:
-            await ctx.send("⏱️ Connection timeout. Please try again.")
+            embed = discord.Embed(
+                title="⏱️ Connection Timeout",
+                description="Could not connect to voice channel within 10 seconds. Please try again.",
+                color=discord.Color.orange()
+            )
+            await ctx.send(embed=embed)
         except Exception as e:
-            await ctx.send(f"❌ Connection error: {e}")
+            embed = discord.Embed(
+                title="❌ Connection Error",
+                description=f"```{str(e)}```",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
 
     @bot.command(aliases=["dc", "disconnect", "bye", "leavevc"])
     async def leave(ctx):
@@ -676,40 +681,32 @@ def setup_music_commands(bot):
                 channel = ctx.author.voice.channel
                 await asyncio.wait_for(
                     channel.connect(cls=wavelink.Player),
-                    timeout=5.0
+                    timeout=10.0
                 )
             except asyncio.TimeoutError:
                 embed = discord.Embed(
                     title="⏱️ Connection Timeout",
-                    description="Could not connect. Please try `!join` first.",
+                    description="Could not connect to voice channel. Please try `!join` first.",
                     color=discord.Color.orange()
                 )
                 return await ctx.send(embed=embed)
             except Exception as e:
-                return await ctx.send(f"❌ Connection error: {e}")
+                embed = discord.Embed(
+                    title="❌ Connection Error",
+                    description=f"```{str(e)}```",
+                    color=discord.Color.red()
+                )
+                return await ctx.send(embed=embed)
 
         q = get_queue(ctx.guild.id)
         q.queue.append(query)
 
         player = ctx.voice_client
         if not player.playing:
-            # Send "searching" message immediately
-            search_msg = await ctx.send("🔍 Searching...")
             await play_next(ctx)
-            # Delete searching message after track starts
-            try:
-                await search_msg.delete()
-            except:
-                pass
         else:
             embed = create_added_embed(query, len(q.queue))
-            msg = await ctx.send(embed=embed)
-            # Auto-delete "added to queue" message after 10 seconds
-            await asyncio.sleep(10)
-            try:
-                await msg.delete()
-            except:
-                pass
+            await ctx.send(embed=embed)
 
     @bot.command(aliases=["s", "next"])
     async def skip(ctx):
@@ -725,23 +722,18 @@ def setup_music_commands(bot):
             player.skip_triggered = True
             await player.stop()
 
-            # Immediately trigger next song without waiting
+            # Wait a moment for the stop to process
+            await asyncio.sleep(0.3)
+
+            # Manually trigger next song
             await play_next(ctx)
 
-            # Send skip confirmation
             embed = discord.Embed(
                 title="⏭️ Skipped",
                 description="Playing next song..." if q.queue or q.current else "Queue is empty",
                 color=discord.Color.blue()
             )
-            msg = await ctx.send(embed=embed)
-
-            # Auto-delete after 5 seconds
-            await asyncio.sleep(5)
-            try:
-                await msg.delete()
-            except:
-                pass
+            await ctx.send(embed=embed)
         else:
             await ctx.send("❌ Nothing is playing")
 
@@ -926,80 +918,48 @@ def setup_music_commands(bot):
             try:
                 await asyncio.wait_for(
                     ctx.author.voice.channel.connect(cls=wavelink.Player),
-                    timeout=5.0
+                    timeout=10.0
                 )
             except asyncio.TimeoutError:
                 return await ctx.send("⏱️ Connection timeout. Please try again.")
+            except Exception as e:
+                return await ctx.send(f"❌ Connection error: {e}")
 
         player = ctx.voice_client
 
-        # Popular radio stations and live streams that work with Lavalink
-        radio_queries = [
-            "lofi hip hop radio",
-            "chill beats radio",
-            "jazz radio live",
-            "pop hits radio",
-            "edm live mix",
-            "relaxing music 24/7",
-            "study music radio",
-            "gaming music mix"
+        # Try searching for popular radio stations instead
+        radio_searches = [
+            "BBC Radio 1 live",
+            "Capital FM live",
+            "Heart Radio live",
+            "Absolute Radio live",
+            "Classic FM live"
         ]
 
-        query = random.choice(radio_queries)
-        search_msg = await ctx.send(f"📻 Finding radio station...")
+        search_query = random.choice(radio_searches)
 
         try:
-            tracks = await asyncio.wait_for(
-                wavelink.Playable.search(query),
-                timeout=5.0
-            )
+            tracks = await wavelink.Playable.search(search_query)
 
             if tracks:
-                # Store as current track
-                q = get_queue(ctx.guild.id)
-                q.current = query
-                player.ctx = ctx
-
                 await player.play(tracks[0])
 
-                try:
-                    await search_msg.delete()
-                except:
-                    pass
-
                 embed = discord.Embed(
-                    title="📻 Radio Playing",
-                    description=f"**{tracks[0].title}**",
+                    title="📻 Radio Station",
+                    description=f"Now playing: **{tracks[0].title}**",
                     color=discord.Color.purple()
                 )
                 embed.set_thumbnail(
                     url="https://cdn.discordapp.com/attachments/1419678020972581006/1454149961666003151/ChatGPT_Image_Dec_26_2025_09_52_19_PM.png")
-                embed.set_footer(text="Continuous radio stream • Use !stop to end")
-
-                view = MusicControlView(ctx, ctx.guild.id)
-                msg = await ctx.send(embed=embed, view=view)
-                control_messages[ctx.guild.id] = msg
+                embed.set_footer(text="Live radio stream")
+                await ctx.send(embed=embed)
                 return
             else:
-                try:
-                    await search_msg.delete()
-                except:
-                    pass
-                await ctx.send("❌ Could not find radio stations. Try `!play lofi radio` instead.")
+                await ctx.send("❌ Could not find radio stations. Try `!play <song name>` instead.")
 
-        except asyncio.TimeoutError:
-            try:
-                await search_msg.delete()
-            except:
-                pass
-            await ctx.send("⏱️ Radio search timeout. Try `!play <station name>` instead.")
         except Exception as e:
             print(f"Radio error: {e}")
-            try:
-                await search_msg.delete()
-            except:
-                pass
-            await ctx.send("❌ Radio unavailable. Try `!play lofi hip hop radio` for continuous music!")
+            await ctx.send("❌ Radio is currently unavailable. Try `!play <song name>` for music!")
 
     @bot.command()
     async def stop(ctx):
