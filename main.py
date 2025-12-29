@@ -8246,9 +8246,9 @@ async def on_ready():
         nodes = [
             wavelink.Node(
                 identifier="PRIMARY",
-                uri="wss://lavalinkv4.serenetia.com:443",
+                uri="wss://lava-v4.ajieblogs.eu.org:443",
                 password="https://dsc.gg/ajidevserver",
-                retries=3
+                retries=2
             ),
             wavelink.Node(
                 identifier="FALLBACK",
