@@ -21,6 +21,7 @@ except Exception as e:
 
 music_queues = {}
 control_messages = {}
+is_playing_next = {}  # Track if play_next is already running
 
 
 class MusicQueue:
@@ -29,6 +30,7 @@ class MusicQueue:
         self.current = None
         self.loop = False
         self.loop_queue = False
+        self.is_transitioning = False  # Prevent race conditions
 
 
 def get_queue(guild_id):
@@ -38,7 +40,7 @@ def get_queue(guild_id):
 
 
 def spotify_meta(query):
-    """Search Spotify for better track metadata (with caching)"""
+    """Search Spotify for better track metadata"""
     if not sp:
         return query
 
@@ -47,8 +49,8 @@ def spotify_meta(query):
         if r["tracks"]["items"]:
             t = r["tracks"]["items"][0]
             return f"{t['name']} {t['artists'][0]['name']}"
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Spotify search error: {e}")
 
     return query
 
@@ -94,18 +96,26 @@ class MusicControlView(ui.View):
             return await interaction.response.send_message("❌ Not in a voice channel", ephemeral=True)
 
         player = self.ctx.voice_client
-        if player.playing and not player.paused:
-            await player.pause(True)
-            button.label = "▶️ Resume"
-            button.style = discord.ButtonStyle.success
-            await interaction.response.edit_message(view=self)
-        elif player.paused:
-            await player.pause(False)
-            button.label = "⏸️ Pause"
-            button.style = discord.ButtonStyle.primary
-            await interaction.response.edit_message(view=self)
-        else:
-            await interaction.response.send_message("❌ Nothing is playing", ephemeral=True)
+
+        try:
+            if not player.connected:
+                return await interaction.response.send_message("❌ Player disconnected", ephemeral=True)
+
+            if player.playing and not player.paused:
+                await player.pause(True)
+                button.label = "▶️ Resume"
+                button.style = discord.ButtonStyle.success
+                await interaction.response.edit_message(view=self)
+            elif player.paused:
+                await player.pause(False)
+                button.label = "⏸️ Pause"
+                button.style = discord.ButtonStyle.primary
+                await interaction.response.edit_message(view=self)
+            else:
+                await interaction.response.send_message("❌ Nothing is playing", ephemeral=True)
+        except Exception as e:
+            print(f"Pause button error: {e}")
+            await interaction.response.send_message("❌ Action failed", ephemeral=True)
 
     @ui.button(label="⏭️ Skip", style=discord.ButtonStyle.secondary, custom_id="skip_btn")
     async def skip_button(self, interaction: discord.Interaction, button: ui.Button):
@@ -113,14 +123,20 @@ class MusicControlView(ui.View):
             return await interaction.response.send_message("❌ Not in a voice channel", ephemeral=True)
 
         player = self.ctx.voice_client
+        q = get_queue(self.guild_id)
+
         if player.playing or player.paused:
             await interaction.response.defer(ephemeral=True)
 
             # Store that we're skipping manually
             player.skip_triggered = True
+            q.is_transitioning = False  # Reset transition flag
+
+            # Force stop and clear buffer
             await player.stop()
 
-            # Immediately trigger next song
+            # Wait longer for clean buffer clear
+            await asyncio.sleep(1.2)
             await play_next(self.ctx)
 
             await interaction.followup.send("⏭️ Skipped", ephemeral=True)
@@ -134,7 +150,13 @@ class MusicControlView(ui.View):
 
         player = self.ctx.voice_client
         await interaction.response.defer(ephemeral=True)
-        await player.stop()
+
+        try:
+            if player.connected:
+                await player.stop()
+        except Exception as e:
+            print(f"Stop button error: {e}")
+
         get_queue(self.guild_id).queue.clear()
         get_queue(self.guild_id).current = None
         await interaction.followup.send("⏹️ Stopped and cleared queue", ephemeral=True)
@@ -371,99 +393,184 @@ def create_added_embed(track_name, position=None):
 
 async def play_next(ctx):
     """Play the next song in queue"""
-    q = get_queue(ctx.guild.id)
+    guild_id = ctx.guild.id
+    q = get_queue(guild_id)
 
-    if not ctx.voice_client or (not q.queue and not (q.loop and q.current)):
-        q.current = None
-        if ctx.voice_client and not ctx.voice_client.playing:
-            embed = discord.Embed(
-                title="✅ Queue Finished",
-                description="All songs have been played!",
-                color=discord.Color.green()
-            )
-            await ctx.send(embed=embed)
+    # Prevent multiple play_next calls running simultaneously
+    if guild_id in is_playing_next and is_playing_next[guild_id]:
+        print(f"⚠️ play_next already running for guild {guild_id}, skipping")
         return
 
-    if q.loop and q.current:
-        query = q.current
-    else:
-        if not q.queue:
-            q.current = None
-            return
+    if q.is_transitioning:
+        print(f"⚠️ Queue is transitioning for guild {guild_id}, skipping")
+        return
 
-        previous = q.current
-        q.current = q.queue.pop(0)
-
-        if q.loop_queue and previous:
-            q.queue.append(previous)
-
-        query = q.current
-
-    player = ctx.voice_client
-    player.ctx = ctx
+    q.is_transitioning = True
+    is_playing_next[guild_id] = True
 
     try:
-        # Reduced timeout for faster response
-        tracks = await asyncio.wait_for(
-            wavelink.Playable.search(query),
-            timeout=5.0
-        )
+        # Check if voice client is still valid
+        if not ctx.voice_client or not ctx.voice_client.connected:
+            q.current = None
+            q.is_transitioning = False
+            is_playing_next[guild_id] = False
+            return
 
-        if tracks:
-            await player.play(tracks[0])
+        if not q.queue and not (q.loop and q.current):
+            q.current = None
+            q.is_transitioning = False
+            is_playing_next[guild_id] = False
+            if ctx.voice_client and not ctx.voice_client.playing:
+                embed = discord.Embed(
+                    title="✅ Queue Finished",
+                    description="All songs have been played!",
+                    color=discord.Color.green()
+                )
+                await ctx.send(embed=embed)
+            return
 
-            embed = create_now_playing_embed(tracks[0].title, ctx.author, player)
-            view = MusicControlView(ctx, ctx.guild.id)
+        # Handle loop mode
+        if q.loop and q.current:
+            query = spotify_meta(q.current)
+        else:
+            if not q.queue:
+                q.current = None
+                q.is_transitioning = False
+                is_playing_next[guild_id] = False
+                return
 
-            if ctx.guild.id in control_messages:
+            previous = q.current
+            q.current = q.queue.pop(0)
+
+            # Only add to queue loop if loop_queue is enabled AND loop is OFF
+            if q.loop_queue and previous and not q.loop:
+                q.queue.append(previous)
+
+            query = spotify_meta(q.current)
+
+        player = ctx.voice_client
+        player.ctx = ctx
+
+        try:
+            tracks = await asyncio.wait_for(
+                wavelink.Playable.search(query),
+                timeout=15.0
+            )
+
+            if tracks:
+                # Check player is still connected before playing
+                if not player.connected:
+                    q.is_transitioning = False
+                    is_playing_next[guild_id] = False
+                    return
+
+                # CRITICAL: Stop current track and wait for clean stop
                 try:
-                    await control_messages[ctx.guild.id].delete()
+                    if player.playing or player.paused:
+                        await player.stop()
+                        # Increased wait time for clean buffer clear
+                        await asyncio.sleep(1.0)
+                except Exception as stop_err:
+                    print(f"Stop error (non-critical): {stop_err}")
+
+                # Double check nothing is playing before starting new track
+                if player.playing:
+                    print("⚠️ Player still playing after stop, forcing cleanup")
+                    await asyncio.sleep(0.5)
+
+                # Play the track
+                try:
+                    await player.play(tracks[0])
+
+                    # Wait a moment to ensure playback started
+                    await asyncio.sleep(0.3)
+
+                except Exception as play_error:
+                    print(f"Play error: {play_error}")
+                    # If play fails, try next song
+                    q.is_transitioning = False
+                    is_playing_next[guild_id] = False
+                    # Don't skip if loop is on, just end
+                    if q.queue and not q.loop:
+                        await asyncio.sleep(1)
+                        await play_next(ctx)
+                    return
+
+                # Configure player to prevent buffering issues
+                try:
+                    player.autoplay = wavelink.AutoPlayMode.disabled
                 except:
                     pass
 
-            msg = await ctx.send(embed=embed, view=view)
-            control_messages[ctx.guild.id] = msg
+                embed = create_now_playing_embed(tracks[0].title, ctx.author, player)
+                view = MusicControlView(ctx, guild_id)
+
+                if guild_id in control_messages:
+                    try:
+                        await control_messages[guild_id].delete()
+                    except:
+                        pass
+
+                msg = await ctx.send(embed=embed, view=view)
+                control_messages[guild_id] = msg
+            else:
+                # If no tracks found, skip to next song (but not if looping)
+                embed = discord.Embed(
+                    title="❌ Track Not Found",
+                    description=f"Could not find: **{query}**" +
+                                ("\nSkipping to next song..." if q.queue else ""),
+                    color=discord.Color.orange()
+                )
+                await ctx.send(embed=embed)
+                q.is_transitioning = False
+                is_playing_next[guild_id] = False
+
+                # Only skip to next if not in loop mode
+                if q.queue and not q.loop:
+                    await play_next(ctx)
+                return
+
+        except asyncio.TimeoutError:
+            embed = discord.Embed(
+                title="⏱️ Search Timeout",
+                description="Search took too long." +
+                            (" Skipping to next song..." if q.queue else ""),
+                color=discord.Color.orange()
+            )
+            await ctx.send(embed=embed)
+            q.is_transitioning = False
+            is_playing_next[guild_id] = False
+
+            # Only skip to next if not in loop mode
+            if q.queue and not q.loop:
+                await play_next(ctx)
+            return
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ Playback Error",
+                description=f"```{str(e)[:100]}```",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            print(f"Playback error: {e}")
+            q.is_transitioning = False
+            is_playing_next[guild_id] = False
+
+            # Only skip to next if not in loop mode
+            if q.queue and not q.loop:
+                await asyncio.sleep(1)
+                await play_next(ctx)
             return
 
-        # If no tracks found, skip to next song
-        embed = discord.Embed(
-            title="❌ Track Not Found",
-            description=f"Could not find: **{query}**\nSkipping...",
-            color=discord.Color.orange()
-        )
-        msg = await ctx.send(embed=embed)
-
-        # Auto-delete error message
-        await asyncio.sleep(5)
-        try:
-            await msg.delete()
-        except:
-            pass
-
-        if q.queue:
-            await play_next(ctx)
-
-    except asyncio.TimeoutError:
-        embed = discord.Embed(
-            title="⏱️ Search Timeout",
-            description="Skipping to next song...",
-            color=discord.Color.orange()
-        )
-        msg = await ctx.send(embed=embed)
-
-        # Auto-delete timeout message
-        await asyncio.sleep(5)
-        try:
-            await msg.delete()
-        except:
-            pass
-
-        if q.queue:
-            await play_next(ctx)
-    except Exception as e:
-        print(f"Playback error: {e}")
-        if q.queue:
-            await play_next(ctx)
+    except Exception as outer_error:
+        print(f"Outer play_next error: {outer_error}")
+        q.is_transitioning = False
+        is_playing_next[guild_id] = False
+    finally:
+        # Always reset the flags after a delay to ensure clean state
+        await asyncio.sleep(0.5)
+        q.is_transitioning = False
+        is_playing_next[guild_id] = False
 
 
 # ============= SETUP COMMANDS =============
@@ -481,10 +588,64 @@ def setup_music_commands(bot):
             player.skip_triggered = False
             return
 
+        # Check if track ended naturally (not stopped/replaced)
+        if payload.reason not in ["finished", "loadFailed"]:
+            return
+
         # Get the context from the player
         if hasattr(player, 'ctx'):
             ctx = player.ctx
-            # Immediate transition to next song
+            guild_id = ctx.guild.id
+
+            # Prevent multiple simultaneous calls
+            if guild_id in is_playing_next and is_playing_next[guild_id]:
+                return
+
+            await asyncio.sleep(0.8)  # Slightly longer delay for stability
+            await play_next(ctx)
+        else:
+            print("⚠️ Player has no context, cannot auto-play next track")
+
+    @bot.event
+    async def on_wavelink_track_start(payload: wavelink.TrackStartEventPayload):
+        """Log when tracks start playing"""
+        print(f"▶️ Started playing: {payload.track.title if payload.track else 'Unknown'}")
+
+    @bot.event
+    async def on_wavelink_track_exception(payload: wavelink.TrackExceptionEventPayload):
+        """Handle track playback errors"""
+        player = payload.player
+        if hasattr(player, 'ctx'):
+            ctx = player.ctx
+            embed = discord.Embed(
+                title="⚠️ Playback Issue",
+                description="Track encountered an error. Skipping to next song...",
+                color=discord.Color.orange()
+            )
+            await ctx.send(embed=embed)
+            print(f"❌ Track exception: {payload.exception}")
+
+            # Try to play next song
+            q = get_queue(ctx.guild.id)
+            q.is_transitioning = False
+            if q.queue:
+                await asyncio.sleep(1)
+                await play_next(ctx)
+
+    @bot.event
+    async def on_wavelink_track_stuck(payload: wavelink.TrackStuckEventPayload):
+        """Handle stuck tracks"""
+        player = payload.player
+        if hasattr(player, 'ctx'):
+            ctx = player.ctx
+            print(f"⚠️ Track stuck for {payload.threshold}ms, skipping...")
+
+            # Force skip to next track
+            q = get_queue(ctx.guild.id)
+            q.is_transitioning = False
+            if player:
+                await player.stop()
+            await asyncio.sleep(1)
             await play_next(ctx)
 
     @bot.command(aliases=["musichelp", "mh", "commands"])
@@ -501,7 +662,8 @@ def setup_music_commands(bot):
 
         # Playback Commands
         playback = [
-            "**!play** `<song>` - Play a song or add to queue",
+            "**!play** `<song/link>` - Play or queue (YT, SC, Spotify)",
+            "**!playsc** `<song/link>` - Play from SoundCloud",
             "**!pause** - Pause current song",
             "**!resume** - Resume playback",
             "**!skip** - Skip current song",
@@ -530,7 +692,8 @@ def setup_music_commands(bot):
         # Voice Commands
         voice = [
             "**!join** - Join your voice channel",
-            "**!leave** - Leave voice channel and clear queue"
+            "**!leave** - Leave voice channel and clear queue",
+            "**!reconnect** - Force reconnect (fixes issues)"
         ]
         embed.add_field(
             name="🔊 Voice",
@@ -550,27 +713,45 @@ def setup_music_commands(bot):
             inline=False
         )
 
-        # Extra Commands
-        extra = [
-            "**!radio** - Play a random radio station"
+        # Radio Commands
+        radio = [
+            "**!radio** `[genre]` - Play radio station",
+            "**!radiolist** - Show all available genres",
+            "Genres: pop, rock, edm, hiphop, jazz, classical, country, indie, lofi, bollywood"
         ]
         embed.add_field(
-            name="📻 Extra",
-            value="\n".join(extra),
+            name="📻 Radio",
+            value="\n".join(radio),
             inline=False
         )
 
-        # Aliases info
+        # Admin/Debug Commands
+        admin = [
+            "**!nodeinfo** - Check Lavalink nodes status",
+            "**!lavalinkstats** - Detailed node statistics",
+            "**!switchnode** - Switch to different Lavalink node",
+            "**!voicetest** - Test voice connection step-by-step"
+        ]
+        embed.add_field(
+            name="🔧 Admin & Debug",
+            value="\n".join(admin),
+            inline=False
+        )
+
+        # Tips
         embed.add_field(
             name="💡 Tips",
-            value="• Most commands have short aliases (e.g., `!p` for play, `!s` for skip)\n"
+            value="• Supports YouTube, SoundCloud, and Spotify links\n"
+                  "• Use `!playsc` for SoundCloud-specific search\n"
+                  "• Most commands have short aliases (e.g., `!p` for play, `!s` for skip)\n"
                   "• Use interactive buttons for easier control\n"
-                  "• Queue supports multiple songs at once",
+                  "• Try `!radio lofi` for chill background music\n"
+                  "• Use `!reconnect` if bot has audio issues",
             inline=False
         )
 
         embed.set_footer(
-            text=f"Requested by {ctx.author.name}",
+            text=f"Requested by {ctx.author.name} • OLIT Music V6",
             icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
         )
 
@@ -601,41 +782,104 @@ def setup_music_commands(bot):
 
             if ctx.voice_client:
                 if ctx.voice_client.channel.id == channel.id:
-                    return await ctx.send("✅ Already connected!")
+                    embed = discord.Embed(
+                        title="✅ Already Connected",
+                        description=f"I'm already in **{channel.name}**",
+                        color=discord.Color.green()
+                    )
+                    return await ctx.send(embed=embed)
                 else:
-                    await ctx.voice_client.move_to(channel)
-                    return await ctx.send(f"✅ Moved to **{channel.name}**")
+                    try:
+                        await ctx.voice_client.move_to(channel)
+                        embed = discord.Embed(
+                            title="✅ Moved",
+                            description=f"Moved to **{channel.name}**",
+                            color=discord.Color.green()
+                        )
+                        return await ctx.send(embed=embed)
+                    except:
+                        # If move fails, disconnect and reconnect
+                        await ctx.voice_client.disconnect(force=True)
+                        await asyncio.sleep(1)
 
-            await asyncio.wait_for(
-                channel.connect(cls=wavelink.Player),
-                timeout=5.0
-            )
+            # Send connecting message
+            connecting_msg = await ctx.send("🔄 Connecting to voice channel...")
 
-            embed = discord.Embed(
-                title="✅ Connected",
-                description=f"Joined **{channel.name}**",
-                color=discord.Color.green()
-            )
-            embed.set_footer(text="Use !play <song> to start")
-            msg = await ctx.send(embed=embed)
-
-            # Auto-delete after 10 seconds
-            await asyncio.sleep(10)
+            # Try to connect with increased timeout
             try:
-                await msg.delete()
-            except:
-                pass
+                player = await asyncio.wait_for(
+                    channel.connect(cls=wavelink.Player, self_deaf=True),
+                    timeout=15.0
+                )
 
-        except asyncio.TimeoutError:
-            await ctx.send("⏱️ Connection timeout. Please try again.")
+                # Configure player settings
+                await player.set_volume(50)
+
+                await connecting_msg.delete()
+
+                embed = discord.Embed(
+                    title="✅ Connected",
+                    description=f"Joined **{channel.name}**",
+                    color=discord.Color.green()
+                )
+                embed.set_footer(text="Use !play <song> to start playing music")
+                await ctx.send(embed=embed)
+
+            except asyncio.TimeoutError:
+                await connecting_msg.delete()
+
+                # Retry once more
+                try:
+                    await ctx.send("⚠️ First attempt timed out, retrying...")
+                    player = await asyncio.wait_for(
+                        channel.connect(cls=wavelink.Player, self_deaf=True),
+                        timeout=20.0
+                    )
+                    await player.set_volume(50)
+
+                    embed = discord.Embed(
+                        title="✅ Connected",
+                        description=f"Joined **{channel.name}** (retry successful)",
+                        color=discord.Color.green()
+                    )
+                    embed.set_footer(text="Use !play <song> to start playing music")
+                    await ctx.send(embed=embed)
+                except asyncio.TimeoutError:
+                    embed = discord.Embed(
+                        title="⏱️ Connection Timeout",
+                        description="Failed to connect after multiple attempts. Please try again or check:\n"
+                                    "• Bot has proper permissions\n"
+                                    "• Voice channel isn't full\n"
+                                    "• Lavalink server is responding",
+                        color=discord.Color.orange()
+                    )
+                    await ctx.send(embed=embed)
+
+        except discord.ClientException as e:
+            embed = discord.Embed(
+                title="❌ Connection Error",
+                description=f"Already connected to another channel. Use `!leave` first.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
         except Exception as e:
-            await ctx.send(f"❌ Connection error: {e}")
+            embed = discord.Embed(
+                title="❌ Connection Error",
+                description=f"```{str(e)[:200]}```",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            print(f"Join error: {e}")
 
     @bot.command(aliases=["dc", "disconnect", "bye", "leavevc"])
     async def leave(ctx):
         """Leave voice channel"""
         if ctx.voice_client:
-            await ctx.voice_client.disconnect()
+            try:
+                await ctx.voice_client.disconnect(force=True)
+            except:
+                pass
+
             get_queue(ctx.guild.id).queue.clear()
             get_queue(ctx.guild.id).current = None
 
@@ -662,7 +906,7 @@ def setup_music_commands(bot):
 
     @bot.command(name="play", aliases=["p", "add", "song"])
     async def play(ctx, *, query: str):
-        """Play a song or add to queue"""
+        """Play a song or add to queue (supports YouTube, SoundCloud, Spotify links, and search)"""
         if not ctx.voice_client:
             if not ctx.author.voice:
                 embed = discord.Embed(
@@ -674,42 +918,161 @@ def setup_music_commands(bot):
 
             try:
                 channel = ctx.author.voice.channel
-                await asyncio.wait_for(
-                    channel.connect(cls=wavelink.Player),
-                    timeout=5.0
-                )
-            except asyncio.TimeoutError:
+                connecting_msg = await ctx.send("🔄 Connecting...")
+
+                # Try to connect with timeout
+                try:
+                    await asyncio.wait_for(
+                        channel.connect(cls=wavelink.Player, self_deaf=True),
+                        timeout=15.0
+                    )
+                    await connecting_msg.delete()
+                except asyncio.TimeoutError:
+                    await connecting_msg.edit(content="⚠️ Connection timeout, retrying...")
+                    try:
+                        await asyncio.wait_for(
+                            channel.connect(cls=wavelink.Player, self_deaf=True),
+                            timeout=20.0
+                        )
+                        await connecting_msg.delete()
+                    except asyncio.TimeoutError:
+                        await connecting_msg.delete()
+                        embed = discord.Embed(
+                            title="⏱️ Connection Timeout",
+                            description="Could not connect to voice channel. Please use `!join` first or try again.",
+                            color=discord.Color.orange()
+                        )
+                        return await ctx.send(embed=embed)
+            except Exception as e:
                 embed = discord.Embed(
-                    title="⏱️ Connection Timeout",
-                    description="Could not connect. Please try `!join` first.",
-                    color=discord.Color.orange()
+                    title="❌ Connection Error",
+                    description=f"```{str(e)[:200]}```",
+                    color=discord.Color.red()
                 )
                 return await ctx.send(embed=embed)
-            except Exception as e:
-                return await ctx.send(f"❌ Connection error: {e}")
 
         q = get_queue(ctx.guild.id)
-        q.queue.append(query)
 
-        player = ctx.voice_client
-        if not player.playing:
-            # Send "searching" message immediately
-            search_msg = await ctx.send("🔍 Searching...")
-            await play_next(ctx)
-            # Delete searching message after track starts
-            try:
-                await search_msg.delete()
-            except:
-                pass
+        # Detect if it's a URL (SoundCloud, YouTube, Spotify, etc.)
+        is_url = query.startswith("http://") or query.startswith("https://")
+
+        # Show what we're searching for
+        if is_url:
+            if "soundcloud.com" in query:
+                source_emoji = "☁️"
+                source_name = "SoundCloud"
+            elif "spotify.com" in query:
+                source_emoji = "🎵"
+                source_name = "Spotify"
+            elif "youtube.com" in query or "youtu.be" in query:
+                source_emoji = "📺"
+                source_name = "YouTube"
+            else:
+                source_emoji = "🔗"
+                source_name = "Link"
+
+            searching_msg = await ctx.send(f"🔍 Loading from {source_name}...")
         else:
-            embed = create_added_embed(query, len(q.queue))
-            msg = await ctx.send(embed=embed)
-            # Auto-delete "added to queue" message after 10 seconds
-            await asyncio.sleep(10)
+            searching_msg = await ctx.send(f"🔍 Searching: **{query[:50]}**...")
+
+        # Try to get track info immediately for better feedback
+        try:
+            tracks = await asyncio.wait_for(
+                wavelink.Playable.search(query),
+                timeout=10.0
+            )
+
+            if tracks:
+                track_name = tracks[0].title if hasattr(tracks[0], 'title') else query
+
+                # Delete searching message
+                try:
+                    await searching_msg.delete()
+                except:
+                    pass
+
+                q.queue.append(query)
+
+                player = ctx.voice_client
+                if not player.playing:
+                    await play_next(ctx)
+                else:
+                    embed = create_added_embed(track_name, len(q.queue))
+
+                    # Add source indicator
+                    if is_url:
+                        if "soundcloud.com" in query:
+                            embed.set_footer(text="☁️ SoundCloud",
+                                             icon_url="https://cdn.discordapp.com/attachments/1419678020972581006/1454149961666003151/ChatGPT_Image_Dec_26_2025_09_52_19_PM.png")
+                        elif "spotify.com" in query:
+                            embed.set_footer(text="🎵 Spotify",
+                                             icon_url="https://cdn.discordapp.com/attachments/1419678020972581006/1454149961666003151/ChatGPT_Image_Dec_26_2025_09_52_19_PM.png")
+                        elif "youtube.com" in query or "youtu.be" in query:
+                            embed.set_footer(text="📺 YouTube",
+                                             icon_url="https://cdn.discordapp.com/attachments/1419678020972581006/1454149961666003151/ChatGPT_Image_Dec_26_2025_09_52_19_PM.png")
+
+                    await ctx.send(embed=embed)
+            else:
+                try:
+                    await searching_msg.delete()
+                except:
+                    pass
+
+                embed = discord.Embed(
+                    title="❌ Not Found",
+                    description=f"Could not find or load: **{query[:100]}**",
+                    color=discord.Color.red()
+                )
+
+                if is_url and "soundcloud.com" in query:
+                    embed.add_field(
+                        name="💡 SoundCloud Tips",
+                        value="• Make sure the track is public\n• Try copying the share link from SoundCloud\n• Check if the track is available in your region\n• Note: SoundCloud support depends on Lavalink server configuration",
+                        inline=False
+                    )
+
+                await ctx.send(embed=embed)
+
+        except wavelink.NodeException as e:
             try:
-                await msg.delete()
+                await searching_msg.delete()
             except:
                 pass
+
+            # Check if it's a SoundCloud link
+            if is_url and "soundcloud.com" in query:
+                embed = discord.Embed(
+                    title="⚠️ SoundCloud Not Supported",
+                    description="This Lavalink server doesn't have SoundCloud configured.",
+                    color=discord.Color.orange()
+                )
+                embed.add_field(
+                    name="What You Can Do",
+                    value="• Try searching for the song name instead: `!play <song name>`\n• Use YouTube links\n• Use Spotify links (if supported)",
+                    inline=False
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ Playback Error",
+                    description="Lavalink node error occurred.",
+                    color=discord.Color.red()
+                )
+
+            print(f"NodeException in play: {e}")
+            await ctx.send(embed=embed)
+
+        except asyncio.TimeoutError:
+            try:
+                await searching_msg.delete()
+            except:
+                pass
+
+            embed = discord.Embed(
+                title="⏱️ Search Timeout",
+                description="Search took too long. The source might be slow or unavailable.",
+                color=discord.Color.orange()
+            )
+            await ctx.send(embed=embed)
 
     @bot.command(aliases=["s", "next"])
     async def skip(ctx):
@@ -723,25 +1086,23 @@ def setup_music_commands(bot):
         if player.playing or player.paused:
             # Store that we're skipping manually
             player.skip_triggered = True
+            q.is_transitioning = False  # Reset transition flag
+
+            # Force stop and clear buffer
             await player.stop()
 
-            # Immediately trigger next song without waiting
+            # Wait longer for clean buffer clear
+            await asyncio.sleep(1.2)
+
+            # Manually trigger next song
             await play_next(ctx)
 
-            # Send skip confirmation
             embed = discord.Embed(
                 title="⏭️ Skipped",
                 description="Playing next song..." if q.queue or q.current else "Queue is empty",
                 color=discord.Color.blue()
             )
-            msg = await ctx.send(embed=embed)
-
-            # Auto-delete after 5 seconds
-            await asyncio.sleep(5)
-            try:
-                await msg.delete()
-            except:
-                pass
+            await ctx.send(embed=embed)
         else:
             await ctx.send("❌ Nothing is playing")
 
@@ -752,12 +1113,20 @@ def setup_music_commands(bot):
             return await ctx.send("❌ Not in a voice channel")
 
         player = ctx.voice_client
-        if player.playing and not player.paused:
-            await player.pause(True)
-            embed = discord.Embed(title="⏸️ Paused", color=discord.Color.blue())
-            await ctx.send(embed=embed)
-        else:
-            await ctx.send("❌ Nothing is playing")
+
+        try:
+            if not player.connected:
+                return await ctx.send("❌ Player disconnected")
+
+            if player.playing and not player.paused:
+                await player.pause(True)
+                embed = discord.Embed(title="⏸️ Paused", color=discord.Color.blue())
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Nothing is playing")
+        except Exception as e:
+            print(f"Pause error: {e}")
+            await ctx.send("❌ Failed to pause playback")
 
     @bot.command(aliases=["resume", "unpause"])
     async def resume_cmd(ctx):
@@ -766,12 +1135,20 @@ def setup_music_commands(bot):
             return await ctx.send("❌ Not in a voice channel")
 
         player = ctx.voice_client
-        if player.paused:
-            await player.pause(False)
-            embed = discord.Embed(title="▶️ Resumed", color=discord.Color.green())
-            await ctx.send(embed=embed)
-        else:
-            await ctx.send("❌ Not paused")
+
+        try:
+            if not player.connected:
+                return await ctx.send("❌ Player disconnected")
+
+            if player.paused:
+                await player.pause(False)
+                embed = discord.Embed(title="▶️ Resumed", color=discord.Color.green())
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("❌ Not paused")
+        except Exception as e:
+            print(f"Resume error: {e}")
+            await ctx.send("❌ Failed to resume playback")
 
     @bot.command(aliases=["repeat", "r"])
     async def loop(ctx):
@@ -918,129 +1295,56 @@ def setup_music_commands(bot):
         await ctx.send(embed=embed)
 
     @bot.command()
-    async def radio(ctx, genre: str = None):
-        """Play radio station by genre"""
+    async def radio(ctx):
+        """Play random radio station"""
         if not ctx.voice_client:
             if not ctx.author.voice:
                 return await ctx.send("❌ Join a voice channel first.")
             try:
                 await asyncio.wait_for(
-                    ctx.author.voice.channel.connect(cls=wavelink.Player, self_deaf=True),
+                    ctx.author.voice.channel.connect(cls=wavelink.Player),
                     timeout=10.0
                 )
             except asyncio.TimeoutError:
                 return await ctx.send("⏱️ Connection timeout. Please try again.")
+            except Exception as e:
+                return await ctx.send(f"❌ Connection error: {e}")
 
         player = ctx.voice_client
 
-        # Genre-specific radio searches
-        radio_genres = {
-            "pop": ["pop music 24/7", "top pop hits live", "pop radio mix"],
-            "rock": ["rock music 24/7", "classic rock live", "rock radio station"],
-            "edm": ["edm live mix", "electronic music 24/7", "dance music radio"],
-            "hiphop": ["hip hop mix 24/7", "rap music live", "hip hop radio"],
-            "jazz": ["jazz music 24/7", "smooth jazz live", "jazz radio"],
-            "classical": ["classical music 24/7", "classical radio", "orchestral music live"],
-            "country": ["country music 24/7", "country radio live", "country hits"],
-            "indie": ["indie music 24/7", "indie rock live", "alternative radio"],
-            "lofi": ["lofi hip hop radio", "lofi beats 24/7", "chill lofi music"],
-            "bollywood": ["bollywood songs", "hindi music 24/7", "bollywood hits"]
-        }
+        # Try searching for popular radio stations instead
+        radio_searches = [
+            "BBC Radio 1 live",
+            "Capital FM live",
+            "Heart Radio live",
+            "Absolute Radio live",
+            "Classic FM live"
+        ]
 
-        # If no genre specified, pick random
-        if not genre:
-            genre = random.choice(list(radio_genres.keys()))
-        else:
-            genre = genre.lower()
-            if genre not in radio_genres:
-                genres_list = ", ".join(radio_genres.keys())
-                return await ctx.send(f"❌ Unknown genre. Available: {genres_list}\nOr use `!radiolist` to see all.")
-
-        search_query = random.choice(radio_genres[genre])
-        search_msg = await ctx.send(f"📻 Tuning to {genre.upper()} radio...")
+        search_query = random.choice(radio_searches)
 
         try:
-            tracks = await asyncio.wait_for(
-                wavelink.Playable.search(search_query),
-                timeout=10.0
-            )
+            tracks = await wavelink.Playable.search(search_query)
 
             if tracks:
-                # Store as current track
-                q = get_queue(ctx.guild.id)
-                q.current = f"{genre.upper()} Radio"
-                player.ctx = ctx
-
                 await player.play(tracks[0])
 
-                try:
-                    await search_msg.delete()
-                except:
-                    pass
-
                 embed = discord.Embed(
-                    title=f"📻 {genre.upper()} Radio",
-                    description=f"**{tracks[0].title}**",
+                    title="📻 Radio Station",
+                    description=f"Now playing: **{tracks[0].title}**",
                     color=discord.Color.purple()
                 )
                 embed.set_thumbnail(
                     url="https://cdn.discordapp.com/attachments/1419678020972581006/1454149961666003151/ChatGPT_Image_Dec_26_2025_09_52_19_PM.png")
-                embed.set_footer(text=f"24/7 {genre} radio • Use !stop to end")
-
-                view = MusicControlView(ctx, ctx.guild.id)
-                msg = await ctx.send(embed=embed, view=view)
-                control_messages[ctx.guild.id] = msg
+                embed.set_footer(text="Live radio stream")
+                await ctx.send(embed=embed)
+                return
             else:
-                try:
-                    await search_msg.delete()
-                except:
-                    pass
-                await ctx.send(f"❌ Could not find {genre} radio. Try `!play {genre} music` instead.")
+                await ctx.send("❌ Could not find radio stations. Try `!play <song name>` instead.")
 
-        except asyncio.TimeoutError:
-            try:
-                await search_msg.delete()
-            except:
-                pass
-            await ctx.send("⏱️ Radio search timeout. Try again or use `!play <genre> music`")
         except Exception as e:
             print(f"Radio error: {e}")
-            try:
-                await search_msg.delete()
-            except:
-                pass
-            await ctx.send("❌ Radio unavailable. Try `!play lofi` for continuous music!")
-
-    @bot.command()
-    async def radiolist(ctx):
-        """Show all available radio genres"""
-        embed = discord.Embed(
-            title="📻 Available Radio Genres",
-            description="Use `!radio <genre>` to start playing",
-            color=discord.Color.purple()
-        )
-
-        genres = {
-            "🎵 Pop": "`!radio pop`",
-            "🎸 Rock": "`!radio rock`",
-            "🎧 EDM": "`!radio edm`",
-            "🎤 Hip Hop": "`!radio hiphop`",
-            "🎷 Jazz": "`!radio jazz`",
-            "🎻 Classical": "`!radio classical`",
-            "🤠 Country": "`!radio country`",
-            "🎹 Indie": "`!radio indie`",
-            "☕ Lofi": "`!radio lofi`",
-            "🪔 Bollywood": "`!radio bollywood`"
-        }
-
-        for genre_name, command in genres.items():
-            embed.add_field(name=genre_name, value=command, inline=True)
-
-        embed.set_footer(text="💡 Tip: Use !radio without genre for random station")
-        embed.set_thumbnail(
-            url="https://cdn.discordapp.com/attachments/1419678020972581006/1454149961666003151/ChatGPT_Image_Dec_26_2025_09_52_19_PM.png")
-
-        await ctx.send(embed=embed)
+            await ctx.send("❌ Radio is currently unavailable. Try `!play <song name>` for music!")
 
     @bot.command()
     async def stop(ctx):
@@ -1049,7 +1353,13 @@ def setup_music_commands(bot):
             return await ctx.send("❌ Not in a voice channel")
 
         player = ctx.voice_client
-        await player.stop()
+
+        try:
+            if player.connected:
+                await player.stop()
+        except Exception as e:
+            print(f"Stop error: {e}")
+
         get_queue(ctx.guild.id).queue.clear()
         get_queue(ctx.guild.id).current = None
 
@@ -1060,150 +1370,7 @@ def setup_music_commands(bot):
         )
         await ctx.send(embed=embed)
 
-    @bot.command()
-    async def nodeinfo(ctx):
-        """Check Lavalink node status"""
-        try:
-            nodes = wavelink.Pool.nodes.values()
-
-            if not nodes:
-                return await ctx.send("❌ No Lavalink nodes connected!")
-
-            embed = discord.Embed(
-                title="🔧 Lavalink Node Status",
-                color=discord.Color.blue(),
-                timestamp=datetime.utcnow()
-            )
-
-            for node in nodes:
-                status_emoji = "✅" if node.status == wavelink.NodeStatus.CONNECTED else "❌"
-
-                value = f"**Status:** {status_emoji} {node.status.name}\n"
-                value += f"**URI:** `{node.uri}`\n"
-                value += f"**Players:** {node.player_count}\n"
-
-                if hasattr(node, 'stats') and node.stats:
-                    value += f"**Memory:** {node.stats.memory_used / 1024 / 1024:.0f}MB / {node.stats.memory_allocated / 1024 / 1024:.0f}MB\n"
-                    value += f"**CPU:** {node.stats.cpu_lavalink_load:.1f}%"
-
-                embed.add_field(
-                    name=f"Node: {node.identifier}",
-                    value=value,
-                    inline=False
-                )
-
-            embed.set_footer(text="Use !reconnect if you're experiencing issues")
-            await ctx.send(embed=embed)
-
-        except Exception as e:
-            await ctx.send(f"❌ Error checking nodes: {e}")
-
-    @bot.command()
-    async def reconnect(ctx):
-        """Force reconnect to voice channel (fixes audio issues)"""
-        if not ctx.voice_client:
-            return await ctx.send("❌ Not in a voice channel")
-
-        if not ctx.author.voice:
-            return await ctx.send("❌ You need to be in a voice channel")
-
-        channel = ctx.author.voice.channel
-
-        # Save current queue state
-        q = get_queue(ctx.guild.id)
-        saved_queue = q.queue.copy()
-        saved_current = q.current
-        saved_loop = q.loop
-        saved_loop_queue = q.loop_queue
-
-        msg = await ctx.send("🔄 Reconnecting...")
-
-        try:
-            # Disconnect
-            await ctx.voice_client.disconnect(force=True)
-            await asyncio.sleep(2)
-
-            # Reconnect
-            await asyncio.wait_for(
-                channel.connect(cls=wavelink.Player, self_deaf=True),
-                timeout=15.0
-            )
-
-            # Restore queue state
-            q.queue = saved_queue
-            q.current = saved_current
-            q.loop = saved_loop
-            q.loop_queue = saved_loop_queue
-
-            await msg.edit(content="✅ Reconnected successfully! Use `!play` to resume.")
-
-        except asyncio.TimeoutError:
-            await msg.edit(content="❌ Reconnection timeout. Please try `!join` manually.")
-        except Exception as e:
-            await msg.edit(content=f"❌ Reconnection failed: {e}")
-
-    @bot.command()
-    async def lavalinkstats(ctx):
-        """Detailed Lavalink statistics"""
-        try:
-            nodes = wavelink.Pool.nodes.values()
-
-            if not nodes:
-                return await ctx.send("❌ No Lavalink nodes available")
-
-            for node in nodes:
-                embed = discord.Embed(
-                    title=f"📊 Lavalink Stats: {node.identifier}",
-                    color=discord.Color.green() if node.status == wavelink.NodeStatus.CONNECTED else discord.Color.red(),
-                    timestamp=datetime.utcnow()
-                )
-
-                # Connection Info
-                embed.add_field(
-                    name="🔗 Connection",
-                    value=f"**Status:** {node.status.name}\n**URI:** `{node.uri}`\n**Players:** {node.player_count}",
-                    inline=False
-                )
-
-                # Stats
-                if hasattr(node, 'stats') and node.stats:
-                    stats = node.stats
-
-                    # Memory
-                    mem_used = stats.memory_used / 1024 / 1024
-                    mem_free = stats.memory_free / 1024 / 1024
-                    mem_alloc = stats.memory_allocated / 1024 / 1024
-
-                    embed.add_field(
-                        name="💾 Memory",
-                        value=f"**Used:** {mem_used:.0f}MB\n**Free:** {mem_free:.0f}MB\n**Allocated:** {mem_alloc:.0f}MB",
-                        inline=True
-                    )
-
-                    # CPU
-                    embed.add_field(
-                        name="⚡ CPU",
-                        value=f"**Lavalink:** {stats.cpu_lavalink_load:.1f}%\n**System:** {stats.cpu_system_load:.1f}%\n**Cores:** {stats.cpu_cores}",
-                        inline=True
-                    )
-
-                    # Uptime
-                    uptime_seconds = stats.uptime / 1000
-                    hours = int(uptime_seconds // 3600)
-                    minutes = int((uptime_seconds % 3600) // 60)
-
-                    embed.add_field(
-                        name="⏱️ Uptime",
-                        value=f"{hours}h {minutes}m",
-                        inline=True
-                    )
-
-                embed.set_footer(text="Powered by Lavalink V4")
-                await ctx.send(embed=embed)
-
-        except Exception as e:
-            await ctx.send(f"❌ Error getting stats: {e}")
-
+    @bot.command(aliases=["shuffle"])
     async def shufflequeue(ctx):
         """Shuffle the current queue"""
         q = get_queue(ctx.guild.id)
