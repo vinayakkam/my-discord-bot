@@ -8246,7 +8246,7 @@ async def on_ready():
         nodes = [
             wavelink.Node(
                 identifier="PRIMARY",
-                uri="wss://lava-v4.ajieblogs.eu.org:443",
+                uri="wss://lavalinkv4.serenetia.com",
                 password="https://dsc.gg/ajidevserver",
                 retries=3
             ),
@@ -8451,52 +8451,7 @@ async def voicetest(ctx):
         await ctx.send(f"❌ Step 4 Failed: {e}")
 
 
-@bot.command()
-async def nodeinfo(ctx):
-    """Check all Lavalink nodes status"""
-    # Try different methods to get nodes based on wavelink version
-    try:
-        nodes = list(wavelink.Pool.nodes.values()) if hasattr(wavelink.Pool, 'nodes') and isinstance(
-            wavelink.Pool.nodes, dict) else []
-    except:
-        nodes = []
 
-    if not nodes:
-        return await ctx.send("❌ No Lavalink nodes connected")
-
-    embed = discord.Embed(
-        title="🎵 Lavalink Nodes Status",
-        color=discord.Color.blue()
-    )
-
-    for i, node in enumerate(nodes, 1):
-        # Count players manually
-        players_count = 0
-        for guild in bot.guilds:
-            vc = guild.voice_client
-            if vc and isinstance(vc, wavelink.Player) and hasattr(vc, 'node') and vc.node == node:
-                players_count += 1
-
-        status_emoji = "🟢" if node.status == wavelink.NodeStatus.CONNECTED else "🔴"
-
-        node_info = (
-            f"{status_emoji} **Status:** {node.status.name}\n"
-            f"📍 **URI:** `{node.uri}`\n"
-            f"🎮 **Players:** {players_count}\n"
-        )
-
-        embed.add_field(
-            name=f"Node {i}: {node.identifier}",
-            value=node_info,
-            inline=False
-        )
-
-    # Add active player info if in voice
-    if ctx.voice_client and isinstance(ctx.voice_client, wavelink.Player) and hasattr(ctx.voice_client, 'node'):
-        active_node = ctx.voice_client.node.identifier
-        embed.set_footer(text=f"Currently using: {active_node}")
-
-    await ctx.send(embed=embed)
 
 
 @bot.command()
@@ -8553,54 +8508,7 @@ async def switchnode(ctx):
         await ctx.send(f"❌ Failed to switch node: {e}")
 
 
-@bot.command()
-async def lavalinkstats(ctx):
-    """Show detailed Lavalink statistics"""
-    try:
-        nodes = list(wavelink.Pool.nodes.values()) if hasattr(wavelink.Pool, 'nodes') and isinstance(
-            wavelink.Pool.nodes, dict) else []
-    except:
-        nodes = []
 
-    if not nodes:
-        return await ctx.send("❌ No Lavalink nodes connected")
-
-    embed = discord.Embed(
-        title="📊 Lavalink Statistics",
-        color=discord.Color.from_rgb(88, 101, 242)
-    )
-
-    # Count total players across all guilds
-    total_players = 0
-    for guild in bot.guilds:
-        if guild.voice_client and isinstance(guild.voice_client, wavelink.Player):
-            total_players += 1
-
-    embed.add_field(name="Total Active Players", value=f"🎮 {total_players}", inline=False)
-
-    for node in nodes:
-        # Count players for this specific node
-        node_players = 0
-        for guild in bot.guilds:
-            vc = guild.voice_client
-            if vc and isinstance(vc, wavelink.Player) and hasattr(vc, 'node') and vc.node == node:
-                node_players += 1
-
-        status = "🟢 Online" if node.status == wavelink.NodeStatus.CONNECTED else "🔴 Offline"
-
-        node_info = (
-            f"**Status:** {status}\n"
-            f"**Players:** {node_players}/{total_players}\n"
-            f"**URI:** `{node.uri}`"
-        )
-
-        embed.add_field(
-            name=f"📡 {node.identifier}",
-            value=node_info,
-            inline=True
-        )
-
-    await ctx.send(embed=embed)
 
 
 # Your existing bot run code here
