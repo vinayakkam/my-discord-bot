@@ -1,0 +1,58 @@
+{
+  "814791086114865233": {
+    "uid": 814791086114865233,
+    "position": [
+      -78,
+      42
+    ],
+    "fuel": 10,
+    "max_fuel": 100,
+    "credits": 1681,
+    "discovered": [
+      [
+        35,
+        -15
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "rare_finds": [
+      "Ancient Computer Core"
+    ],
+    "achievements": [
+      "First Steps"
+    ],
+    "resources": {
+      "crystals": 20,
+      "metals": 0,
+      "energy": 3,
+      "dark_matter": 0
+    },
+    "upgrades": {
+      "fuel_tank": 0,
+      "fuel_efficiency": 0,
+      "scanner_boost": 0,
+      "cargo_hold": 0,
+      "shield_matrix": 0,
+      "warp_core": 0,
+      "battle_systems": 0
+    },
+    "story_state": {
+      "puzzles_solved": 4,
+      "hints_collected": [
+        "The Sentinel sleeps in the shadow of two dying suns \u2014 sector deep-negative.",
+        "Where three suns dance, the Core pulses. Count the resonance.",
+        "Follow the void between worlds \u2014 antimatter trail leads southwest.",
+        "Coordinates locked: (-78, 42). The Void Sentinel awaits."
+      ],
+      "core_retrieved": false
+    },
+    "successful_explorations": 2,
+    "danger_encounters": 0,
+    "total_credits_earned": 1681,
+    "boss_hp": null,
+    "boss_turns": 0
+  }
+}

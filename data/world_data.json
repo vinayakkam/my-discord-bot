@@ -1,0 +1,14 @@
+{
+  "0,0": {
+    "name": "Nebula Nursery",
+    "desc": "Glowing clouds birthing new stars.",
+    "color": 1706542,
+    "rarity": "common"
+  },
+  "-2,0": {
+    "name": "Ancient Ruins",
+    "desc": "Shattered remnants of a precursor civilisation.",
+    "color": 3021322,
+    "rarity": "uncommon"
+  }
+}
