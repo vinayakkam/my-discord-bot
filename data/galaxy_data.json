@@ -5,13 +5,21 @@
       -78,
       42
     ],
-    "fuel": 10,
-    "max_fuel": 100,
-    "credits": 1681,
+    "fuel": 165,
+    "max_fuel": 200,
+    "credits": 499991500,
     "discovered": [
       [
         35,
         -15
+      ],
+      [
+        -78,
+        42
+      ],
+      [
+        -77,
+        42
       ],
       [
         0,
@@ -19,25 +27,32 @@
       ]
     ],
     "rare_finds": [
-      "Ancient Computer Core"
+      "Ancient Computer Core",
+      "Power Core Signature",
+      "Void Sentinel Presence"
     ],
     "achievements": [
-      "First Steps"
+      "Void Slayer",
+      "Space Millionaire",
+      "Ancient Wisdom",
+      "Core Retriever",
+      "First Steps",
+      "Puzzle Master"
     ],
     "resources": {
-      "crystals": 20,
-      "metals": 0,
-      "energy": 3,
-      "dark_matter": 0
+      "crystals": 127,
+      "metals": 42,
+      "energy": 211,
+      "dark_matter": 20
     },
     "upgrades": {
-      "fuel_tank": 0,
-      "fuel_efficiency": 0,
-      "scanner_boost": 0,
-      "cargo_hold": 0,
-      "shield_matrix": 0,
-      "warp_core": 0,
-      "battle_systems": 0
+      "fuel_tank": 5,
+      "fuel_efficiency": 5,
+      "scanner_boost": 3,
+      "cargo_hold": 4,
+      "shield_matrix": 3,
+      "warp_core": 2,
+      "battle_systems": 3
     },
     "story_state": {
       "puzzles_solved": 4,
@@ -47,11 +62,11 @@
         "Follow the void between worlds \u2014 antimatter trail leads southwest.",
         "Coordinates locked: (-78, 42). The Void Sentinel awaits."
       ],
-      "core_retrieved": false
+      "core_retrieved": true
     },
-    "successful_explorations": 2,
+    "successful_explorations": 4,
     "danger_encounters": 0,
-    "total_credits_earned": 1681,
+    "total_credits_earned": 42808,
     "boss_hp": null,
     "boss_turns": 0
   }
