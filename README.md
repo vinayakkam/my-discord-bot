@@ -12,7 +12,7 @@
 
 ## 🌐 Official Website
 Visit the official OLIT Technologies website:  
-👉 **[https://olittechnologies.netlify.app](https://olittechnologies.netlify.app)**  
+👉 **[https://olittechnologies.co.in](https://olittechnologies.co.in)**  
 All updates, announcements, and support for OLIT Bot are published there.
 
 ---
