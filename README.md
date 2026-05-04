@@ -6,7 +6,7 @@
 ![discord.py](https://img.shields.io/badge/discord.py-2.4.0+-purple.svg)
 ![Status](https://img.shields.io/badge/Status-Active-success.svg)
 ![License](https://img.shields.io/badge/License-Proprietary%20%2F%20No%20Redistribution-red.svg)
-[![Website](https://img.shields.io/badge/Website-OLIT%20Technologies-1E90FF?logo=google-chrome&logoColor=white)](https://olittechnologies.netlify.app)
+[![Website](https://img.shields.io/badge/Website-OLIT%20Technologies-1E90FF?logo=google-chrome&logoColor=white)](https://olittechnologies.co.in)
 
 ---
 
