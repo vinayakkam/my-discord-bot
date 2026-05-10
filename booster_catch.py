@@ -1,786 +1,856 @@
 import discord
-from discord import ui
 from discord.ext import commands
-import random
-import asyncio
-import time
+import random, asyncio, time, math
 from typing import Callable
 
-
-# ─── MODULE-LEVEL REFS (injected by setup_booster_catch) ───────────
+# ─── MODULE REFS ───────────────────────────────────────────────────
 _bot:        commands.Bot | None = None
 _add_score:  Callable | None     = None
 _scores_ref: dict | None         = None
 
-
 def setup_booster_catch(bot: commands.Bot, add_score_fn: Callable, scores_dict: dict):
-    """
-    Call once from on_ready in main.py:
-        setup_booster_catch(bot, add_score, scores)
-
-    Parameters
-    ----------
-    bot           : your main.py bot instance
-    add_score_fn  : your add_score() function from main.py
-    scores_dict   : your scores {} dict from main.py (passed by reference)
-    """
     global _bot, _add_score, _scores_ref
     _bot        = bot
     _add_score  = add_score_fn
     _scores_ref = scores_dict
     _register_commands(bot)
-    print("[BOOSTER CATCH] Module loaded — !catchbooster is ready")
+    print("[BOOSTER CATCH] Bug-fixed edition loaded — !catchbooster ready")
 
 
-# ─── GAME VIEW (BUTTONS) ───────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+#  GRID & PHYSICS CONSTANTS
+# ══════════════════════════════════════════════════════════════════
+
+GRID_W    = 32
+GRID_H    = 18
+TOWER_ROW = 18
+GROUND_ROW= 19
+
+# FIX 2: Wall boundaries moved inward so booster is always reachable by arms.
+# Old: WALL_L=1, WALL_R=30. Arm_left_min = ARM_HALF+2 = 7, inner = 8 → col 1 unreachable.
+# New: WALL_L=3, WALL_R=28. Arm can reach col 3 inner edge.
+WALL_L = 3       # left wall — booster bounces off this column
+WALL_R = 28      # right wall
+
+# Physics (sim-verified: g=0.11 gives ~17s fall)
+GRAVITY     = 0.11
+DRAG_COEFF  = 0.12
+DRY_MASS    = 10.0
+FULL_FUEL_KG= 10.0
+ENGINE_THRUST     = 20.0
+FUEL_FLOW         = 0.9
+THRUST_PULSE_DURATION = 1.2
+
+# FIX 3: Wind uses Ornstein-Uhlenbeck mean reversion (theta=1.5, half-life ~0.46s)
+# instead of pure inertia decay which let wind camp at extremes for the full fall.
+WIND_BASE_ACCEL  = 0.5
+WIND_OU_THETA    = 1.5    # mean-reversion speed — higher = reverts faster
+WIND_OU_SIGMA    = 0.22   # diffusion noise
+# Wall bounce wind suppression: after hitting a wall, wind is dampened for this long
+WIND_SUPPRESS_DURATION = 0.5   # seconds
+
+# Catch geometry (sim-verified)
+CATCH_ZONE_Y     = 14.0
+CRASH_Y          = 19.5
+ARM_HALF         = 5
+ARM_INNER_MARGIN = 1
+
+# FIX 2 (cont): ARM_CENTER_MIN set so the arm's inner edge exactly reaches WALL_L.
+# Formula: inner_left = (center - ARM_HALF) + ARM_INNER_MARGIN = WALL_L
+# => center = WALL_L + ARM_HALF - ARM_INNER_MARGIN
+ARM_CENTER_MIN = WALL_L + ARM_HALF - ARM_INNER_MARGIN   # = 7  (inner_left = WALL_L = 3 ✅)
+ARM_CENTER_MAX = WALL_R - ARM_HALF + ARM_INNER_MARGIN   # = 24 (inner_right = WALL_R = 28 ✅)
+
+# Catch quality thresholds (wu/s)
+PERFECT_VY = 0.8;  GOOD_VY = 1.6;  ROUGH_VY = 2.8
+PERFECT_VX = 0.5;  GOOD_VX = 1.2
+
+ADVISORY_VY = 1.5
+
+# Game loop timing
+PHYS_DT   = 0.12
+DISP_FAST = 0.85
+DISP_SLOW = 1.30
+
+
+# ══════════════════════════════════════════════════════════════════
+#  STAR FIELD — seeded once, never flickers
+# ══════════════════════════════════════════════════════════════════
+
+def _make_star_field(seed: int) -> list:
+    rng   = random.Random(seed)
+    field = [[""] * GRID_W for _ in range(GRID_H)]
+    chars = ["·", "✦", "∘", "°", "˙", "⋆", "★", "✧", "✩"]
+    for row in range(GRID_H):
+        density = 0.06 * (1.0 - row / GRID_H * 0.7)
+        for col in range(1, GRID_W - 1):
+            if rng.random() < density:
+                field[row][col] = rng.choice(chars)
+    return field
+
+
+# ══════════════════════════════════════════════════════════════════
+#  VIEW (BUTTONS)
+# ══════════════════════════════════════════════════════════════════
 
 class CatchGameView(discord.ui.View):
-    def __init__(self, game_instance):
-        super().__init__(timeout=120)
-        self.game = game_instance
-        self.update_button_states()
+    def __init__(self, game: "BoosterCatchGame"):
+        super().__init__(timeout=300)
+        self.game = game
+        self.sync_buttons()
 
-    def update_button_states(self):
-        """Sync button availability with game state."""
-        self.thrust_button.disabled = self.game.state["fuel"] <= 0
-        self.catch_button.disabled  = not self.game.state["catch_ready"]
-        self.left_button.disabled   = self.game.state["arm_left"] <= 2
-        self.right_button.disabled  = self.game.state["arm_right"] >= 22
-
-        if self.game.state["game_over"]:
+    def sync_buttons(self):
+        g = self.game
+        self.btn_thrust.disabled = (g.fuel_kg <= 0 or g.state == "over" or g.thrust_timer > 0)
+        self.btn_catch.disabled  = (not g.catch_window_open or g.state == "over")
+        self.btn_left.disabled   = (g.arm_center <= ARM_CENTER_MIN or g.state == "over")
+        self.btn_right.disabled  = (g.arm_center >= ARM_CENTER_MAX or g.state == "over")
+        if g.state == "over":
             for item in self.children:
                 item.disabled = True
 
-    @discord.ui.button(label="← Arms Left",  style=discord.ButtonStyle.secondary, emoji="⬅️")
-    async def left_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user == self.game.ctx.author:
-            self.game.handle_action("left")
-            self.update_button_states()
-            await interaction.response.defer()
+    def _ok(self, i: discord.Interaction) -> bool:
+        return i.user == self.game.ctx.author
 
-    @discord.ui.button(label="Arms Right →", style=discord.ButtonStyle.secondary, emoji="➡️")
-    async def right_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user == self.game.ctx.author:
-            self.game.handle_action("right")
-            self.update_button_states()
-            await interaction.response.defer()
+    @discord.ui.button(label="← Arms",    style=discord.ButtonStyle.secondary, emoji="⬅️", row=0)
+    async def btn_left(self, i, b):
+        if self._ok(i): self.game.action_move_arms(-4); self.sync_buttons()
+        await i.response.defer()
 
-    @discord.ui.button(label="🔥 THRUST", style=discord.ButtonStyle.danger, emoji="⬆️")
-    async def thrust_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user == self.game.ctx.author:
-            self.game.handle_action("thrust")
-            self.update_button_states()
-            await interaction.response.defer()
+    @discord.ui.button(label="Arms →",    style=discord.ButtonStyle.secondary, emoji="➡️", row=0)
+    async def btn_right(self, i, b):
+        if self._ok(i): self.game.action_move_arms(+4); self.sync_buttons()
+        await i.response.defer()
 
-    @discord.ui.button(label="CATCH!", style=discord.ButtonStyle.success, emoji="🥢")
-    async def catch_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user == self.game.ctx.author:
-            self.game.handle_action("catch")
-            self.update_button_states()
-            await interaction.response.defer()
+    @discord.ui.button(label="🔥 THRUST", style=discord.ButtonStyle.danger,    emoji="⬆️", row=0)
+    async def btn_thrust(self, i, b):
+        if self._ok(i): self.game.action_thrust(); self.sync_buttons()
+        await i.response.defer()
+
+    @discord.ui.button(label="🥢 CATCH!", style=discord.ButtonStyle.success,               row=0)
+    async def btn_catch(self, i, b):
+        if self._ok(i): self.game.action_catch(); self.sync_buttons()
+        await i.response.defer()
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
 
 
-# ─── GAME ENGINE ───────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+#  GAME ENGINE
+# ══════════════════════════════════════════════════════════════════
 
 class BoosterCatchGame:
-    """
-    Full physics simulation of a Mechzilla-style booster catch.
-    Ported from EnhancedCatchGame in main.py with zero logic changes.
-    """
+
+    ARM_HALF  = ARM_HALF
+    ARM_SPEED = 4
+
+    _BOOSTER_FRAMES = [
+        ("▲","║","▼"), ("△","║","▽"), ("▲","▐","▼"), ("▲","▌","▼"),
+        ("▲","║","▼"), ("△","║","▽"), ("▲","▐","▼"), ("▲","▌","▼"),
+    ]
+    _BOOSTER_THRUST = [
+        ("▲","║","🔥"), ("▲","║","💥"), ("▲","║","⚡"), ("▲","║","🌟"),
+        ("▲","║","🔥"), ("△","║","💥"), ("▲","║","⚡"), ("▲","║","🌟"),
+    ]
+    _BOOSTER_FAST = [
+        ("🔥","🚀","💥"), ("⚡","🚀","🔥"), ("💥","🚀","⚡"), ("🌟","🚀","💥"),
+        ("🔥","🛸","💥"), ("⚡","🛸","🔥"), ("💥","🛸","⚡"), ("🌟","🛸","💥"),
+    ]
+    _BOOSTER_CATCH = [
+        ("▲","🎯","▼"), ("△","📍","▽"), ("▲","🎯","▼"), ("△","📍","▽"),
+        ("▲","🎯","▼"), ("▲","🎯","▼"), ("△","📍","▽"), ("▲","🎯","▼"),
+    ]
 
     def __init__(self, ctx):
-        self.ctx  = ctx
-        self.view = None
+        self.ctx = ctx
 
-        self.state = {
-            "booster_x":               6.0,    # 0–24 range
-            "booster_y":               0.0,    # 0 = top, 12 = ground
-            "booster_vel_x":           random.uniform(-0.5, 0.5),
-            "booster_vel_y":           0.05,
-            "arm_left":                8,
-            "arm_right":               16,
-            "fuel":                    100,
-            "wind":                    random.uniform(-0.2, 0.2),
-            "phase":                   "falling",
-            "catch_ready":             False,
-            "game_over":               False,
-            "success":                 False,
-            "score":                   0,
-            "engine_light":            False,
-            "auto_engine_active":      False,
-            "landing_burn_active":     False,
-            "landing_burn_initiated":  False,
-            "optimal_burn_altitude":   None,
-            "thrust_particles":        [],
-            "animation_frame":         0,
-            "altitude_warnings":       0,
-            "atmospheric_effects":     [],
-            "debris_particles":        [],
-            "tower_lights":            0,
-            "sonic_boom_frame":        -1,
+        # Kinematics — spawn in safe middle zone, not near walls
+        self.pos_x: float = random.uniform(WALL_L + 4.0, WALL_R - 4.0)
+        self.pos_y: float = 0.0
+        self.vel_x: float = random.uniform(-0.5, 0.5)
+        self.vel_y: float = 0.2
+
+        # Fuel & mass
+        self.fuel_kg: float = float(FULL_FUEL_KG)
+
+        # Wind — OU process, starts near zero
+        self.wind_accel: float      = random.uniform(-0.1, 0.1)
+        self._wind_suppress: float  = 0.0   # countdown timer suppressing wind after wall hit
+
+        # Arms — start centered
+        self.arm_center: float = float(GRID_W // 2)
+        self._last_arm_center  = self.arm_center
+
+        # Engine
+        self.thrust_timer: float = 0.0
+        self.engine_on:    bool  = False
+        self.manual_burns: int   = 0
+
+        # Animation
+        self.anim_frame:    int  = 0
+        self._star_field         = _make_star_field(random.randint(0, 99999))
+        rng = random.Random(random.randint(0, 9999))
+        self._twinkle_cells = [
+            (rng.randint(0, GRID_H - 5), rng.randint(1, GRID_W - 2))
+            for _ in range(8)
+        ]
+        self._sonic_boom_frame: int = -999
+        self._last_vel_y: float     = 0.0
+
+        # Wind direction indicator for visual animation
+        self._wind_arrow_frame: int = 0
+
+        # Game state
+        self.state:             str  = "falling"
+        self.catch_window_open: bool = False
+        self.catch_result:      str  = ""
+        self.success:           bool = False
+        self.score:             int  = 0
+        self.altitude_warned:   int  = 0
+        self._advisory_shown:   bool = False
+        self._catch_vel_y:      float = 0.0   # velocity at moment of catch (for score display)
+
+        self.timeline: list = ["🚀 **Booster 16 separation confirmed**"]
+
+    # ── Properties ─────────────────────────────────────────────────
+
+    @property
+    def mass(self) -> float:
+        return DRY_MASS + max(0.0, self.fuel_kg)
+
+    @property
+    def altitude(self) -> float:
+        return max(0.0, CRASH_Y - self.pos_y)
+
+    @property
+    def fuel_pct(self) -> int:
+        return int(100 * max(0.0, self.fuel_kg) / FULL_FUEL_KG)
+
+    @property
+    def arm_left(self) -> float:
+        return self.arm_center - self.ARM_HALF
+
+    @property
+    def arm_right(self) -> float:
+        return self.arm_center + self.ARM_HALF
+
+    # ── PHYSICS ────────────────────────────────────────────────────
+
+    def update_physics(self, dt: float):
+        if self.state == "over":
+            return
+
+        self.anim_frame += 1
+        self._last_vel_y = self.vel_y
+        self._wind_arrow_frame += 1
+
+        # ── 1. Wind — Ornstein-Uhlenbeck mean reversion ──────────────
+        # dW = -theta * W * dt + sigma * sqrt(dt) * N(0,1)
+        # This guarantees wind oscillates and can't stay at extremes.
+        # After a wall hit, wind is suppressed to 0 for WIND_SUPPRESS_DURATION.
+        if self._wind_suppress > 0:
+            self._wind_suppress -= dt
+            self.wind_accel *= max(0.0, 1.0 - dt * 4)   # rapidly damp during suppression
+        else:
+            dW = (-WIND_OU_THETA * self.wind_accel * dt
+                  + WIND_OU_SIGMA * math.sqrt(dt) * random.gauss(0, 1))
+            self.wind_accel += dW
+        self.wind_accel = max(-WIND_BASE_ACCEL, min(WIND_BASE_ACCEL, self.wind_accel))
+
+        # ── 2. Engine ────────────────────────────────────────────────
+        if self.thrust_timer > 0 and self.fuel_kg > 0:
+            self.engine_on    = True
+            burn_dt           = min(dt, self.thrust_timer)
+            self.thrust_timer = max(0.0, self.thrust_timer - burn_dt)
+            self.fuel_kg      = max(0.0, self.fuel_kg - FUEL_FLOW * burn_dt)
+            if self.fuel_kg == 0.0:
+                self.thrust_timer = 0.0
+                self.timeline.append("⛽ **FUEL DEPLETED — Engine cut**")
+        else:
+            self.engine_on    = False
+            self.thrust_timer = max(0.0, self.thrust_timer)
+
+        # ── 3. Forces → accelerations ────────────────────────────────
+        m = self.mass
+        acc_y = (
+            GRAVITY
+            - DRAG_COEFF * self.vel_y * abs(self.vel_y) / m
+            + (-ENGINE_THRUST / m if self.engine_on else 0.0)
+        )
+        acc_x = (
+            -DRAG_COEFF * self.vel_x * abs(self.vel_x) / m
+            + self.wind_accel
+        )
+
+        # ── 4. Semi-implicit Euler ────────────────────────────────────
+        self.vel_y += acc_y * dt
+        self.vel_x += acc_x * dt
+        self.vel_x  = max(-6.0, min(6.0, self.vel_x))
+        self.pos_y += self.vel_y * dt
+        self.pos_x += self.vel_x * dt
+
+        # Sonic boom trigger
+        if self._last_vel_y < 3.0 <= self.vel_y:
+            self._sonic_boom_frame = self.anim_frame
+
+        # ── 5. Wall boundaries — FIX 1 ───────────────────────────────
+        # OLD: vel_x = abs(vel_x) * 0.2  — so weak wind immediately re-pushes to wall
+        # NEW: elastic bounce (vel_x *= -0.65) + reverse wind + suppress wind briefly
+        if self.pos_x < WALL_L:
+            self.pos_x = float(WALL_L)
+            bounce_speed = abs(self.vel_x)
+            self.vel_x   = bounce_speed * 0.65   # elastic: push right with 65% energy
+
+            # Log with severity
+            if bounce_speed > 1.5:
+                self.timeline.append(f"💥 **WALL SLAM (left) — {bounce_speed:.1f} wu/s**")
+            elif bounce_speed > 0.5:
+                self.timeline.append("⚡ **Left wall deflection**")
+            else:
+                self.timeline.append("· Grazed left boundary")
+
+            # Reverse and suppress wind so it can't immediately push back
+            self.wind_accel     = abs(self.wind_accel) * 0.4   # flip to rightward
+            self._wind_suppress = WIND_SUPPRESS_DURATION
+
+        elif self.pos_x > WALL_R:
+            self.pos_x = float(WALL_R)
+            bounce_speed = abs(self.vel_x)
+            self.vel_x   = -bounce_speed * 0.65   # elastic: push left
+
+            if bounce_speed > 1.5:
+                self.timeline.append(f"💥 **WALL SLAM (right) — {bounce_speed:.1f} wu/s**")
+            elif bounce_speed > 0.5:
+                self.timeline.append("⚡ **Right wall deflection**")
+            else:
+                self.timeline.append("· Grazed right boundary")
+
+            self.wind_accel     = -abs(self.wind_accel) * 0.4   # flip to leftward
+            self._wind_suppress = WIND_SUPPRESS_DURATION
+
+        # ── 6. Altitude warnings ─────────────────────────────────────
+        alt = self.altitude
+        if alt <= 12.0 and not (self.altitude_warned & 1):
+            self.timeline.append("⚠️ **ALTITUDE 12 km — Begin approach checks**")
+            self.altitude_warned |= 1
+        if alt <= 6.0 and not (self.altitude_warned & 2):
+            self.timeline.append("🚨 **ALTITUDE 6 km — CRITICAL**")
+            self.altitude_warned |= 2
+        if alt <= 3.0 and not (self.altitude_warned & 4):
+            self.timeline.append("🔴 **FINAL APPROACH — CATCH NOW**")
+            self.altitude_warned |= 4
+
+        # ── 7. Landing burn advisory ─────────────────────────────────
+        if not self._advisory_shown and self.fuel_kg > 0 and alt < 10.0:
+            pred = math.sqrt(max(0.0, self.vel_y**2 + 2 * GRAVITY * max(0.0, alt - 1.0)))
+            if pred > ADVISORY_VY:
+                self.timeline.append(
+                    f"🔥 **BURN ADVISORY — Predicted impact {pred:.1f} wu/s — fire engines!**")
+                self._advisory_shown = True
+
+        # ── 8. Catch zone ────────────────────────────────────────────
+        if self.pos_y >= CATCH_ZONE_Y and not self.catch_window_open:
+            self.catch_window_open = True
+            self.state             = "catch_zone"
+            self.timeline.append("🎯 **CATCH ZONE ACTIVE — Window open!**")
+
+        # ── 9. Crash ─────────────────────────────────────────────────
+        if self.pos_y >= CRASH_Y:
+            self.state = "over"; self.success = False
+            spd = self.vel_y
+            self.timeline.append(
+                "💥 **CATASTROPHIC IMPACT — Total loss**" if spd > 3.5 else
+                "💥 **Hard impact — Severe damage**"      if spd > 2.0 else
+                "💥 **Rough contact — Booster buckled**"
+            )
+
+    # ── PLAYER ACTIONS ─────────────────────────────────────────────
+
+    def action_move_arms(self, direction: int):
+        nc = max(ARM_CENTER_MIN, min(ARM_CENTER_MAX, self.arm_center + direction))
+        self.arm_center = float(nc)
+        self.timeline.append(
+            f"{'⬅️' if direction < 0 else '➡️'} **Arms → col {int(self.arm_center)}**")
+
+    def action_thrust(self):
+        if self.fuel_kg <= 0 or self.thrust_timer > 0:
+            return
+        self.thrust_timer = THRUST_PULSE_DURATION
+        self.manual_burns += 1
+        low = " ⚠️ Low fuel!" if self.fuel_pct < 20 else ""
+        self.timeline.append(f"🔥 **Burn #{self.manual_burns} ignited**{low}")
+
+    def action_catch(self):
+        if not self.catch_window_open or self.state == "over":
+            return
+        il  = self.arm_left  + ARM_INNER_MARGIN
+        ir  = self.arm_right - ARM_INNER_MARGIN
+        ok  = il <= self.pos_x <= ir
+        # FIX: near-miss now shows how many cols off the booster is
+        dist_from_center = abs(self.pos_x - self.arm_center)
+        near = dist_from_center < (self.ARM_HALF + 2.5)
+
+        if not ok:
+            cols_off = max(0.0, dist_from_center - self.ARM_HALF)
+            if near:
+                self.catch_result = "near_miss"
+                self.timeline.append(
+                    f"⚠️ **Near miss — {cols_off:.1f} cols off center — adjust and retry!**")
+            else:
+                self.catch_result = "miss"
+                self.timeline.append(
+                    f"❌ **Missed — booster {cols_off:.1f} cols outside arms**")
+            return
+
+        vy = abs(self.vel_y); vx = abs(self.vel_x)
+        self._catch_vel_y = self.vel_y   # store for score screen
+
+        if   vy < PERFECT_VY and vx < PERFECT_VX: self.catch_result, self.score = "perfect", 250
+        elif vy < GOOD_VY    and vx < GOOD_VX:    self.catch_result, self.score = "good",    170
+        elif vy < ROUGH_VY:                        self.catch_result, self.score = "rough",   90
+        else:                                      self.catch_result, self.score = "buckle",  30
+
+        msgs = {
+            "perfect": f"🌟 **PERFECT CATCH — {vy:.2f} wu/s — Textbook execution!**",
+            "good":    f"✅ **Clean catch — {vy:.2f} wu/s — Well done!**",
+            "rough":   f"✅ **Rough catch — {vy:.2f} wu/s — Arms held!**",
+            "buckle":  f"⚠️ **Arms buckled — {vy:.2f} wu/s — Barely held on!**",
         }
+        self.timeline.append(msgs[self.catch_result])
+        self.success = True
+        self.state   = "over"
 
-        self.timeline    = ["🚀 **Mechzilla Mission Initiated**"]
-        self._last_arm_pos = (self.state["arm_left"], self.state["arm_right"])
+    # ══════════════════════════════════════════════════════════════
+    #  RENDERING
+    # ══════════════════════════════════════════════════════════════
 
-    # ── VISUAL HELPERS ──────────────────────────────────────────────
+    def _get_booster_sprite(self) -> tuple:
+        f = self.anim_frame % 8
+        if self.engine_on:        return self._BOOSTER_THRUST[f]
+        if self.state == "catch_zone": return self._BOOSTER_CATCH[f]
+        if self.vel_y > 3.0:     return self._BOOSTER_FAST[f]
+        return self._BOOSTER_FRAMES[f]
 
-    def _atmospheric_effects(self):
-        effects = []
-        bx = int(self.state["booster_x"])
-        by = int(self.state["booster_y"])
-        frame = self.state["animation_frame"]
+    def _exhaust_particles(self) -> list:
+        if not self.engine_on: return []
+        # FIX: clamp bx to safe range so particles don't appear outside grid
+        bx = max(WALL_L, min(WALL_R, int(self.pos_x)))
+        by = int(self.pos_y)
+        f  = self.anim_frame % 8
+        pulse = 1.4 if f < 4 else 1.0
+        parts = []
+        plume_len = int(10 * pulse)
+        for i in range(1, plume_len + 1):
+            row = by + 2 + i
+            if 0 <= row < GRID_H:
+                d    = i / plume_len
+                char = ("🔥" if d < 0.20 else "💥" if d < 0.38 else
+                        "⚡" if d < 0.52 else "💨" if d < 0.70 else
+                        "·"  if d < 0.85 else "˙")
+                parts.append((row, bx, char))
+        for side in (-1, 1):
+            cx = bx + side
+            if WALL_L <= cx <= WALL_R:
+                for i in range(1, 5):
+                    row = by + 2 + i
+                    if 0 <= row < GRID_H:
+                        parts.append((row, cx, "💨" if i == 1 else "·" if i == 2 else "˙"))
+        if f < 4:
+            for ring in range(2, 10, 3):
+                row = by + 2 + ring
+                if 0 <= row < GRID_H:
+                    parts.append((row, bx, "◊"))
+        for spread in range(-2, 3):
+            cx = bx + spread
+            if WALL_L <= cx <= WALL_R:
+                row = by + 3
+                if 0 <= row < GRID_H:
+                    parts.append((row, cx, "🔥" if spread == 0 else "💨"))
+        return parts
 
-        if self.state["booster_vel_y"] > 0.8 and by < 8:
-            self.state["sonic_boom_frame"] = frame
-
-        if (frame - self.state["sonic_boom_frame"]) < 3:
-            boom_r = frame - self.state["sonic_boom_frame"] + 1
-            for offset in range(-boom_r, boom_r + 1):
-                if 0 <= bx + offset < 25 and by - 1 >= 0:
-                    effects.append((by - 1, bx + offset, "○"))
-
-        if by < 4 and self.state["booster_vel_y"] > 0.5:
-            if random.random() < 0.6:
-                for i in range(-2, 3):
-                    if 0 <= bx + i < 25 and by + 1 < 12:
-                        effects.append((by + 1, bx + i, random.choice(["·", "°", "∘"])))
-
-        if by < 6 and self.state["booster_vel_y"] > 0.6:
-            trail_len = min(4, int(self.state["booster_vel_y"] * 3))
-            for i in range(1, trail_len):
-                if by - i >= 0 and 0 <= bx < 25:
-                    intensity = trail_len - i
-                    effects.append((by - i, bx, ["˙", "·", "▪"][min(intensity - 1, 2)]))
-
+    def _entry_heating(self) -> list:
+        if self.vel_y < 2.0: return []
+        bx = max(WALL_L, min(WALL_R, int(self.pos_x)))
+        by = int(self.pos_y)
+        trail = min(6, int(self.vel_y * 1.2))
+        chars = ["˙","·","∘","°","▪","▪"]
+        effects = [(by - i, bx, chars[min(i-1,5)])
+                   for i in range(1, trail+1) if 0 <= by-i < GRID_H]
+        if self.vel_y > 3.5:
+            effects += [(by, bx+s, random.choice(["·","°","∘","~"]))
+                        for s in (-1,1) if WALL_L <= bx+s <= WALL_R and 0 <= by < GRID_H]
         return effects
 
-    def _booster_sprite(self):
-        frame    = self.state["animation_frame"] % 8
-        velocity = self.state["booster_vel_y"]
+    def _sonic_boom(self) -> list:
+        age = self.anim_frame - self._sonic_boom_frame
+        if age < 0 or age > 5: return []
+        bx = max(WALL_L, min(WALL_R, int(self.pos_x)))
+        by = int(self.pos_y); r = age + 1
+        return [(by, bx+dx, "○") for dx in range(-r, r+1)
+                if WALL_L <= bx+dx <= WALL_R and 0 <= by < GRID_H]
 
-        if self.state["landing_burn_active"]:
-            return ["🔥", "💥", "⚡", "🌟", "🔥", "💥", "⚡", "🌟"][frame]
-        elif self.state["engine_light"] or self.state["auto_engine_active"]:
-            return ["🚀", "🔥", "💨", "⚡", "🛸", "💥", "🌟", "✨"][frame]
-        elif self.state["phase"] == "catch_zone":
-            return "🚀" if frame < 4 else "📍"
-        elif velocity > 0.8:
-            return ["🚀", "🛸", "🌟", "💫", "🔥", "⚡", "✨", "💥"][frame]
-        else:
-            return ["🚀", "🛸", "🚁", "🛰️", "🚀", "🛸", "🚁", "🛰️"][frame]
+    def _twinkle_stars(self) -> list:
+        f  = self.anim_frame % 6
+        on = self._twinkle_cells[:(len(self._twinkle_cells)//2 + f%2)]
+        return [(r,c,"✦") for r,c in on if 0 <= r < GRID_H and 0 <= c < GRID_W]
 
-    def _particles(self):
-        if not (self.state["engine_light"] or self.state["auto_engine_active"]
-                or self.state["landing_burn_active"]):
-            return []
+    def make_field(self) -> str:
+        exhaust = self._exhaust_particles()
+        heating = self._entry_heating()
+        boom    = self._sonic_boom()
+        twinkle = self._twinkle_stars()
+        frame   = self.anim_frame % 16
+        f8      = self.anim_frame % 8
 
-        particles = []
-        bx    = int(self.state["booster_x"])
-        by    = int(self.state["booster_y"])
-        frame = self.state["animation_frame"] % 8
+        nose_s, body_s, eng_s = self._get_booster_sprite()
+        # FIX: booster col clamped to [WALL_L, WALL_R] — always visible, never off-screen
+        brow = max(0, min(GRID_H - 3, int(self.pos_y)))
+        bcol = max(WALL_L, min(WALL_R, int(self.pos_x)))
 
-        if self.state["landing_burn_active"]:
-            mult = 1.5 if frame < 4 else 1.0
-            for i in range(1, int(6 * mult)):
-                if by + i < 12 and 0 <= bx < 25:
-                    d = i / (6 * mult)
-                    particles.append((by + i, bx,
-                                      "🔥" if d < 0.3 else "💥" if d < 0.5 else "💨" if d < 0.7 else "·"))
-            for side in [-1, 1]:
-                if 0 <= bx + side < 25:
-                    for i in range(1, 4):
-                        if by + i < 12:
-                            particles.append((by + i, bx + side, "💨" if i == 1 else "·"))
-            if frame < 3:
-                for i in range(2, 6, 2):
-                    if by + i < 12 and 0 <= bx < 25:
-                        particles.append((by + i, bx, "◊"))
-        else:
-            thrust_len = 4 if self.state["engine_light"] else 3
-            for i in range(1, thrust_len + 1):
-                if by + i < 12 and 0 <= bx < 25:
-                    particles.append((by + i, bx, ["🔥", "💨", "·", "˙"][min(i - 1, 3)]))
-            if frame % 2 == 0:
-                for side in [-1, 1]:
-                    if 0 <= bx + side < 25 and by + 1 < 12:
-                        particles.append((by + 1, bx + side, "°"))
+        t_light = ("●" if frame < 8  else "○") if self.catch_window_open else \
+                  ("●" if frame < 13 else "○") if self.pos_y > GRID_H*0.6 else "●"
 
-        return particles
+        total_rows = GRID_H
+        def alt_label(row: int) -> str:
+            frac = 1.0 - row / total_rows
+            km   = frac * CRASH_Y
+            if abs(km - 15) < 1.0: return "15"
+            if abs(km - 10) < 1.0: return "10"
+            if abs(km -  6) < 1.0: return " 6"
+            if abs(km -  3) < 1.0: return " 3"
+            return "  "
 
-    def _tower_light(self):
-        frame = self.state["animation_frame"] % 16
-        if self.state["catch_ready"]:
-            return "●" if frame < 8 else "○"
-        elif self.state["booster_y"] > 6:
-            return "●" if frame < 12 else "○"
-        return "●"
+        lines = []
+        particle_map: dict = {}
+        for pr, pc, pch in exhaust + heating + boom:
+            particle_map.setdefault(pr, []).append((pc, pch))
+        twinkle_set = {(tr,tc): ch for tr,tc,ch in twinkle}
 
-    def make_field(self):
-        """Build the ASCII game grid."""
-        lines       = []
-        particles   = self._particles()
-        atmospheric = self._atmospheric_effects()
-        tower_light = self._tower_light()
-        frame       = self.state["animation_frame"] % 8
+        for row in range(GRID_H):
+            line = list(self._star_field[row])
 
-        for row in range(12):
-            line = [" "] * 25
+            for col in range(GRID_W):
+                if (row,col) in twinkle_set:
+                    line[col] = twinkle_set[(row,col)]
 
-            # Twinkling stars in upper sky
-            if row < 4 and random.random() < 0.03:
-                line[random.randint(0, 24)] = random.choice(["·", "✦", "○", "◦", "∘", "°", "˙"])
+            # Wind indicator — animated arrow that pulses in direction
+            if row == 2:
+                ws = abs(self.wind_accel)
+                af = self._wind_arrow_frame % 8
+                if ws > WIND_BASE_ACCEL * 0.55:
+                    # Strong: alternate arrow and emoji
+                    line[GRID_W-2] = ("🌪️" if self.wind_accel > 0 else "💨") if af < 4 else \
+                                     ("→"  if self.wind_accel > 0 else "←")
+                elif ws > WIND_BASE_ACCEL * 0.20:
+                    line[GRID_W-2] = "~" if self.wind_accel > 0 else "≈"
 
-            # Wind indicator row
-            if row == 1:
-                ws = abs(self.state["wind"])
-                if ws > 0.15:
-                    line[23] = "🌪️" if self.state["wind"] > 0 else "💨"
-                elif ws > 0.05:
-                    line[23] = "~" if self.state["wind"] > 0 else "≈"
+            # Catch zone gradient on right edge
+            if row >= GRID_H - 3:
+                line[GRID_W-1] = "░" if row == GRID_H-3 else "▒" if row == GRID_H-2 else "█"
 
-            # Atmospheric heating shimmer
-            if row < 6:
-                heat = (6 - row) * 0.1
-                if random.random() < heat * 0.05:
-                    line[random.randint(5, 19)] = random.choice(["°", "·", "˙"])
+            # Booster (3 rows)
+            if row == brow:     line[bcol] = nose_s
+            elif row == brow+1: line[bcol] = body_s
+            elif row == brow+2: line[bcol] = eng_s
 
-            # Draw booster
-            brow = int(self.state["booster_y"])
-            bcol = max(0, min(24, int(self.state["booster_x"])))
-            if row == brow:
-                line[bcol] = self._booster_sprite()
+            # Particles
+            if row in particle_map:
+                for pc, pch in particle_map[row]:
+                    if WALL_L <= pc <= WALL_R and line[pc] in ("", " "):
+                        line[pc] = pch
 
-            # Particles & atmospheric effects
-            for p_row, p_col, p_char in particles + atmospheric:
-                if p_row == row and 0 <= p_col < 25 and line[p_col] == " ":
-                    line[p_col] = p_char
-
-            # Altitude ruler markers
-            if row in [2, 5, 8]:
-                line[0]  = "┤" if row == 2 else "├" if row == 8 else "│"
-                line[24] = "┤" if row == 2 else "├" if row == 8 else "│"
-
-            # Trajectory prediction arrow when in catch zone
-            if self.state["catch_ready"] and row == brow + 1:
-                pred_x = int(self.state["booster_x"] + self.state["booster_vel_x"] * 2)
-                if 0 <= pred_x < 25 and line[pred_x] == " ":
+            # Trajectory prediction arrow
+            if self.catch_window_open and row == brow + 3:
+                pred_x = int(self.pos_x + self.vel_x * 0.5)
+                pred_x = max(WALL_L, min(WALL_R, pred_x))
+                if line[pred_x] in ("", " "):
                     line[pred_x] = "↓"
 
-            lines.append("".join(line))
+            row_str = "".join(c if c else " " for c in line)
+            lines.append(alt_label(row) + "│" + row_str)
 
         # ── Tower row ──
-        tower      = ["═"] * 25
-        base_chars = ["█", "▓", "▒", "░", "▒", "▓"]
+        tower = ["═"] * GRID_W
+        al = max(0, int(self.arm_left))
+        ar = min(GRID_W-1, int(self.arm_right))
 
-        left_pos = max(0, int(self.state["arm_left"]))
-        for i in range(left_pos, min(left_pos + 3, 25)):
-            tower[i] = "╫" if self.state["catch_ready"] else "╪" if i == left_pos else "═" if i == left_pos + 1 else "─"
+        # Left arm gripper
+        for i in range(al, min(al+4, GRID_W)):
+            tower[i] = ("╠" if self.catch_window_open else "╞") if i==al else \
+                       ("═" if i==al+1 else "╪" if i==al+2 else "┤")
 
-        right_pos = min(24, int(self.state["arm_right"]))
-        for i in range(max(0, right_pos - 2), right_pos + 1):
-            tower[i] = "╫" if self.state["catch_ready"] else "╪" if i == right_pos else "═" if i == right_pos - 1 else "─"
+        # Right arm gripper
+        for i in range(max(0, ar-3), ar+1):
+            tower[i] = ("╣" if self.catch_window_open else "╡") if i==ar else \
+                       ("═" if i==ar-1 else "╪" if i==ar-2 else "├")
 
-        tower[0]  = "║";  tower[1]  = tower_light
-        tower[24] = "║";  tower[23] = tower_light
+        # Animated dashed catch gap
+        il = al+4; ir2 = ar-3
+        if il < ir2 and self.catch_window_open:
+            for i in range(il, ir2+1):
+                if tower[i] == "═":
+                    tower[i] = "╌" if (i + f8) % 3 != 0 else "·"
 
-        if self.state["catch_ready"]:
-            center = (self.state["arm_left"] + self.state["arm_right"]) // 2
-            if 3 <= center <= 21:
-                tower[center] = "🎯" if frame < 4 else "⭕"
+        tower[0] = "║"; tower[1] = t_light
+        tower[GRID_W-1] = "║"; tower[GRID_W-2] = t_light
 
-        # Energy field when arms just moved
-        if self._last_arm_pos != (self.state["arm_left"], self.state["arm_right"]):
-            for i in range(max(0, left_pos - 1), min(25, right_pos + 2)):
-                if tower[i] == "═" and random.random() < 0.3:
-                    tower[i] = "⚡" if frame < 2 else "═"
-        self._last_arm_pos = (self.state["arm_left"], self.state["arm_right"])
+        gc = int(self.arm_center)
+        if self.catch_window_open and 4 <= gc <= GRID_W-5:
+            tower[gc] = "🎯" if f8 < 4 else "⭕"
 
-        lines.append("".join(tower))
+        # Energy pulse on arm move
+        if abs(self.arm_center - self._last_arm_center) > 0.1:
+            for i in range(max(0,al-1), min(GRID_W,ar+2)):
+                if tower[i] == "═" and random.random() < 0.35:
+                    tower[i] = "⚡" if f8 < 2 else "═"
+        self._last_arm_center = self.arm_center
+        lines.append("  │" + "".join(tower))
 
         # ── Ground row ──
-        ground = ["█"] * 25
-        if self.state["game_over"] and not self.state["success"]:
-            ix = int(self.state["booster_x"])
-            for i in range(max(0, ix - 2), min(25, ix + 3)):
-                d = abs(i - ix)
-                ground[i] = "💥" if d == 0 else "▓" if d == 1 else "▒"
-        lines.append("".join(ground))
+        ground = ["▓"] * GRID_W
+        if self.state == "over" and not self.success:
+            ix = max(WALL_L, min(WALL_R, int(self.pos_x)))
+            for i in range(max(0,ix-3), min(GRID_W,ix+4)):
+                d = abs(i-ix)
+                ground[i] = "💥" if d==0 else "▒" if d==1 else "░" if d<=3 else "▓"
+        lines.append("  │" + "".join(ground))
 
         return "\n".join(lines)
 
-    # ── PHYSICS ─────────────────────────────────────────────────────
-
-    def _calc_burn_altitude(self):
-        vel = self.state["booster_vel_y"]
-        if vel <= 0:
-            return None
-        reduction = vel - 0.4
-        burn_time = reduction / 0.25
-        dist      = vel * burn_time + 0.5 * (0.025 - 0.25) * burn_time ** 2
-        return max(1.5, (12 - self.state["booster_y"]) - dist)
-
-    def _landing_burn(self):
-        altitude = 12 - self.state["booster_y"]
-
-        if self.state["optimal_burn_altitude"] is None:
-            self.state["optimal_burn_altitude"] = self._calc_burn_altitude()
-
-        if (not self.state["landing_burn_initiated"]
-                and self.state["optimal_burn_altitude"]
-                and altitude <= self.state["optimal_burn_altitude"]
-                and self.state["fuel"] > 10):
-            self.state["landing_burn_initiated"] = True
-            self.timeline.append("🔥 **LANDING BURN SEQUENCE INITIATED**")
-
-        if (self.state["landing_burn_initiated"]
-                and not self.state["landing_burn_active"]
-                and self.state["fuel"] > 5
-                and self.state["booster_vel_y"] > 0.4):
-            self.state["landing_burn_active"]   = True
-            self.state["booster_vel_y"]         -= 0.3
-            self.state["fuel"]                  -= 12
-            if altitude <= 2.0:
-                self.timeline.append("🌟 **FINAL LANDING BURN - MAXIMUM THRUST**")
-            elif altitude <= 3.5:
-                self.timeline.append("⚡ **LANDING BURN - TRAJECTORY CORRECTION**")
-
-        elif (self.state["landing_burn_active"]
-              and self.state["fuel"] > 0
-              and self.state["booster_vel_y"] > 0.35):
-            err = self.state["booster_vel_y"] - 0.4
-            if err > 0.1:
-                adj = min(0.2, err * 0.8)
-                self.state["booster_vel_y"] -= adj
-                self.state["fuel"]          -= int(adj * 40)
-
-        elif (self.state["landing_burn_active"]
-              and (self.state["booster_vel_y"] <= 0.35 or self.state["fuel"] <= 5)):
-            self.state["landing_burn_active"] = False
-            if self.state["booster_vel_y"] <= 0.35:
-                self.timeline.append("✅ **Landing burn complete - Optimal velocity achieved**")
-            else:
-                self.timeline.append("⚠️ **Landing burn terminated - Low fuel**")
-
-    def _auto_engine(self):
-        if (self.state["booster_vel_y"] > 1.2
-                and self.state["fuel"] > 15
-                and not self.state["landing_burn_initiated"]):
-            self.state["auto_engine_active"] = True
-            self.state["booster_vel_y"]      -= 0.15
-            self.state["fuel"]               -= 8
-        else:
-            self.state["auto_engine_active"] = False
-
-    def update_game(self):
-        """One physics tick."""
-        self.state["animation_frame"] += 1
-
-        # Wind gusts + decay
-        if random.random() < 0.15:
-            self.state["wind"] += random.uniform(-0.03, 0.03)
-            self.state["wind"]  = max(-0.25, min(0.25, self.state["wind"]))
-        self.state["wind"] *= 0.98
-
-        # Wind drift (altitude-scaled)
-        alt_factor = max(0.5, (12 - self.state["booster_y"]) / 12)
-        self.state["booster_vel_x"] += self.state["wind"] * alt_factor * 0.06
-
-        # Gravity with atmospheric drag
-        drag    = 1.0 - self.state["booster_vel_y"] * 0.01
-        self.state["booster_vel_y"] += 0.025 * drag
-
-        # Burn systems
-        self._landing_burn()
-        if not self.state["landing_burn_active"] and not self.state["landing_burn_initiated"]:
-            self._auto_engine()
-
-        # Clear manual engine flag
-        if self.state["engine_light"]:
-            self.state["engine_light"] = False
-
-        # Move booster
-        self.state["booster_x"] += self.state["booster_vel_x"]
-        self.state["booster_y"] += self.state["booster_vel_y"]
-
-        # Wall bounces
-        if self.state["booster_x"] <= 0:
-            self.state["booster_x"]     = 0
-            self.state["booster_vel_x"] = abs(self.state["booster_vel_x"]) * 0.3
-            self.timeline.append("💥 **Left wall collision!**")
-        elif self.state["booster_x"] >= 24:
-            self.state["booster_x"]     = 24
-            self.state["booster_vel_x"] = -abs(self.state["booster_vel_x"]) * 0.3
-            self.timeline.append("💥 **Right wall collision!**")
-
-        # Altitude warnings
-        altitude = 12 - self.state["booster_y"]
-        warn     = self.state["altitude_warnings"]
-        if altitude <= 5 and warn == 0:
-            self.timeline.append("⚠️ **ALTITUDE WARNING - 5km remaining**")
-            self.state["altitude_warnings"] = 1
-        elif altitude <= 3 and warn == 1:
-            self.timeline.append("🚨 **CRITICAL ALTITUDE - 3km remaining**")
-            self.state["altitude_warnings"] = 2
-        elif altitude <= 1.5 and warn == 2:
-            self.timeline.append("🔴 **FINAL APPROACH - CATCH IMMEDIATELY!**")
-            self.state["altitude_warnings"] = 3
-
-        # Catch zone activation
-        if self.state["booster_y"] >= 9.5 and not self.state["catch_ready"]:
-            self.state["catch_ready"] = True
-            self.state["phase"]       = "catch_zone"
-            self.timeline.append("🎯 **CATCH ZONE ACTIVE - WINDOW OPEN!**")
-
-        # Crash detection
-        if self.state["booster_y"] >= 11.5:
-            self.state["game_over"] = True
-            spd = self.state["booster_vel_y"]
-            self.timeline.append(
-                "💥 **CATASTROPHIC IMPACT - Total loss!**"   if spd > 1.5 else
-                "💥 **Hard impact - Major damage sustained**" if spd > 1.0 else
-                "💥 **Rough landing - Minor damage**"
-            )
-
-    # ── ACTION HANDLER ──────────────────────────────────────────────
-
-    def check_catch(self):
-        bx, by = self.state["booster_x"], self.state["booster_y"]
-        left   = self.state["arm_left"]  + 1
-        right  = self.state["arm_right"] - 1
-
-        pos_ok  = left <= bx <= right
-        alt_ok  = 10.5 <= by <= 11.2
-        vel_ok  = abs(self.state["booster_vel_y"]) < 0.7
-        lat_ok  = abs(self.state["booster_vel_x"]) < 0.5
-
-        if pos_ok and alt_ok and abs(self.state["booster_vel_y"]) < 0.5 and lat_ok:
-            return "perfect"
-        elif pos_ok and alt_ok and vel_ok:
-            return "good"
-        elif pos_ok and alt_ok:
-            return "rough"
-        elif abs(bx - (left + right) / 2) < 3 and alt_ok:
-            return "near_miss"
-        return "miss"
-
-    def handle_action(self, action: str) -> bool:
-        if self.state["game_over"]:
-            return False
-
-        if action == "left" and self.state["arm_left"] > 2:
-            self.state["arm_left"]  -= 2
-            self.state["arm_right"] -= 2
-            self.timeline.append("⬅️ **Arms repositioned LEFT**")
-            return True
-
-        if action == "right" and self.state["arm_right"] < 22:
-            self.state["arm_left"]  += 2
-            self.state["arm_right"] += 2
-            self.timeline.append("➡️ **Arms repositioned RIGHT**")
-            return True
-
-        if action == "thrust" and self.state["fuel"] > 0:
-            power = min(20, self.state["fuel"])
-            self.state["booster_vel_y"] -= 0.25 * (power / 20)
-            self.state["fuel"]          -= power
-            self.state["engine_light"]   = True
-            self.timeline.append("🔥 **Full thrust burn!**" if power >= 15 else "💨 **Low power thrust**")
-            return True
-
-        if action == "catch" and self.state["catch_ready"]:
-            result = self.check_catch()
-            scores_map = {"perfect": 200, "good": 150, "rough": 100}
-            msgs_map   = {
-                "perfect":   "🌟 **PERFECT CATCH! FLAWLESS EXECUTION!**",
-                "good":      "✅ **Excellent catch! Well executed!**",
-                "rough":     "✅ **Rough but successful catch!**",
-                "near_miss": "⚠️ **Near miss! Adjust and try again!**",
-                "miss":      "❌ **Catch attempt failed - Booster missed!**",
-            }
-            self.timeline.append(msgs_map[result])
-            if result in scores_map:
-                self.state["success"]   = True
-                self.state["game_over"] = True
-                self.state["score"]     = scores_map[result]
-            return True
-
-        return False
-
-    # ── EMBED ───────────────────────────────────────────────────────
+    # ── EMBED ──────────────────────────────────────────────────────
 
     def make_embed(self, status: str = "") -> discord.Embed:
-        field = f"```ansi\n{self.make_field()}\n```"
+        fp   = self.fuel_pct
+        fblk = int(fp/100*16)
+        dot  = "🟢" if fp>60 else "🟡" if fp>35 else "🟠" if fp>15 else "🔴"
+        fuel_bar = dot*fblk + "⚫"*(16-fblk)
 
-        # Fuel bar
-        fuel_pct    = self.state["fuel"] / 100
-        fuel_blocks = int(fuel_pct * 15)
-        fuel_dot    = "🟢" if fuel_pct > 0.7 else "🟡" if fuel_pct > 0.4 else "🟠" if fuel_pct > 0.2 else "🔴"
-        fuel_bar    = fuel_dot * fuel_blocks + "⚫" * (15 - fuel_blocks)
-
-        # Wind indicator
-        ws = abs(self.state["wind"])
-        if ws < 0.05:
+        # Wind string — shows suppression state too
+        ws = abs(self.wind_accel)
+        if self._wind_suppress > 0:
+            wind_str = f"🔇 Suppressed ({self._wind_suppress:.1f}s)"
+        elif ws < WIND_BASE_ACCEL*0.15:
             wind_str = "🟢 Calm"
-        elif ws < 0.10:
-            wind_str = f"🟡 {'←' if self.state['wind'] < 0 else '→'} Light Breeze"
-        elif ws < 0.20:
-            wind_str = f"🟠 {'⬅️' if self.state['wind'] < 0 else '➡️'} Moderate Wind"
+        elif ws < WIND_BASE_ACCEL*0.40:
+            wind_str = f"🟡 {'←' if self.wind_accel<0 else '→'} Light ({ws:.2f})"
+        elif ws < WIND_BASE_ACCEL*0.75:
+            wind_str = f"🟠 {'⬅️' if self.wind_accel<0 else '➡️'} Moderate ({ws:.2f})"
         else:
-            wind_str = f"🔴 {'⬅️⬅️' if self.state['wind'] < 0 else '➡️➡️'} Strong Gust"
+            wind_str = f"🔴 {'⬅️⬅️' if self.wind_accel<0 else '➡️➡️'} STRONG ({ws:.2f})"
 
-        # Phase label
-        phase_labels = {
-            "falling":    f"🛸 **Atmospheric Entry** (Alt: {12 - self.state['booster_y']:.1f}km)",
-            "catch_zone": "🎯 **🚨 CATCH ZONE ACTIVE 🚨**",
-        }
+        if   self.state == "catch_zone": phase_str = "🎯 **🚨 CATCH ZONE 🚨**"
+        elif self.engine_on:             phase_str = f"🔥 **FIRING** — {self.thrust_timer:.1f}s"
+        else:                            phase_str = f"🛸 Descent — {self.altitude:.1f} km"
 
-        # Auto-system status
-        if self.state["landing_burn_active"]:
-            sys_str = "🔥 Landing Burn ACTIVE"
-        elif self.state["auto_engine_active"]:
-            sys_str = "🤖 Auto-Stabilizer ON"
-        elif self.state["landing_burn_initiated"]:
-            sys_str = "⏳ Landing Burn READY"
-        else:
-            sys_str = "⚫ Manual Control"
+        eng_str = (f"🔥 Firing {self.thrust_timer:.1f}s" if self.engine_on else
+                   "⛽ Depleted"                          if self.fuel_kg<=0 else
+                   f"⚫ Idle ({fp}%)")
 
-        # Dynamic embed colour
-        if self.state["catch_ready"]:
-            color = 0xFF0000
-        elif self.state["booster_y"] > 8:
-            color = 0xFF6B00
-        elif self.state["landing_burn_active"]:
-            color = 0x00FF00
-        else:
-            color = 0x0099FF
+        color = (0xFF0000 if self.state=="catch_zone" else
+                 0x00FF00 if self.engine_on            else
+                 0xFF6B00 if self.pos_y>GRID_H*0.6     else 0x0099FF)
 
-        embed = discord.Embed(title="🚀 Catch Booster 16 — Mechzilla", description=field, color=color)
-
-        embed.add_field(
-            name="📊 Mission Control",
-            value=(
-                f"**Fuel:** {fuel_bar} {self.state['fuel']}%\n"
+        emb = discord.Embed(
+            title       = "🚀 Catch Booster 16 — Mechzilla",
+            description = f"```\n{self.make_field()}\n```",
+            color       = color,
+        )
+        emb.add_field(
+            name  = "📊 Mission Control",
+            value = (
+                f"**Fuel:** {fuel_bar} {fp}%\n"
                 f"**Wind:** {wind_str}\n"
-                f"**Phase:** {phase_labels.get(self.state['phase'], self.state['phase'].upper())}\n"
-                f"**Systems:** {sys_str}"
+                f"**Phase:** {phase_str}\n"
+                f"**Engine:** {eng_str}"
             ),
             inline=True,
         )
-
-        altitude = 12 - self.state["booster_y"]
-        vy       = self.state["booster_vel_y"]
-        vx       = self.state["booster_vel_x"]
-        v_ind    = "↓" if vy > 0.5 else "→" if vy > 0 else "↑"
-        h_ind    = "→" if vx > 0 else "←" if vx < 0 else "•"
-
-        embed.add_field(
-            name="📡 Flight Data",
-            value=(
-                f"**Altitude:** {altitude:.1f}km {v_ind}\n"
-                f"**V-Speed:** {abs(vy):.2f}m/s\n"
-                f"**H-Speed:** {abs(vx):.2f}m/s {h_ind}\n"
-                f"**Position:** {self.state['booster_x']:.1f}m\n"
-                f"**Arms Gap:** {self.state['arm_right'] - self.state['arm_left']:.0f}m"
+        vy_ind = "↓↓" if self.vel_y>2.5 else "↓" if self.vel_y>0 else "↑"
+        vx_ind = ("→" if self.vel_x>0 else "←") if abs(self.vel_x)>0.1 else "•"
+        emb.add_field(
+            name  = "📡 Telemetry",
+            value = (
+                f"**Alt:** {self.altitude:.2f} km\n"
+                f"**V:** {self.vel_y:+.2f} wu/s {vy_ind}\n"
+                f"**H:** {self.vel_x:+.2f} wu/s {vx_ind}\n"
+                f"**Mass:** {self.mass:.1f} kg\n"
+                f"**Arms:** col {int(self.arm_center)}"
             ),
             inline=True,
         )
-
         if self.timeline:
-            embed.add_field(
-                name="📺 Mission Log",
-                value="\n".join(self.timeline[-4:]),
-                inline=False,
-            )
-
+            emb.add_field(name="📺 Mission Log",
+                          value="\n".join(self.timeline[-5:]), inline=False)
         if status:
-            embed.add_field(name="🚨 STATUS UPDATE", value=f"**{status}**", inline=False)
+            emb.add_field(name="🚨 STATUS", value=f"**{status}**", inline=False)
 
         tips = [
-            "🎮 Use buttons to control • 🔥 Advanced Auto-Landing System active",
-            "💡 TIP: Position arms early for better catches!",
-            "⚡ TIP: Save fuel for final approach corrections!",
-            "🎯 TIP: Watch horizontal velocity in the catch zone!",
+            "🔥 Each THRUST fires engine for 1.2 s — one well-timed burn beats three panicked ones",
+            "💡 Arms span ±5 cols — position them under the booster's predicted path",
+            "🎯 V-Speed at catch determines quality — aim for < 0.8 wu/s for perfect",
+            "🌬️ Wind oscillates naturally — watch the H telemetry, not just the indicator",
+            "📏 Altitude labels on the left show km remaining — plan burns at 10 km",
+            "⚡ Burn penalty above 2 burns — precision > mashing",
+            "🏓 Wall bounce reverses wind direction — use it to shed lateral drift",
         ]
-        embed.set_footer(text=tips[self.state["animation_frame"] % len(tips)])
-        return embed
+        emb.set_footer(text=tips[self.anim_frame % len(tips)])
+        return emb
 
 
-# ─── COMMAND REGISTRATION ──────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+#  COMMAND REGISTRATION + GAME LOOP
+# ══════════════════════════════════════════════════════════════════
 
 def _register_commands(bot: commands.Bot):
 
     @bot.command(name="catchbooster", aliases=["booster","mechzilla","catch16"])
     async def cmd_catchbooster(ctx):
-        """
-        Mechzilla.io-style booster catching game.
-        Use the arm buttons to position the chopstick arms,
-        thrust to slow the descent, and hit CATCH! at the right moment.
-        """
         game = BoosterCatchGame(ctx)
         view = CatchGameView(game)
-        game.view = view
+        msg  = await ctx.send(
+            embed=game.make_embed("🚀 **Booster 16 separation confirmed — Descent begun**"),
+            view=view,
+        )
 
-        embed = game.make_embed("🚀 **Mission Control Online — Booster separation confirmed!**")
-        msg   = await ctx.send(embed=embed, view=view)
+        start_wall   = time.monotonic()
+        last_tick    = time.monotonic()
+        last_display = time.monotonic()
 
-        await asyncio.sleep(2)
-        start_time       = time.time()
-        last_update_time = time.time()
+        while game.state != "over":
+            now = time.monotonic()
+            dt  = now - last_tick
+            last_tick = now
 
-        # ── GAME LOOP ──
-        while not game.state["game_over"]:
-            now = time.time()
-            game.update_game()
+            game.update_physics(dt)
 
-            interval = (
-                0.4 if game.state["catch_ready"]   else
-                0.5 if game.state["booster_y"] > 8 else
-                0.6
-            )
+            if game.state == "catch_zone":
+                status = "🚨 **CATCH WINDOW OPEN — EXECUTE NOW!** 🚨"
+                disp   = DISP_FAST
+            elif game.engine_on:
+                status = f"🔥 **ENGINE FIRING — {game.thrust_timer:.1f}s remaining**"
+                disp   = DISP_FAST
+            elif game.altitude <= 3.0:
+                status = "🔴 **FINAL APPROACH — Last chance!**"
+                disp   = DISP_FAST
+            elif game.altitude <= 6.0:
+                status = "⚠️ **Critical altitude — Slow down now!**"
+                disp   = DISP_FAST
+            elif game.vel_y > 3.0:
+                status = "⚡ **High descent rate — Consider a burn**"
+                disp   = DISP_SLOW
+            else:
+                status = "🚀 **Descent nominal — All systems active**"
+                disp   = DISP_SLOW
 
-            if now - last_update_time >= interval:
-                altitude = 12 - game.state["booster_y"]
-                velocity = game.state["booster_vel_y"]
-
-                if game.state["catch_ready"]:
-                    status_msg = "🚨 **CATCH WINDOW OPEN — EXECUTE IMMEDIATELY!** 🚨"
-                elif game.state["landing_burn_active"]:
-                    status_msg = "🔥 **LANDING BURN ACTIVE — Automatic control engaged**"
-                elif altitude <= 2:
-                    status_msg = "🔴 **FINAL APPROACH — Last chance for corrections!**"
-                elif altitude <= 4:
-                    status_msg = "⚠️ **Critical altitude — Position arms NOW!**"
-                elif velocity > 1.0:
-                    status_msg = "⚡ **High velocity detected — Consider thrust burn**"
-                elif game.state["auto_engine_active"]:
-                    status_msg = "🤖 **Auto-stabilizers maintaining safe trajectory**"
-                elif altitude <= 8:
-                    status_msg = "🎯 **Approach phase — Monitor systems closely**"
-                else:
-                    status_msg = "🚀 **Descent phase — All systems nominal**"
-
-                view.update_button_states()
+            if now - last_display >= disp:
+                view.sync_buttons()
                 try:
-                    await msg.edit(embed=game.make_embed(status_msg), view=view)
-                    last_update_time = now
+                    await msg.edit(embed=game.make_embed(status), view=view)
+                    last_display = now
                 except discord.errors.NotFound:
-                    break
+                    return
                 except discord.errors.HTTPException:
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.4)
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(PHYS_DT)
 
-        # Disable all buttons
         for item in view.children:
             item.disabled = True
 
-        # ── SCORING ──
-        elapsed  = time.time() - start_time
-        user_id  = ctx.author.id
+        elapsed = time.monotonic() - start_wall
+        uid     = ctx.author.id
 
-        if game.state["success"]:
-            base_score      = game.state["score"]
-            time_bonus      = max(0, int(100 - elapsed * 2))
-            fuel_bonus      = game.state["fuel"] // 2
-            arm_center      = (game.state["arm_left"] + game.state["arm_right"]) / 2
-            precision_err   = abs(arm_center - game.state["booster_x"])
-            precision_bonus = max(0, int(50 - precision_err * 10))
-            vel_bonus       = max(0, int(30 - abs(game.state["booster_vel_y"]) * 20))
-            auto_penalty    = 20 if hasattr(game, "_auto_engine_used") else 0
-            total_score     = base_score + time_bonus + fuel_bonus + precision_bonus + vel_bonus - auto_penalty
+        if game.success:
+            base         = game.score
+            time_bonus   = max(0, min(80, int(120 - elapsed * 0.8)))
+            fuel_bonus   = int((game.fuel_kg / FULL_FUEL_KG) * 60)
+            vel_bonus    = max(0, int(45 - abs(game._catch_vel_y) * 14))
+            offset       = abs(game.pos_x - game.arm_center)
+            prec_bonus   = max(0, int(40 - offset * 7))
+            burn_penalty = max(0, (game.manual_burns - 2) * 8)
+            total        = base + time_bonus + fuel_bonus + vel_bonus + prec_bonus - burn_penalty
 
-            if _add_score:
-                _add_score(user_id, total_score)
-            user_total = (_scores_ref or {}).get(str(user_id), 0)
+            if _add_score: _add_score(uid, total)
+            career = (_scores_ref or {}).get(str(uid), 0)
 
             final = discord.Embed(
-                title="🏆 MISSION SUCCESS! BOOSTER RECOVERED!",
-                description=f"**{ctx.author.display_name}** caught the booster with Mechzilla!",
-                color=0x00FF00,
+                title       = "🏆 MISSION SUCCESS — BOOSTER RECOVERED",
+                description = f"**{ctx.author.display_name}** caught Booster 16 with Mechzilla!",
+                color       = 0x00FF00,
             )
             final.add_field(
-                name="📊 Detailed Scoring",
-                value=(
-                    f"**Base Score:** {base_score} pts\n"
+                name  = "📊 Score Breakdown",
+                value = (
+                    f"**Base ({game.catch_result}):** {base} pts\n"
                     f"**Time Bonus:** +{time_bonus} pts\n"
                     f"**Fuel Bonus:** +{fuel_bonus} pts\n"
-                    f"**Precision Bonus:** +{precision_bonus} pts\n"
-                    f"**Velocity Bonus:** +{vel_bonus} pts\n"
-                    f"**Auto-Pilot Penalty:** -{auto_penalty} pts\n"
-                    f"**MISSION TOTAL:** **{total_score} pts**"
+                    f"**Velocity Bonus:** +{vel_bonus} pts  *(catch V: {abs(game._catch_vel_y):.2f} wu/s)*\n"
+                    f"**Precision Bonus:** +{prec_bonus} pts  *(offset: {offset:.1f} col)*\n"
+                    f"**Burn Penalty ({game.manual_burns} burns):** −{burn_penalty} pts\n"
+                    f"━━━━━━━━━━━━━\n"
+                    f"**TOTAL: {total} pts**"
                 ),
                 inline=True,
             )
             final.add_field(
-                name="⏱️ Mission Stats",
-                value=(
-                    f"**Duration:** {elapsed:.1f}s\n"
-                    f"**Fuel Remaining:** {game.state['fuel']}%\n"
-                    f"**Final Velocity:** {abs(game.state['booster_vel_y']):.2f}m/s\n"
-                    f"**Precision Error:** {precision_err:.1f}m"
+                name  = "⏱️ Mission Stats",
+                value = (
+                    f"**Duration:** {elapsed:.1f} s\n"
+                    f"**Fuel remaining:** {game.fuel_pct}%\n"
+                    f"**Catch V-speed:** {abs(game._catch_vel_y):.2f} wu/s\n"
+                    f"**Arm offset:** {offset:.1f} col"
                 ),
                 inline=True,
             )
-
-            achievements = []
-            if base_score >= 200:    achievements.append("🌟 Perfect Landing Master")
-            if fuel_bonus >= 40:     achievements.append("⛽ Fuel Conservation Expert")
-            if time_bonus >= 60:     achievements.append("⚡ Lightning Fast Pilot")
-            if precision_bonus >= 40:achievements.append("🎯 Precision Specialist")
-            if vel_bonus >= 25:      achievements.append("🪶 Feather Touch Landing")
-            if auto_penalty == 0:    achievements.append("🎮 Manual Flight Ace")
-            if total_score >= 300:   achievements.append("👨‍🚀 Elite Space Pilot")
-            if achievements:
-                final.add_field(name="🏅 Achievements", value="\n".join(achievements), inline=False)
-
-            final.add_field(
-                name="🏆 Career Statistics",
-                value=f"**Total Career Points:** {user_total:,} pts\nCheck `!leaderboard` for rank!",
-                inline=False,
-            )
-
+            ach = []
+            if game.catch_result == "perfect": ach.append("🌟 Perfect Landing Master")
+            if game.manual_burns <= 1:         ach.append("🎮 One-Burn Ace")
+            if game.fuel_pct >= 50:            ach.append("⛽ Fuel Miser")
+            if time_bonus >= 65:               ach.append("⚡ Lightning Pilot")
+            if prec_bonus >= 35:               ach.append("🎯 Precision Specialist")
+            if vel_bonus  >= 38:               ach.append("🪶 Feather Touch")
+            if total >= 350:                   ach.append("👨‍🚀 Elite Space Pilot")
+            if ach:
+                final.add_field(name="🏅 Achievements", value="\n".join(ach), inline=False)
+            final.add_field(name="🏆 Career",
+                            value=f"**Total:** {career:,} pts", inline=False)
         else:
+            consolation = 10
+            if _add_score: _add_score(uid, consolation)
+            career = (_scores_ref or {}).get(str(uid), 0)
             final = discord.Embed(
-                title="💥 MISSION FAILED — BOOSTER LOST",
-                description="Mission analysis and recommendations:",
-                color=0xFF0000,
+                title       = "💥 MISSION FAILED — BOOSTER LOST",
+                description = "Post-mission analysis:",
+                color       = 0xFF0000,
             )
             final.add_field(
-                name="📋 Failure Analysis",
-                value=(
-                    f"**Impact Velocity:** {game.state['booster_vel_y']:.2f}m/s\n"
-                    f"**Final Position:** {game.state['booster_x']:.1f}m\n"
-                    f"**Fuel Remaining:** {game.state['fuel']}%\n"
-                    f"**Mission Duration:** {elapsed:.1f}s"
+                name  = "📋 Failure Data",
+                value = (
+                    f"**Impact V-speed:** {game.vel_y:.2f} wu/s\n"
+                    f"**Impact H-speed:** {abs(game.vel_x):.2f} wu/s\n"
+                    f"**Final position:** col {game.pos_x:.1f}\n"
+                    f"**Fuel remaining:** {game.fuel_pct}%\n"
+                    f"**Duration:** {elapsed:.1f} s"
                 ),
                 inline=True,
             )
-
             recs = []
-            if game.state["booster_vel_y"] > 1.5:  recs.append("• Use thrust burns earlier to slow descent")
-            if game.state["fuel"] > 50:             recs.append("• Don't hoard fuel — use it for control")
-            if abs(game.state["booster_x"] - 12) > 5: recs.append("• Reposition arms earlier in the descent")
-            recs.append("• Watch the auto-landing burn — it fires automatically")
+            if game.vel_y > 2.5:        recs.append("• Ignite engine earlier — descent speed too high")
+            if game.fuel_pct > 40:      recs.append("• You had fuel to spare — use it")
+            if game.manual_burns == 0:  recs.append("• You never fired the engine!")
+            recs.append("• Wind now mean-reverts — trust it to change, don't panic-move arms")
+            recs.append("• Watch altitude labels on the left — plan burns at 10 km")
             final.add_field(name="💡 Recommendations", value="\n".join(recs), inline=True)
-            final.add_field(
-                name="📺 Final Event",
-                value=game.timeline[-1] if game.timeline else "System malfunction",
-                inline=False,
-            )
+            final.add_field(name="📺 Final Event",
+                            value=game.timeline[-1] if game.timeline else "Telemetry lost",
+                            inline=False)
+            final.add_field(name="🎖️ Participation",
+                            value=f"+{consolation} pts  |  **Career:** {career:,} pts",
+                            inline=False)
 
-            consolation = 10
-            if _add_score:
-                _add_score(user_id, consolation)
-            user_total = (_scores_ref or {}).get(str(user_id), 0)
-            final.add_field(
-                name="🎖️ Participation Award",
-                value=f"+{consolation} pts for mission attempt\n**Career Total:** {user_total:,} pts",
-                inline=False,
-            )
-
-        final.set_footer(text="🚀 Use !catchbooster again to retry! • !leaderboard for rankings")
-
+        final.set_footer(text="!catchbooster to retry  •  !leaderboard for rankings  •  !catchhelp for tips")
         try:
             await msg.edit(embed=final, view=view)
         except Exception:
@@ -788,45 +858,38 @@ def _register_commands(bot: commands.Bot):
 
     @bot.command(name="catchhelp", aliases=["boosterhelp"])
     async def cmd_catchhelp(ctx):
-        """How to play Booster Catch."""
         emb = discord.Embed(
-            title="🚀 Booster Catch — How to Play",
-            description=(
-                "Catch Booster 16 with Mechzilla's chopstick arms before it hits the ground!\n\n"
-                "The booster falls from the top of the screen. You control the catch tower."
-            ),
-            color=0x0099FF,
+            title       = "🚀 Booster Catch — Controls & Physics",
+            description = "Catch Booster 16 using Mechzilla chopstick arms. ~17 s cinematic descent.",
+            color       = 0x0099FF,
         )
-        emb.add_field(
-            name="🎮 Controls",
-            value=(
-                "**← Arms Left / Arms Right →** — Move the chopstick arms horizontally\n"
-                "**🔥 THRUST** — Fire the booster's engines to slow descent (uses fuel!)\n"
-                "**🥢 CATCH!** — Attempt to grab the booster (only active in catch zone)"
-            ),
-            inline=False,
-        )
-        emb.add_field(
-            name="🏆 Catch Ratings",
-            value=(
-                "🌟 **Perfect** — 200 pts (ideal speed, position, and altitude)\n"
-                "✅ **Good** — 150 pts\n"
-                "✅ **Rough** — 100 pts\n"
-                "⚠️ **Near Miss** — 0 pts, try again!\n"
-                "❌ **Miss** — 0 pts"
-            ),
-            inline=False,
-        )
-        emb.add_field(
-            name="💡 Tips",
-            value=(
-                "• Position arms **before** the booster enters the catch zone\n"
-                "• The auto-landing burn fires automatically — trust it\n"
-                "• Use thrust early if velocity is high (>1.0m/s)\n"
-                "• Watch the **H-Speed** — horizontal drift makes catches harder\n"
-                "• Bonuses for time, fuel, precision and low final velocity"
-            ),
-            inline=False,
-        )
-        emb.set_footer(text="Start a game: !catchbooster")
-        await ctx.send(embed=emb)
+        emb.add_field(name="🎮 Controls", value=(
+            "**← Arms / Arms →** — Move arms 4 cols per press\n"
+            "**🔥 THRUST** — Fire engines for 1.2 s (burns real fuel)\n"
+            "**🥢 CATCH!** — Grab booster when window opens"
+        ), inline=False)
+        emb.add_field(name="⚙️ Physics", value=(
+            "• **Gravity** — constant downward pull\n"
+            "• **Drag** — quadratic, limits terminal velocity\n"
+            "• **Engine TWR** — thrust / current mass; lighter = more responsive\n"
+            "• **Fuel mass** — booster gets lighter as fuel burns\n"
+            "• **Wind** — Ornstein-Uhlenbeck process — oscillates, can't stay extreme\n"
+            "• **Wall bounce** — elastic with wind reversal, can't get permanently stuck"
+        ), inline=False)
+        emb.add_field(name="🏆 Catch Ratings", value=(
+            f"🌟 **Perfect** 250 pts — V < {PERFECT_VY} & H < {PERFECT_VX} wu/s\n"
+            f"✅ **Good**    170 pts — V < {GOOD_VY} & H < {GOOD_VX} wu/s\n"
+            f"✅ **Rough**    90 pts — V < {ROUGH_VY} wu/s\n"
+            f"⚠️ **Buckle**  30 pts — in position but too fast\n"
+            f"⚠️ **Near miss** 0 pts — try again (shows cols off)\n"
+            f"❌ **Miss**      0 pts"
+        ), inline=False)
+        emb.add_field(name="💡 Tips", value=(
+            "• Watch altitude labels on the left — fire engines at 10 km\n"
+            "• Aim for V-speed < 1.5 wu/s before the catch zone\n"
+            "• 1–2 precise burns > mashing (−8 pts per extra burn)\n"
+            "• Wind now oscillates — wait it out instead of panic-moving arms\n"
+            "• Near-miss tells you exactly how many cols to adjust"
+        ), inline=False)
+        emb.set_footer(text="!catchbooster to start")
+        await ctx.send(emb)
