@@ -7291,6 +7291,7 @@ from discord.ext import commands
 import os
 import wavelink
 from music_bot import setup_music_commands, play_next
+from space_tweets import setup_space_tweets
 import logging
 
 # Your existing bot setup here (intents, prefix, etc.)
@@ -7305,6 +7306,9 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     print(f"📊 Servers: {len(bot.guilds)}")
     setup_galaxy(bot, add_score, MASTER_ID)
+    setup_space_tweets(bot)
+    await bot.tree.sync()  # ← add this
+    print(f"🔃 Slash commands synced")
     if not daily_galaxy_backup.is_running():
         daily_galaxy_backup.start()
     setup_booster_catch(bot, add_score, scores)
