@@ -1,7 +1,7 @@
 """
 space_tweets.py — OLIT Discord Bot Module
 ==========================================
-Fetches SpaceX & Blue Origin tweets via free RSS feeds.
+Fetches SpaceX, Blue Origin, NASA, Rocket Lab & ULA tweets via free RSS feeds.
 All commands use the ! prefix.
 
 COMMANDS:
@@ -51,6 +51,9 @@ MAX_TWEET_AGE_HOURS:   int = 24
 RSS_APP_FEEDS: dict[str, str] = {
     "SpaceX":     "https://rss.app/feeds/zrcEmWZRA6UzxTsY.xml",
     "BlueOrigin": "https://rss.app/feeds/I2DCH4BdXpJSnf8X.xml",
+    "NASA":       "https://rss.app/feeds/LUOTmcXhCWIsn8PA.xml",   # ← paste your rss.app feed URL for @NASA
+    "RocketLab":  "https://rss.app/feeds/K7CpAQ97vB5uhKDo.xml",   # ← paste your rss.app feed URL for @RocketLab
+    "ULA":        "https://rss.app/feeds/MCnuilv9YzhVWAeB.xml",   # ← paste your rss.app feed URL for @ulalaunch
 }
 
 # ─────────────────────────────────────────────
@@ -74,33 +77,53 @@ RSSHUB_URL = "https://rsshub.app/twitter/user/{username}"
 
 # ─────────────────────────────────────────────
 #  Accounts
-#
-#  logo_url is intentionally left empty ("").
-#  The bot will pull the real avatar from the RSS feed at runtime and
-#  cache it in _avatar_cache.  If the feed doesn't carry an image the
-#  fallback_logo_url is used instead — point these at any stable PNG you
-#  control (e.g. an image you upload to your own Discord server or CDN).
 # ─────────────────────────────────────────────
 
 ACCOUNTS: dict[str, dict] = {
     "SpaceX": {
-        "username":         "SpaceX",
-        "display":          "SpaceX",
-        "handle":           "@SpaceX",
-        "color":            0x1D9BF0,
-        "profile_url":      "https://x.com/SpaceX",
-        "accent":           "🚀",
-        # Stable fallback — replace with any permanent PNG URL you prefer
+        "username":          "SpaceX",
+        "display":           "SpaceX",
+        "handle":            "@SpaceX",
+        "color":             0x1D9BF0,
+        "profile_url":       "https://x.com/SpaceX",
+        "accent":            "🚀",
         "fallback_logo_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/SpaceX-Logo-Xonly.svg/512px-SpaceX-Logo-Xonly.svg.png",
     },
     "BlueOrigin": {
-        "username":         "blueorigin",
-        "display":          "Blue Origin",
-        "handle":           "@blueorigin",
-        "color":            0x005288,
-        "profile_url":      "https://x.com/blueorigin",
-        "accent":           "🔵",
+        "username":          "blueorigin",
+        "display":           "Blue Origin",
+        "handle":            "@blueorigin",
+        "color":             0x005288,
+        "profile_url":       "https://x.com/blueorigin",
+        "accent":            "🔵",
         "fallback_logo_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Blue_Origin_logo.svg/512px-Blue_Origin_logo.svg.png",
+    },
+    "NASA": {
+        "username":          "NASA",
+        "display":           "NASA",
+        "handle":            "@NASA",
+        "color":             0x0B3D91,
+        "profile_url":       "https://x.com/NASA",
+        "accent":            "🌌",
+        "fallback_logo_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/NASA_logo.svg/512px-NASA_logo.svg.png",
+    },
+    "RocketLab": {
+        "username":          "RocketLab",
+        "display":           "Rocket Lab",
+        "handle":            "@RocketLab",
+        "color":             0xCC0000,
+        "profile_url":       "https://x.com/RocketLab",
+        "accent":            "🧨",
+        "fallback_logo_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Rocket_Lab_Logo.svg/512px-Rocket_Lab_Logo.svg.png",
+    },
+    "ULA": {
+        "username":          "ulalaunch",
+        "display":           "ULA",
+        "handle":            "@ulalaunch",
+        "color":             0x003087,
+        "profile_url":       "https://x.com/ulalaunch",
+        "accent":            "🛸",
+        "fallback_logo_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/ULA_Logo.svg/512px-ULA_Logo.svg.png",
     },
 }
 
@@ -110,29 +133,23 @@ _avatar_cache: dict[str, str] = {}
 
 def _extract_feed_avatar(feed: feedparser.FeedParserDict) -> Optional[str]:
     """Try to pull a profile image URL out of the RSS feed metadata."""
-    # feedparser exposes feed.feed.image.href for RSS <image> tags
     try:
         url = feed.feed.image.href
         if url and not any(s in url for s in ("emoji", "abs.twimg")):
             return url
     except AttributeError:
         pass
-
-    # Some feeds put it in feed.feed.logo
     try:
         url = feed.feed.logo
         if url:
             return url
     except AttributeError:
         pass
-
-    # Nitter sometimes puts a full-size avatar in the first entry's media
     for entry in feed.entries[:3]:
         for mc in entry.get("media_content", []):
             href = mc.get("url", "")
             if "profile_images" in href and "_400x400" in href:
                 return href
-
     return None
 
 
@@ -225,7 +242,7 @@ class RSSFetcher:
         if rss_app:
             feed = await self._try_url(rss_app)
             if feed:
-                log.info("SpaceTweets: ✅ rss.app → @%s", username)
+                log.info("SpaceTweets: rss.app → @%s", username)
                 self._cache_avatar(account_key, feed)
                 return feed
             log.warning("SpaceTweets: rss.app failed for %s", account_key)
@@ -247,33 +264,28 @@ class RSSFetcher:
             feed = await self._try_url(url)
             if feed:
                 self._working_mirror[username] = url
-                log.info("SpaceTweets: ✅ mirror working → %s", url)
+                log.info("SpaceTweets: mirror working → %s", url)
                 self._cache_avatar(account_key, feed)
                 return feed
 
         # 4. rsshub
         feed = await self._try_url(RSSHUB_URL.format(username=username))
         if feed:
-            log.info("SpaceTweets: ✅ rsshub working for @%s", username)
+            log.info("SpaceTweets: rsshub working for @%s", username)
             self._cache_avatar(account_key, feed)
             return feed
 
-        log.error(
-            "SpaceTweets: ❌ ALL sources dead for @%s\n"
-            "  → Fix: sign up at https://rss.app (free) and paste feed URLs into RSS_APP_FEEDS",
-            username,
-        )
+        log.error("SpaceTweets: ALL sources dead for @%s", username)
         return None
 
     @staticmethod
     def _cache_avatar(account_key: str, feed: feedparser.FeedParserDict) -> None:
-        """Extract and cache the profile avatar from the feed, if not already cached."""
         if account_key in _avatar_cache:
             return
         url = _extract_feed_avatar(feed)
         if url:
             _avatar_cache[account_key] = url
-            log.info("SpaceTweets: cached avatar for %s → %s", account_key, url)
+            log.info("SpaceTweets: cached avatar for %s", account_key)
 
     @staticmethod
     def _entry_id(entry) -> str:
@@ -285,15 +297,11 @@ class RSSFetcher:
         images: list[str] = []
         seen:   set[str]  = set()
 
-        # Base URL of the feed entry — used to make Nitter /pic/... paths absolute
-        entry_base = ""
         entry_link = entry.get("link", "")
         m = re.match(r"(https?://[^/]+)", entry_link)
-        if m:
-            entry_base = m.group(1)
+        entry_base = m.group(1) if m else ""
 
         def normalise(u: str) -> str:
-            """Make relative /pic/... Nitter URLs absolute."""
             u = u.strip()
             if u.startswith("/pic/") and entry_base:
                 return entry_base + u
@@ -301,33 +309,30 @@ class RSSFetcher:
 
         def add(u: str) -> None:
             u = normalise(u)
-            # Skip tiny UI assets — but keep real tweet images
-            # "profile_images" only skips avatar thumbnails, not tweet photos
-            # "abs.twimg" skips inline emoji/sticker CDN
-            # "emoji" skips Twitter emoji images
-            skip = ("emoji", "abs.twimg", "/profile_images/")
+            skip = (
+                "emoji",
+                "abs.twimg",
+                "/profile_images/",
+                "ext_tw_video_thumb",
+                "tweet_video_thumb",
+                "amplify_video_thumb",
+                "video.twimg.com",
+            )
             if u and u.startswith("http") and u not in seen and not any(s in u for s in skip):
                 seen.add(u)
                 images.append(u)
 
-        # 1. Images embedded in the HTML summary (most common for Nitter feeds)
         for m in re.finditer(r'<img[^>]+src=["\']([^"\']+)["\']', entry.get("summary", "")):
             add(m.group(1))
-
-        # 2. RSS enclosures (used by some feeds)
         for enc in entry.get("enclosures", []):
             if enc.get("type", "").startswith("image/"):
                 add(enc.get("href") or enc.get("url", ""))
-
-        # 3. media:content tags (used by rss.app and rsshub)
         for mc in entry.get("media_content", []):
-            t = mc.get("type", "")
+            t      = mc.get("type", "")
             medium = mc.get("medium", "")
-            url = mc.get("url", "")
+            url    = mc.get("url", "")
             if medium == "image" or t.startswith("image/") or (url and not t):
                 add(url)
-
-        # 4. media:thumbnail (fallback for some feeds)
         for mt in entry.get("media_thumbnail", []):
             add(mt.get("url", ""))
 
@@ -357,43 +362,47 @@ class RSSFetcher:
         match = re.search(r"/status/(\d+)", link)
         return f"https://x.com/{username}/status/{match.group(1)}" if match else link
 
-    async def _enrich_images(self, tweet_url: str, existing: list[str]) -> list[str]:
+    async def _enrich_images(self, tweet_url: str, existing: list[str]) -> tuple[list[str], bool]:
         """
-        If the RSS feed only gave us 0-1 images, call the fxtwitter API to get
-        all images for the tweet.  Returns the enriched list (or existing if
-        the API fails or already has 2+ images).
+        Calls fxtwitter API to get full media for a tweet.
+        Returns (image_urls, is_video):
+          - Photos → (all photo URLs, False)
+          - Video  → ([thumbnail_url], True)
+          - Fail   → (existing, False)
         """
-        if len(existing) >= 2:
-            return existing   # feed already gave us multiple images, nothing to do
-
         m = re.search(r"/status/(\d+)", tweet_url)
         if not m:
-            return existing
+            return existing, False
 
-        username  = tweet_url.rstrip("/").split("/")[-3]   # x.com/{user}/status/{id}
-        tweet_id  = m.group(1)
-        api_url   = f"https://api.fxtwitter.com/{username}/status/{tweet_id}"
+        parts    = tweet_url.rstrip("/").split("/")
+        username = parts[-3] if len(parts) >= 3 else "i"
+        tweet_id = m.group(1)
+        api_url  = f"https://api.fxtwitter.com/{username}/status/{tweet_id}"
 
         try:
             session = await self._get_session()
             async with session.get(api_url, allow_redirects=True) as resp:
                 if resp.status != 200:
-                    log.debug("fxtwitter API %s for %s", resp.status, tweet_url)
-                    return existing
-                data   = await resp.json(content_type=None)
-                photos = (
-                    data.get("tweet", {})
-                        .get("media", {})
-                        .get("photos", [])
-                )
-                urls = [p["url"] for p in photos if p.get("url")]
-                if urls:
-                    log.info("SpaceTweets: fxtwitter enriched %s → %d images", tweet_id, len(urls))
-                    return urls
-        except Exception as e:
-            log.debug("fxtwitter enrich failed for %s: %s", tweet_url, e)
+                    return existing, False
+                data  = await resp.json(content_type=None)
+                media = data.get("tweet", {}).get("media", {}) or {}
 
-        return existing
+                photos = media.get("photos", [])
+                urls   = [p["url"] for p in photos if p.get("url")]
+                if urls:
+                    log.info("SpaceTweets: fxtwitter %s → %d photos", tweet_id, len(urls))
+                    return urls, False
+
+                videos = media.get("videos", [])
+                if videos:
+                    thumb = videos[0].get("thumbnail_url", "")
+                    log.info("SpaceTweets: %s is video", tweet_id)
+                    return ([thumb] if thumb else []), True
+
+        except Exception as e:
+            log.debug("fxtwitter enrich failed: %s", e)
+
+        return existing, False
 
     async def fetch_new(self, account_key: str, username: str) -> list[dict]:
         """Auto-poll: only unseen tweets within MAX_TWEET_AGE_HOURS."""
@@ -413,17 +422,17 @@ class RSSFetcher:
             if age_h > MAX_TWEET_AGE_HOURS:
                 seen.add(eid)
                 continue
-
             if eid in seen:
                 continue
 
-            url    = self._canonical_url(entry, username)
-            images = await self._enrich_images(url, self._parse_images(entry))
+            url              = self._canonical_url(entry, username)
+            images, is_video = await self._enrich_images(url, self._parse_images(entry))
             results.append({
                 "id":         eid,
                 "text":       self._clean_text(entry),
                 "created_at": created,
                 "images":     images,
+                "is_video":   is_video,
                 "url":        url,
             })
             seen.add(eid)
@@ -444,13 +453,14 @@ class RSSFetcher:
         for entry in feed.entries:
             created = self._parse_date(entry)
             if created >= start_of_day:
-                url    = self._canonical_url(entry, username)
-                images = await self._enrich_images(url, self._parse_images(entry))
+                url              = self._canonical_url(entry, username)
+                images, is_video = await self._enrich_images(url, self._parse_images(entry))
                 results.append({
                     "id":         self._entry_id(entry),
                     "text":       self._clean_text(entry),
                     "created_at": created,
                     "images":     images,
+                    "is_video":   is_video,
                     "url":        url,
                 })
 
@@ -463,23 +473,12 @@ class RSSFetcher:
 
 
 # ─────────────────────────────────────────────
-#  Avatar resolver
+#  Helpers
 # ─────────────────────────────────────────────
 
 def _get_logo_url(account_key: str) -> Optional[str]:
-    """
-    Return the best available avatar URL for an account.
-    Priority: live avatar extracted from RSS feed → fallback_logo_url → None.
-    """
-    cached = _avatar_cache.get(account_key)
-    if cached:
-        return cached
-    return ACCOUNTS[account_key].get("fallback_logo_url")
+    return _avatar_cache.get(account_key) or ACCOUNTS[account_key].get("fallback_logo_url")
 
-
-# ─────────────────────────────────────────────
-#  Embed builder
-# ─────────────────────────────────────────────
 
 def _relative_time(dt: datetime) -> str:
     secs = int((datetime.now(timezone.utc) - dt).total_seconds())
@@ -490,10 +489,17 @@ def _relative_time(dt: datetime) -> str:
     return dt.strftime("%-d %b")
 
 
+# ─────────────────────────────────────────────
+#  Embed builder
+# ─────────────────────────────────────────────
+
 def build_embeds(tweet: dict, account_key: str) -> list[discord.Embed]:
     cfg      = ACCOUNTS[account_key]
     images   = tweet.get("images", [])
+    is_video = tweet.get("is_video", False)
     logo_url = _get_logo_url(account_key)
+
+    link_label = "🎬  Watch on X" if is_video else "🔗  View on X"
 
     main = discord.Embed(
         description=tweet["text"],
@@ -502,34 +508,30 @@ def build_embeds(tweet: dict, account_key: str) -> list[discord.Embed]:
         url=tweet["url"],
     )
     main.set_author(
-        name=f"{cfg['display']}  ✓  {cfg['handle']}",
+        name=f"{cfg['display']}  \u2713  {cfg['handle']}",
         url=cfg["profile_url"],
-        icon_url=logo_url,   # None is fine — Discord just omits the icon
+        icon_url=logo_url,
     )
     if images:
         main.set_image(url=images[0])
     main.add_field(
         name="",
-        value=f"[🔗  View on X  ·  {_relative_time(tweet['created_at'])}]({tweet['url']})",
+        value=f"[{link_label}  \u00b7  {_relative_time(tweet['created_at'])}]({tweet['url']})",
         inline=False,
     )
     main.set_footer(
-        text=f"OLIT Space Feed  ·  {cfg['accent']} {cfg['display']}",
+        text=f"OLIT Space Feed  \u00b7  {cfg['accent']} {cfg['display']}",
         icon_url=logo_url,
     )
 
     embeds = [main]
-    # Discord renders multiple images as a gallery when every embed in the
-    # message shares the exact same `url`.  Max 4 embeds per message.
-    for img_url in images[1:4]:   # images[0] is already on `main`, so start at [1]
+    # Discord gallery: all embeds share the same url — max 4 total
+    for img_url in images[1:4]:
         extra = discord.Embed(url=tweet["url"], color=cfg["color"])
         extra.set_image(url=img_url)
         embeds.append(extra)
 
     return embeds
-
-
-
 
 
 # ─────────────────────────────────────────────
@@ -642,15 +644,14 @@ class SpaceTweetsCog(commands.Cog):
                     feed = feedparser.parse(await r.text())
                     if feed.entries:
                         avatar = _extract_feed_avatar(feed)
-                        av_str = f" | avatar={'✅' if avatar else '❌'}"
-                        return f"✅  `{label}` → {len(feed.entries)} entries{av_str}"
+                        return f"✅  `{label}` → {len(feed.entries)} entries | avatar={'✅' if avatar else '❌'}"
                     return f"⚠️  `{label}` → connected but 0 entries"
             except Exception as e:
                 return f"💀  `{label}` → {type(e).__name__}"
 
         for account_key, cfg in ACCOUNTS.items():
             cached_av = _avatar_cache.get(account_key, "not cached yet")
-            lines.append(f"**@{cfg['username']}** | cached avatar: `{cached_av[:60] if len(cached_av) > 60 else cached_av}`")
+            lines.append(f"**@{cfg['username']}** | avatar: `{cached_av[:60] if len(cached_av) > 60 else cached_av}`")
             rss_url = RSS_APP_FEEDS.get(account_key, "").strip()
             if rss_url:
                 lines.append(await check("rss.app", rss_url))
@@ -691,17 +692,17 @@ class SpaceTweetsCog(commands.Cog):
             source = "🔒 Hardcoded" if int(gid) in HARDCODED_SERVERS else "⚙️ Config file"
             status = "🟢 Enabled" if gcfg.get("enabled", True) else "🔴 Disabled"
             feed_status = [
-                f"{cfg['accent']} {cfg['display']}: {'✅ rss.app' if RSS_APP_FEEDS.get(ak, '').strip() else '⚠️ Nitter mirrors only'}"
+                f"{cfg['accent']} {cfg['display']}: {'✅ rss.app' if RSS_APP_FEEDS.get(ak, '').strip() else '⚠️ Nitter only'}"
                 for ak, cfg in ACCOUNTS.items()
             ]
             avatar_status = [
-                f"{cfg['accent']} {cfg['display']}: {'✅ cached' if ak in _avatar_cache else '⏳ pending first fetch'}"
+                f"{cfg['accent']} {cfg['display']}: {'✅ cached' if ak in _avatar_cache else '⏳ pending'}"
                 for ak, cfg in ACCOUNTS.items()
             ]
             embed = discord.Embed(title="🛰️  Space Feed Status", color=0x1D9BF0)
-            embed.add_field(name="Channel",  value=ch_str,  inline=True)
-            embed.add_field(name="Status",   value=status,  inline=True)
-            embed.add_field(name="Source",   value=source,  inline=True)
+            embed.add_field(name="Channel",  value=ch_str,                   inline=True)
+            embed.add_field(name="Status",   value=status,                   inline=True)
+            embed.add_field(name="Source",   value=source,                   inline=True)
             embed.add_field(name="Interval", value=f"Every {POLL_INTERVAL_MINUTES} min", inline=True)
             embed.add_field(name="Feeds",    value="\n".join(feed_status),   inline=False)
             embed.add_field(name="Avatars",  value="\n".join(avatar_status), inline=False)
@@ -725,16 +726,16 @@ class SpaceTweetsCog(commands.Cog):
         state = "🟢 Enabled" if not current else "🔴 Disabled"
         await ctx.send(f"Space Feed is now **{state}**.")
 
-    # ── !spacedebug ────────────────────────────────────────────────
+    # ── !spacedebug ───────────────────────────────────────────────────────────
 
     @commands.command(name="spacedebug")
     @commands.has_permissions(administrator=True)
     async def spacedebug(self, ctx: commands.Context) -> None:
         """Dump raw RSS entry fields for latest tweet to diagnose image parsing."""
-        msg = await ctx.send("🔬 Fetching raw feed data...")
+        msg     = await ctx.send("🔬 Fetching raw feed data...")
         session = await self.fetcher._get_session()
-        IMG_RE = re.compile(r'<img[^>]+src=["\'][^"\'>]+["\']')
-        SRC_RE = re.compile(r'src=["\']([^"\'>]+)["\']')
+        IMG_RE  = re.compile(r'<img[^>]+src=["\'][^"\']+["\']')
+        SRC_RE  = re.compile(r'src=["\']([^"\']+)["\']')
 
         for account_key, cfg in ACCOUNTS.items():
             rss_url = RSS_APP_FEEDS.get(account_key, "").strip()
@@ -742,37 +743,36 @@ class SpaceTweetsCog(commands.Cog):
                 continue
             try:
                 async with session.get(rss_url, allow_redirects=True) as resp:
-                    raw = await resp.text()
+                    raw  = await resp.text()
                     feed = feedparser.parse(raw)
                     if not feed.entries:
                         await ctx.send(f"⚠️ No entries for {account_key}")
                         continue
                     e = feed.entries[0]
 
-                    summary = e.get("summary", "")
-                    img_tags = IMG_RE.findall(summary)
-                    img_srcs = [SRC_RE.search(t).group(1) for t in img_tags if SRC_RE.search(t)]
-                    mcs = e.get("media_content", [])
-                    encs = e.get("enclosures", [])
-                    mts = e.get("media_thumbnail", [])
-                    parsed = self.fetcher._parse_images(e)
+                    summary  = e.get("summary", "")
+                    img_srcs = [SRC_RE.search(t).group(1) for t in IMG_RE.findall(summary) if SRC_RE.search(t)]
+                    mcs      = e.get("media_content", [])
+                    encs     = e.get("enclosures", [])
+                    mts      = e.get("media_thumbnail", [])
+                    parsed   = self.fetcher._parse_images(e)
 
-                    lines = []
-                    lines.append(f"**@{cfg['username']} latest entry**")
-                    lines.append(f"`link:` {e.get('link','n/a')}")
-                    lines.append(f"`summary <img> count: {len(img_srcs)}`")
+                    lines = [
+                        f"**@{cfg['username']} latest entry**",
+                        f"`link:` {e.get('link', 'n/a')}",
+                        f"`summary <img> count: {len(img_srcs)}`",
+                    ]
                     for u in img_srcs:
                         lines.append(f"  \u2022 `{u[:120]}`")
                     lines.append(f"`enclosures: {len(encs)}`")
                     for en in encs:
-                        url = str(en.get('href') or en.get('url', ''))
-                        lines.append(f"  \u2022 type={en.get('type')} `{url[:100]}`")
+                        lines.append(f"  \u2022 type={en.get('type')} `{str(en.get('href') or en.get('url', ''))[:100]}`")
                     lines.append(f"`media_content: {len(mcs)}`")
                     for mc in mcs:
-                        lines.append(f"  \u2022 medium={mc.get('medium')} type={mc.get('type')} `{str(mc.get('url',''))[:100]}`")
+                        lines.append(f"  \u2022 medium={mc.get('medium')} type={mc.get('type')} `{str(mc.get('url', ''))[:100]}`")
                     lines.append(f"`media_thumbnail: {len(mts)}`")
                     for mt in mts:
-                        lines.append(f"  \u2022 `{str(mt.get('url',''))[:100]}`")
+                        lines.append(f"  \u2022 `{str(mt.get('url', ''))[:100]}`")
                     lines.append(f"`_parse_images result: {len(parsed)}`")
                     for u in parsed:
                         lines.append(f"  \u2705 `{u[:120]}`")
@@ -787,10 +787,11 @@ class SpaceTweetsCog(commands.Cog):
 
         await msg.delete()
 
+    # ── error handler ─────────────────────────────────────────────────────────
+
     @spacenow.error
     @spacediag.error
     @spacetoggle.error
-    @spacedebug.error
     @spacedebug.error
     async def admin_error(self, ctx: commands.Context, error: Exception) -> None:
         if isinstance(error, commands.MissingPermissions):
@@ -804,6 +805,6 @@ class SpaceTweetsCog(commands.Cog):
 def setup_space_tweets(bot: commands.Bot) -> None:
     async def _add():
         await bot.add_cog(SpaceTweetsCog(bot))
-        log.info("SpaceTweets: ✅ cog registered")
+        log.info("SpaceTweets: cog registered")
 
     bot.loop.create_task(_add())
