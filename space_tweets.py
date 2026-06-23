@@ -147,7 +147,7 @@ def _extract_feed_avatar(feed: feedparser.FeedParserDict) -> Optional[str]:
 HARDCODED_SERVERS: dict[int, dict] = {
     1210475350119813120: {
         "channel_id": 1418959517957357579,
-        "enabled":    True,
+        "enabled":    False,
     },
     1481151926216429683: {
         "channel_id": 1507775435545772052,

@@ -28,9 +28,12 @@ GUILD = discord.Object(id=int(GUILD_ID)) if GUILD_ID else None
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
+intents.messages = True
 intents.message_content=True
 intents.voice_states=True
 intents.members=True
+intents.emojis=True
+intents.guilds=True
 
 bot=commands.Bot(command_prefix='!',intents=intents)
 
@@ -44,6 +47,8 @@ from keep_alive import (
     get_welcome_channel_id,
     set_bot_instance
 )
+
+
 
 
 # ============================================
@@ -293,15 +298,6 @@ async def on_command_error(ctx, error):
         print(f"Error: {error}")
         await ctx.send(f"❌ An error occurred: {str(error)}")
 
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    if "scrub" in message.content.lower():
-        await message.delete()
-
-    await bot.process_commands(message)
 
 
 server_emojis = {
@@ -315,30 +311,6 @@ server_emojis = {
 }
 
 
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    # Don't respond to DMs
-    if not message.guild:
-        return
-
-    content = message.content.lower()
-    server_id = message.guild.id
-
-    # Check for command triggers
-    if "appbcbash" in content:
-        await handle_bash_command(message, server_emojis.get(server_id))
-    elif "appbceq" in content:
-        await handle_eq_command(message, server_emojis.get(server_id))
-    elif "appbaa" in content:
-        await handle_aa_command(message, server_emojis.get(server_id))
-    elif "appsheriff" in content:
-        await handle_sheriff_command(message, server_emojis.get(server_id))
-
-    # Process other commands if you have them
-    await bot.process_commands(message)
 
 
 async def handle_bash_command(message, server_config):
@@ -365,6 +337,7 @@ async def handle_bash_command(message, server_config):
                 await message.add_reaction(emoji)
             except Exception as e:
                 print(f"Failed to add default emoji {emoji}: {e}")
+
 
 
 async def handle_eq_command(message, server_config):
@@ -3092,60 +3065,6 @@ async def start_grinch_sim_in_channel(channel: discord.abc.Messageable, invoked_
         # Small sleep avoids instant re-trigger if many messages arrive
         await asyncio.sleep(0.1)
 
-# ---------- on_message with debug prints ----------
-@bot.event
-async def on_message(message: discord.Message):
-    try:
-        print(f"[on_message] {message.author} in {getattr(message.channel,'name',message.channel)}: {message.content!r}")
-
-        # ignore bot messages
-        if message.author.bot:
-            print("[on_message] message from bot — ignoring")
-            return
-
-        # allow commands still
-        if message.content.startswith(BOT_PREFIX):
-            print("[on_message] detected command prefix — letting command handler process it")
-            await bot.process_commands(message)
-            return
-
-        # only in guilds (if you want DM triggering remove this)
-        if message.guild is None:
-            print("[on_message] DM message — ignoring for auto-trigger")
-            await bot.process_commands(message)
-            return
-
-        # Check active window
-        if not is_christmas_active():
-            print("[on_message] not in active Christmas window — skipping auto-trigger")
-            await bot.process_commands(message)
-            return
-
-        # Check bot permissions to send messages in channel (best-effort)
-        try:
-            me = message.guild.me or await message.guild.fetch_member(bot.user.id)
-            perms = message.channel.permissions_for(me)
-            if not perms.send_messages:
-                print("[on_message] bot lacks send_messages permission in this channel — aborting auto-trigger")
-                await bot.process_commands(message)
-                return
-        except Exception:
-            # If fetching member/perms fails, keep going — will show error in start
-            pass
-
-        # Start game in background so we don't block the event loop
-        # This returns immediately; start_grinch_sim_in_channel will handle active_games checks
-        asyncio.create_task(start_grinch_sim_in_channel(message.channel, invoked_by=message.author))
-
-    except Exception:
-        print("[on_message] Unexpected error:")
-        traceback.print_exc()
-    finally:
-        # Always let the command processor run (so commands still work)
-        try:
-            await bot.process_commands(message)
-        except Exception:
-            pass
 
 # ---------- Command fallback ----------
 @bot.command(name=COMMAND_NAME)
@@ -3253,172 +3172,7 @@ def is_user_moderator(user_id, guild_id):
     return int(user_id) in exempt_users or int(user_id) == MASTER_ID
 
 
-# ============================================
-# FIXED AUTO-MODERATION EVENT HANDLER
-# ============================================
 
-@bot.event
-async def on_message(message):
-    """Enhanced message handler with API-integrated automod"""
-
-    # Don't moderate bots or DMs
-    if message.author.bot or message.guild is None:
-        await bot.process_commands(message)
-        return
-
-    guild_id = int(message.guild.id)
-    author_id = int(message.author.id)
-
-    # ===== CHECK IF AUTOMOD IS ENABLED (API + Hardcoded) =====
-    automod_enabled = get_combined_automod_enabled(guild_id)
-
-    if not automod_enabled:
-        await bot.process_commands(message)
-        return
-
-    # ===== GET COMBINED EXEMPT USERS (API + Hardcoded) =====
-    all_exempt_users = get_combined_exempt_users(guild_id)
-
-    # Don't timeout exempt users
-    if author_id in all_exempt_users:
-        await bot.process_commands(message)
-        return
-
-    # ===== COMBINED AUTOMOD CHECK (Built-in + API) =====
-    # Get API-configured banned words for this guild
-    api_banned_words = get_automod_words(str(guild_id))
-
-    # Combine built-in N-word variations with API words
-    all_banned_words = BUILTIN_NWORD_VARIATIONS + api_banned_words
-
-    # Prepare message content for checking
-    message_content_lower = message.content.lower()
-
-    # Remove common separators for evasion detection
-    message_content_clean = message_content_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.',
-                                                                                                             '').replace(
-        '*', '')
-
-    detected_word = None
-    is_nword = False
-    is_custom = False
-
-    # Check for violations
-    for word in all_banned_words:
-        word_lower = word.lower()
-        clean_word = word_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.', '').replace('*', '')
-
-        # Check both original and cleaned versions
-        if word_lower in message_content_lower or clean_word in message_content_clean:
-            detected_word = word
-            is_nword = word in BUILTIN_NWORD_VARIATIONS
-            is_custom = word in api_banned_words
-            break
-
-    if detected_word:
-        try:
-            # Delete the message first
-            await message.delete()
-            print(f"[AUTO-MOD] Deleted message from {message.author.name} containing: {detected_word}")
-
-            # Timeout the user for 24 hours
-            duration = timedelta(hours=24)
-            await message.author.timeout(duration,
-                                         reason=f"Auto-moderation: {'Built-in filter' if is_nword else 'Custom API filter'}")
-
-            # Create embed for auto-timeout
-            embed = discord.Embed(
-                title="🚫 Auto-Moderation Activated",
-                description=f"{message.author.mention} has been automatically sanctioned",
-                color=0xff2b2b,
-                timestamp=datetime.now()
-            )
-            embed.set_thumbnail(url=message.author.display_avatar.url)
-            embed.add_field(name="👤 User", value=f"{message.author.name}", inline=True)
-            embed.add_field(name="⏰ Duration", value="24 hours", inline=True)
-
-            # Different violation type based on source
-            if is_nword:
-                embed.add_field(name="📝 Violation", value="Inappropriate language", inline=True)
-                embed.add_field(name="🔍 Detection", value="Built-in N-word filter", inline=True)
-            elif is_custom:
-                embed.add_field(name="📝 Violation", value="Custom banned word", inline=True)
-                embed.add_field(name="🔍 Detection", value="API Custom Filter", inline=True)
-            else:
-                embed.add_field(name="📝 Violation", value="Banned word usage", inline=True)
-                embed.add_field(name="🔍 Detection", value="Auto-moderation", inline=True)
-
-            # Calculate when timeout ends
-            end_time = datetime.now() + duration
-            embed.add_field(name="🔚 Ends At", value=f"<t:{int(end_time.timestamp())}:F>", inline=True)
-            embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
-            embed.add_field(name="🤖 System", value="Auto-Moderation", inline=True)
-
-            embed.set_footer(text=f"User ID: {message.author.id} | Message auto-deleted")
-
-            # Send the embed
-            await message.channel.send(embed=embed)
-
-            filter_type = "N-word" if is_nword else ("Custom API" if is_custom else "Unknown")
-            print(
-                f"[AUTO-MOD] ✅ User {message.author.name} ({message.author.id}) timed out in {message.guild.name} - {filter_type}: {detected_word}")
-
-        except discord.Forbidden:
-            warning_embed = discord.Embed(
-                title="⚠️ Auto-Moderation Alert",
-                description=f"{message.author.mention} used prohibited content, but I lack timeout permissions.",
-                color=0xff9900,
-                timestamp=datetime.now()
-            )
-            warning_embed.set_thumbnail(url=message.author.display_avatar.url)
-            warning_embed.add_field(name="⚡ Action Needed", value="Manual moderation required", inline=False)
-            warning_embed.add_field(name="🔍 Detected",
-                                    value=f"{'Built-in filter' if is_nword else 'Custom API filter'}", inline=True)
-            warning_embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
-            await message.channel.send(embed=warning_embed)
-            print(f"[AUTO-MOD] ⚠️ Missing permissions to timeout {message.author.name}")
-
-        except Exception as e:
-            print(f"[AUTO-MOD ERROR] Failed to moderate {message.author.name}: {e}")
-            try:
-                if not message.flags.ephemeral:
-                    await message.delete()
-            except:
-                pass
-
-        # Don't process commands if automod triggered
-        return
-
-    # ===== DYNAMIC COMMAND CHECK (from API) =====
-    content = message.content.lower()
-
-    if content.startswith('!'):
-        command_name = content[1:].split()[0].lower()
-        guild_commands = get_guild_commands(str(guild_id))
-
-        if command_name in guild_commands:
-            cmd_data = guild_commands[command_name]
-
-            embed = discord.Embed(
-                title=f"**{command_name.title()}**",
-                description=cmd_data.get('description', f"Here is your {command_name}!"),
-                color=discord.Color.blurple()
-            )
-
-            # Check if response is a URL (for image commands)
-            response_text = cmd_data.get('response', '')
-            if response_text.startswith('http'):
-                embed.set_image(url=response_text)
-            else:
-                embed.add_field(name="Response", value=response_text, inline=False)
-
-            embed.set_footer(text=f"Custom command • {message.guild.name}")
-
-            await message.channel.send(embed=embed)
-            return
-
-    # Process normal commands
-    await bot.process_commands(message)
 
 
 # ============================================
@@ -6376,51 +6130,6 @@ def clear_command_cache(guild_id: str = None):
 
 
 # ============================================
-# BOT EVENT HANDLERS
-# ============================================
-
-@bot.event
-async def on_message(message):
-    """Handle incoming messages and process custom commands"""
-    # Ignore bot messages
-    if message.author.bot:
-        return
-
-    # Check if message starts with ! (custom command prefix)
-    if message.content.startswith('!'):
-        # Extract command name
-        parts = message.content[1:].split()
-        if not parts:
-            await bot.process_commands(message)
-            return
-
-        command_name = parts[0].lower()
-
-        # Only check for custom commands in guilds
-        if message.guild:
-            guild_id = str(message.guild.id)
-
-            # Fetch commands from API (with caching)
-            commands = get_cached_commands(guild_id)
-
-            # Check if this command exists
-            if command_name in commands:
-                command_data = commands[command_name]
-                response_text = command_data.get('response', '')
-
-                if response_text:
-                    await message.channel.send(response_text)
-                    print(f"✅ Executed custom command: !{command_name} in guild {guild_id}")
-                    return  # Don't process as regular command
-
-    # Process regular bot commands
-    await bot.process_commands(message)
-
-
-
-
-
-# ============================================
 # ADMIN COMMANDS
 # ============================================
 
@@ -6815,12 +6524,6 @@ async def restricted_command(ctx):
 # STARTUP LOG
 # ============================================
 
-
-
-
-# ============================================
-# HELPER FUNCTION: GET COMMAND INFO
-# ============================================
 
 def get_command_info(guild_id: int, command_name: str):
     """Get information about a specific command"""
@@ -7305,8 +7008,405 @@ async def on_ready():
     setup_booster_catch(bot, add_score, scores)
 
 
+import re
+import time
+import unicodedata
+import urllib.parse
+from collections import defaultdict
+
+# ==========================================
+# GLOBAL CONFIGURATION & CACHE
+# ==========================================
+BOT_PREFIX = "!"  # Change this to match your actual bot prefix
+USER_HISTORY = defaultdict(list)
+HISTORY_EXPIRY = 10  # Forget message sequences older than 10 seconds
 
 
+def clean_single_char(text_content: str) -> str:
+    """
+    Safely reads an entire string block without truncating multi-byte
+    emojis, returning a clean lowercase Latin string map.
+    """
+    if not text_content:
+        return ""
+
+    # 1. URL decode, lowercase, and pull hidden variation markers
+    text_content = urllib.parse.unquote(text_content.strip()).lower()
+    text_content = text_content.replace('\ufe0f', '')
+    text_content = unicodedata.normalize('NFC', text_content)
+
+    # 2. Direct Emoji-to-Latin Translation Map
+    emoji_translation = {
+        0x1f1e6: 'a', 0x1f1e7: 'b', 0x1f1e8: 'c', 0x1f1e9: 'd', 0x1f1ea: 'e',
+        0x1f1eb: 'f', 0x1f1ec: 'g', 0x1f1ed: 'h', 0x1f1ee: 'i', 0x1f1ef: 'j',
+        0x1f1f0: 'k', 0x1f1f1: 'l', 0x1f1f2: 'm', 0x1f1f3: 'n', 0x1f1f4: 'o',
+        0x1f1f5: 'p', 0x1f1f6: 'q', 0x1f1f7: 'r', 0x1f1f8: 's', 0x1f1f9: 't',
+        0x1f1fa: 'u', 0x1f1fb: 'v', 0x1f1fc: 'w', 0x1f1fd: 'x', 0x1f1fe: 'y',
+        0x1f1ff: 'z',
+        0x1f171: 'b', 0x1f19a: 's', 0x1f18e: 'b',
+        0x1f17c: 'm', 0x1f17e: 'o', 0x1f17f: 'p'
+    }
+
+    # High-Plane Script Override Map (Gothic & Old Italic ranges)
+    high_plane_shapes = {
+        0x10333: 's', 0x10332: 'c', 0x1033a: 'c', 0x10302: 'c', 0x1030a: 'c', 0x1031a: 'c',
+        0x10342: 'r', 0x1031b: 'r',
+        0x10345: 'u', 0x10315: 'u', 0x10316: 'u', 0x10325: 'u',
+        0x10331: 'b', 0x10301: 'b'
+    }
+
+    # 3. Dynamic Loop Processing (Preserves full multi-byte character integrity)
+    translated_output = []
+    for char in text_content:
+        cp = ord(char)
+
+        if cp in emoji_translation:
+            translated_output.append(emoji_translation[cp])
+        elif cp in high_plane_shapes:
+            translated_output.append(high_plane_shapes[cp])
+        else:
+            try:
+                name = unicodedata.name(char).upper()
+                if "LETTER S" in name or "SIGMA" in name:
+                    translated_output.append("s")
+                elif "LETTER C" in name or "LETTER K" in name:
+                    translated_output.append("c")
+                elif "LETTER R" in name or "LETTER P" in name:
+                    translated_output.append("r")
+                elif "LETTER U" in name or "LETTER Y" in name or "LETTER V" in name or "LETTER W" in name:
+                    translated_output.append("u")
+                elif "LETTER B" in name:
+                    translated_output.append("b")
+                else:
+                    translated_output.append(char)
+            except ValueError:
+                translated_output.append(char)
+
+    result = "".join(translated_output)
+
+    # 4. Standard structural visual shape substitutions
+    result = result.replace("ew", "u").replace("00", "u").replace("oo", "u").replace("4", "u")
+    result = result.replace("y", "u").replace("v", "u").replace("w", "u")
+    result = result.replace("k", "c").replace("q", "c").replace("(", "c").replace("<", "c")
+    result = result.replace("z", "s").replace("$", "s").replace("5", "s")
+    result = result.replace("p", "r").replace("2", "r")
+    result = result.replace("8", "b").replace("6", "b").replace("3", "b")
+
+    return re.sub(r'[^a-z]', '', result)
+
+
+def contains_scrub(text: str) -> bool:
+    """
+    The Master Structural Filter. Analyzes direct text blocks
+    for hidden layouts, density anomalies, and ordered wildcards.
+    """
+    if not text:
+        return False
+
+    text = re.sub(r'[\s\n\r]+', '', text)
+    text = text.replace('\ufe0f', '')
+    text = re.sub(r'<a?:([a-zA-Z0-9_]+):[0-9]+>', r'\1', text)
+    text = urllib.parse.unquote(text.lower())
+    text = unicodedata.normalize('NFC', text)
+
+    # Re-apply the global translation layer logic to text strings
+    text = clean_single_char(text)
+
+    # Direct & Ordered Regular Expression Verifications
+    bad_words = ["scrub", "scurb", "scrab"]
+    for word in bad_words:
+        if word in text or word[::-1] in text:
+            return True
+
+    if re.search(r's.*c.*r.*u.*b', text):
+        return True
+
+    return False
+
+
+# ==========================================
+# MAIN DISCORD EVENT INTEGRATION PIPELINE
+# ==========================================
+async def process_incoming_message(message):
+    if message.author.bot or message.content.startswith(BOT_PREFIX):
+        return False
+
+    user_id = message.author.id
+    current_time = time.time()
+
+    # 1. Sweep message independently first
+    if contains_scrub(message.content):
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return True
+
+    # 2. Safely capture the full character stream out into the caching database
+    cleaned_char = clean_single_char(message.content)
+    if cleaned_char:
+        USER_HISTORY[user_id].append((current_time, cleaned_char))
+
+    # 3. Clean Cache: Wipe old history values
+    USER_HISTORY[user_id] = [
+        msg for msg in USER_HISTORY[user_id] if current_time - msg[0] <= HISTORY_EXPIRY
+    ]
+
+    # 4. Compile the historical character phrase
+    stitched_phrase = "".join([msg[1] for msg in USER_HISTORY[user_id]])
+
+    # 5. Evaluate combined cache string structure
+    if contains_scrub(stitched_phrase):
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        USER_HISTORY[user_id].clear()
+        return True
+
+    return False
+@bot.event
+async def on_message(message: discord.Message):
+    # ─────────────────────────────────────────────────────────────────────────
+    # 1. SHARED GUARD CLAUSES & LOGGING
+    # ─────────────────────────────────────────────────────────────────────────
+    try:
+        print(
+            f"[on_message] {message.author} in {getattr(message.channel, 'name', message.channel)}: {message.content!r}")
+    except Exception:
+        pass
+
+    # Ignore bot messages globally (Except for specific fallback command processors)
+    if message.author.bot:
+        return
+    # ─────────────────────────────────────────────────────────────────────────
+    # 2. SIMPLE TEXT FILTERS (Ultimate Loophole-Free Scrub Filter)
+    # ─────────────────────────────────────────────────────────────────────────
+    if message.guild and message.guild.id == 1481151926216429683:
+        pass  # Skip whitelist server
+    elif contains_scrub(message.content):
+        try:
+            # Create the beautiful embed (Footer removed)
+            warning_embed = discord.Embed(
+                title="🚨 Language Warning",
+                description=f"How could you say the S word, {message.author.mention}?",
+                color=0xFF2B2B,
+            )
+
+            # Send the embed and delete the message
+            await message.channel.send(embed=warning_embed)
+            await message.delete()
+            return  # Hard stop
+        except Exception as e:
+            print(f"[SCRUB FILTER] Failed to respond or delete: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 3. ADVANCED AUTO-MODERATION PIPELINE (N-word & API Filters)
+    # ─────────────────────────────────────────────────────────────────────────
+    if message.guild is not None:
+        guild_id = int(message.guild.id)
+        author_id = int(message.author.id)
+
+        if get_combined_automod_enabled(guild_id):
+            all_exempt_users = get_combined_exempt_users(guild_id)
+
+            if author_id not in all_exempt_users:
+                api_banned_words = get_automod_words(str(guild_id))
+                all_banned_words = BUILTIN_NWORD_VARIATIONS + api_banned_words
+
+                message_content_lower = message.content.lower()
+                message_content_clean = (
+                    message_content_lower.replace(' ', '')
+                    .replace('-', '').replace('_', '')
+                    .replace('.', '').replace('*', '')
+                )
+
+                detected_word = None
+                is_nword = False
+                is_custom = False
+
+                for word in all_banned_words:
+                    word_lower = word.lower()
+                    clean_word = word_lower.replace(' ', '').replace('-', '').replace('_', '').replace('.', '').replace(
+                        '*', '')
+
+                    if word_lower in message_content_lower or clean_word in message_content_clean:
+                        detected_word = word
+                        is_nword = word in BUILTIN_NWORD_VARIATIONS
+                        is_custom = word in api_banned_words
+                        break
+
+                if detected_word:
+                    try:
+                        await message.delete()
+                        print(f"[AUTO-MOD] Deleted message from {message.author.name} containing: {detected_word}")
+
+                        duration = timedelta(hours=24)
+                        await message.author.timeout(
+                            duration,
+                            reason=f"Auto-moderation: {'Built-in filter' if is_nword else 'Custom API filter'}"
+                        )
+
+                        embed = discord.Embed(
+                            title="🚫 Auto-Moderation Activated",
+                            description=f"{message.author.mention} has been automatically sanctioned",
+                            color=0xff2b2b,
+                            timestamp=datetime.now()
+                        )
+                        embed.set_thumbnail(url=message.author.display_avatar.url)
+                        embed.add_field(name="👤 User", value=f"{message.author.name}", inline=True)
+                        embed.add_field(name="⏰ Duration", value="24 hours", inline=True)
+
+                        if is_nword:
+                            embed.add_field(name="📝 Violation", value="Inappropriate language", inline=True)
+                            embed.add_field(name="🔍 Detection", value="Built-in N-word filter", inline=True)
+                        elif is_custom:
+                            embed.add_field(name="📝 Violation", value="Custom banned word", inline=True)
+                            embed.add_field(name="🔍 Detection", value="API Custom Filter", inline=True)
+                        else:
+                            embed.add_field(name="📝 Violation", value="Banned word usage", inline=True)
+                            embed.add_field(name="🔍 Detection", value="Auto-moderation", inline=True)
+
+                        end_time = datetime.now() + duration
+                        embed.add_field(name="🔚 Ends At", value=f"<t:{int(end_time.timestamp())}:F>", inline=True)
+                        embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
+                        embed.add_field(name="🤖 System", value="Auto-Moderation", inline=True)
+                        embed.set_footer(text=f"User ID: {message.author.id} | Message auto-deleted")
+
+                        await message.channel.send(embed=embed)
+                        print(
+                            f"[AUTO-MOD] ✅ User {message.author.name} ({message.author.id}) timed out in {message.guild.name} - {filter_type}: {detected_word}")
+
+                    except discord.Forbidden:
+                        warning_embed = discord.Embed(
+                            title="⚠️ Auto-Moderation Alert",
+                            description=f"{message.author.mention} used prohibited content, but I lack timeout permissions.",
+                            color=0xff9900,
+                            timestamp=datetime.now()
+                        )
+                        warning_embed.set_thumbnail(url=message.author.display_avatar.url)
+                        warning_embed.add_field(name="⚡ Action Needed", value="Manual moderation required",
+                                                inline=False)
+                        warning_embed.add_field(name="🔍 Detected",
+                                                value=f"{'Built-in filter' if is_nword else 'Custom API filter'}",
+                                                inline=True)
+                        warning_embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
+                        await message.channel.send(warning_embed)
+                        print(f"[AUTO-MOD] ⚠️ Missing permissions to timeout {message.author.name}")
+                    except Exception as e:
+                        print(f"[AUTO-MOD ERROR] Failed to moderate {message.author.name}: {e}")
+                        try:
+                            if not message.flags.ephemeral:
+                                await message.delete()
+                        except Exception:
+                            pass
+
+                    return  # Block execution if auto-mod caught it
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 4. CUSTOM INLINE EMOJI TRIGGERS (Contains Checks)
+    # ─────────────────────────────────────────────────────────────────────────
+    content = message.content.lower()
+    if message.guild:
+        server_config = server_emojis.get(message.guild.id)
+        if "appbcbash" in content:
+            await handle_bash_command(message, server_config)
+        if "appbceq" in content:
+            await handle_eq_command(message, server_config)
+        if "appbaa" in content:
+            await handle_aa_command(message, server_config)
+        if "appsheriff" in content:
+            await handle_sheriff_command(message, server_config)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 5. CUSTOM API COMMAND PROCESSORS (!prefix logic)
+    # ─────────────────────────────────────────────────────────────────────────
+    if message.content.startswith('!'):
+        parts = message.content[1:].split()
+        if parts:
+            command_name = parts[0].lower()
+            if message.guild:
+                guild_id_str = str(message.guild.id)
+                guild_id_int = int(message.guild.id)
+
+                # Handler Source A: Dynamic Embed Commands
+                guild_commands = get_guild_commands(str(guild_id_int))
+                if command_name in guild_commands:
+                    cmd_data = guild_commands[command_name]
+                    embed = discord.Embed(
+                        title=f"**{command_name.title()}**",
+                        description=cmd_data.get('description', f"Here is your {command_name}!"),
+                        color=discord.Color.blurple()
+                    )
+                    response_text = cmd_data.get('response', '')
+                    if response_text.startswith('http'):
+                        embed.set_image(url=response_text)
+                    else:
+                        embed.add_field(name="Response", value=response_text, inline=False)
+                    embed.set_footer(text=f"Custom command • {message.guild.name}")
+
+                    await message.channel.send(embed=embed)
+                    return
+
+                # Handler Source B: Cached Text Commands
+                cached_cmds = get_cached_commands(guild_id_str)
+                if command_name in cached_cmds:
+                    command_data = cached_cmds[command_name]
+                    response_text = command_data.get('response', '')
+                    if response_text:
+                        await message.channel.send(response_text)
+                        print(f"✅ Executed custom command: !{command_name} in guild {guild_id_str}")
+                        return
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 6. CHRISTMAS EVENT IN background TASKS
+    # ─────────────────────────────────────────────────────────────────────────
+    try:
+        if (
+                not message.content.startswith(BOT_PREFIX)
+                and message.guild is not None
+                and is_christmas_active()
+        ):
+            try:
+                me = message.guild.me or await message.guild.fetch_member(bot.user.id)
+                perms = message.channel.permissions_for(me)
+                if perms.send_messages:
+                    asyncio.create_task(start_grinch_sim_in_channel(message.channel, invoked_by=message.author))
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[on_message] Grinch Task Exception: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 7. DEFAULT COMMAND DESPATCHER (Processes regular bot prefix commands)
+    # ─────────────────────────────────────────────────────────────────────────
+    await bot.process_commands(message)
+
+
+@bot.event
+async def on_message_edit(before: discord.Message, after: discord.Message):
+    """Intercept message edits and process them through the independent scrub filter."""
+    if after.author.bot or not after.guild:
+        return
+
+    if after.guild.id == 1481151926216429683:
+        return
+
+    if contains_scrub(after.content):
+        try:
+            # Create the beautiful embed (Footer removed)
+            warning_embed = discord.Embed(
+                title="🚨 Language Warning",
+                description=f"How could you say the S word, {message.author.mention}?",
+                color=0xFF2B2B,
+            )
+
+            # Send the embed and delete the message
+            await message.channel.send(embed=warning_embed)
+            await message.delete()
+            return  # Hard stop
+        except Exception as e:
+            print(f"[SCRUB FILTER] Failed to respond or delete: {e}")
 
 
 
