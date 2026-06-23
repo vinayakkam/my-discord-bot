@@ -32,12 +32,12 @@
       "Void Sentinel Presence"
     ],
     "achievements": [
-      "Void Slayer",
-      "Space Millionaire",
-      "Ancient Wisdom",
-      "Core Retriever",
       "First Steps",
-      "Puzzle Master"
+      "Void Slayer",
+      "Puzzle Master",
+      "Space Millionaire",
+      "Core Retriever",
+      "Ancient Wisdom"
     ],
     "resources": {
       "crystals": 127,

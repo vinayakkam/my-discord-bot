@@ -7306,36 +7306,12 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     print(f"📊 Servers: {len(bot.guilds)}")
     setup_galaxy(bot, add_score, MASTER_ID)
-    setup_space_tweets(bot)
+    await setup_space_tweets(bot)
     await bot.tree.sync()  # ← add this
     print(f"🔃 Slash commands synced")
     if not daily_galaxy_backup.is_running():
         daily_galaxy_backup.start()
     setup_booster_catch(bot, add_score, scores)
-    try:
-        # Dual Lavalink System - Primary + Fallback
-        nodes = [
-            wavelink.Node(
-                identifier="PRIMARY",
-                uri="wss://lavalinkv4.serenetia.com",
-                password="https://dsc.gg/ajidevserver",
-                retries=3
-            ),
-            wavelink.Node(
-                identifier="FALLBACK",
-                uri="wss://lava-v4.ajieblogs.eu.org:443",
-                password="https://dsc.gg/ajidevserver",
-                retries=2
-            )
-        ]
-
-        await wavelink.Pool.connect(nodes=nodes, client=bot)
-        print("🎵 Dual Lavalink system initialized!")
-        print(f"   ├─ PRIMARY: lavalinkv4.serenetia.com")
-        print(f"   └─ FALLBACK: lava-v4.ajieblogs.eu.org")
-    except Exception as e:
-        print(f"❌ Lavalink connection failed: {e}")
-        print("⚠️ Music commands will not work without Lavalink")
 
 
 @bot.event

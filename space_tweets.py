@@ -49,31 +49,18 @@ MAX_TWEET_AGE_HOURS:   int = 24
 # ─────────────────────────────────────────────────────────────────────────────
 
 RSS_APP_FEEDS: dict[str, str] = {
-    "SpaceX":     "https://rss.app/feeds/zrcEmWZRA6UzxTsY.xml",
-    "BlueOrigin": "https://rss.app/feeds/I2DCH4BdXpJSnf8X.xml",
-    "NASA":       "https://rss.app/feeds/LUOTmcXhCWIsn8PA.xml",   # ← paste your rss.app feed URL for @NASA
-    "RocketLab":  "https://rss.app/feeds/K7CpAQ97vB5uhKDo.xml",   # ← paste your rss.app feed URL for @RocketLab
-    "ULA":        "https://rss.app/feeds/MCnuilv9YzhVWAeB.xml",   # ← paste your rss.app feed URL for @ulalaunch
+    "SpaceX":     "https://nitter.net/{username}/rss",
+    "BlueOrigin": "https://nitter.net/{username}/rss",
+    "NASA":       "https://nitter.net/{username}/rss",
+    "RocketLab":  "https://nitter.net/{username}/rss",
+    "ULA":        "https://nitter.net/{username}/rss",
 }
 
-# ─────────────────────────────────────────────
-#  Nitter mirrors (tried in order as fallback)
-# ─────────────────────────────────────────────
-
+# Updated fallback pool order based on latest diagnostics
 NITTER_MIRRORS: list[str] = [
-    "https://nitter.poast.org/{username}/rss",
-    "https://nitter.privacydev.net/{username}/rss",
-    "https://nitter.cz/{username}/rss",
     "https://nitter.net/{username}/rss",
-    "https://nitter.nl/{username}/rss",
-    "https://nitter.it/{username}/rss",
     "https://xcancel.com/{username}/rss",
-    "https://twiiit.com/{username}/rss",
-    "https://nitter.tiekoetter.com/{username}/rss",
-    "https://nitter.rawbit.ninja/{username}/rss",
 ]
-
-RSSHUB_URL = "https://rsshub.app/twitter/user/{username}"
 
 # ─────────────────────────────────────────────
 #  Accounts
@@ -160,7 +147,7 @@ def _extract_feed_avatar(feed: feedparser.FeedParserDict) -> Optional[str]:
 HARDCODED_SERVERS: dict[int, dict] = {
     1210475350119813120: {
         "channel_id": 1418959517957357579,
-        "enabled":    False,
+        "enabled":    True,
     },
     1481151926216429683: {
         "channel_id": 1507775435545772052,
