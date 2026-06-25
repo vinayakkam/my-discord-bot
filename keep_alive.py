@@ -413,13 +413,13 @@ def run():
     print(f"🔑 API Key: {'set' if API_KEY else 'MISSING'}")
     print(f"🔗 GitHub: {'enabled' if GITHUB_TOKEN else 'disabled'}")
     print("=" * 50)
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=5023)
 
 
 def keep_alive():
     t = Thread(target=run, daemon=True)
     t.start()
-    print("✅ API server started on :8080")
+    print("✅ API server started on :5023")
 
 
 if __name__ == '__main__':
