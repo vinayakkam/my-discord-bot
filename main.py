@@ -6993,6 +6993,7 @@ import discord
 from discord.ext import commands
 import os
 from space_tweets import setup_space_tweets
+from booster_catch import setup_booster_catch
 import logging
 
 @bot.event
@@ -7008,163 +7009,11 @@ async def on_ready():
     setup_booster_catch(bot, add_score, scores)
 
 
-import re
-import time
-import unicodedata
-import urllib.parse
-from collections import defaultdict
 
-# ==========================================
-# GLOBAL CONFIGURATION & CACHE
-# ==========================================
+
+
 BOT_PREFIX = "!"  # Change this to match your actual bot prefix
-USER_HISTORY = defaultdict(list)
-HISTORY_EXPIRY = 10  # Forget message sequences older than 10 seconds
 
-
-def clean_single_char(text_content: str) -> str:
-    """
-    Safely reads an entire string block without truncating multi-byte
-    emojis, returning a clean lowercase Latin string map.
-    """
-    if not text_content:
-        return ""
-
-    # 1. URL decode, lowercase, and pull hidden variation markers
-    text_content = urllib.parse.unquote(text_content.strip()).lower()
-    text_content = text_content.replace('\ufe0f', '')
-    text_content = unicodedata.normalize('NFC', text_content)
-
-    # 2. Direct Emoji-to-Latin Translation Map
-    emoji_translation = {
-        0x1f1e6: 'a', 0x1f1e7: 'b', 0x1f1e8: 'c', 0x1f1e9: 'd', 0x1f1ea: 'e',
-        0x1f1eb: 'f', 0x1f1ec: 'g', 0x1f1ed: 'h', 0x1f1ee: 'i', 0x1f1ef: 'j',
-        0x1f1f0: 'k', 0x1f1f1: 'l', 0x1f1f2: 'm', 0x1f1f3: 'n', 0x1f1f4: 'o',
-        0x1f1f5: 'p', 0x1f1f6: 'q', 0x1f1f7: 'r', 0x1f1f8: 's', 0x1f1f9: 't',
-        0x1f1fa: 'u', 0x1f1fb: 'v', 0x1f1fc: 'w', 0x1f1fd: 'x', 0x1f1fe: 'y',
-        0x1f1ff: 'z',
-        0x1f171: 'b', 0x1f19a: 's', 0x1f18e: 'b',
-        0x1f17c: 'm', 0x1f17e: 'o', 0x1f17f: 'p'
-    }
-
-    # High-Plane Script Override Map (Gothic & Old Italic ranges)
-    high_plane_shapes = {
-        0x10333: 's', 0x10332: 'c', 0x1033a: 'c', 0x10302: 'c', 0x1030a: 'c', 0x1031a: 'c',
-        0x10342: 'r', 0x1031b: 'r',
-        0x10345: 'u', 0x10315: 'u', 0x10316: 'u', 0x10325: 'u',
-        0x10331: 'b', 0x10301: 'b'
-    }
-
-    # 3. Dynamic Loop Processing (Preserves full multi-byte character integrity)
-    translated_output = []
-    for char in text_content:
-        cp = ord(char)
-
-        if cp in emoji_translation:
-            translated_output.append(emoji_translation[cp])
-        elif cp in high_plane_shapes:
-            translated_output.append(high_plane_shapes[cp])
-        else:
-            try:
-                name = unicodedata.name(char).upper()
-                if "LETTER S" in name or "SIGMA" in name:
-                    translated_output.append("s")
-                elif "LETTER C" in name or "LETTER K" in name:
-                    translated_output.append("c")
-                elif "LETTER R" in name or "LETTER P" in name:
-                    translated_output.append("r")
-                elif "LETTER U" in name or "LETTER Y" in name or "LETTER V" in name or "LETTER W" in name:
-                    translated_output.append("u")
-                elif "LETTER B" in name:
-                    translated_output.append("b")
-                else:
-                    translated_output.append(char)
-            except ValueError:
-                translated_output.append(char)
-
-    result = "".join(translated_output)
-
-    # 4. Standard structural visual shape substitutions
-    result = result.replace("ew", "u").replace("00", "u").replace("oo", "u").replace("4", "u")
-    result = result.replace("y", "u").replace("v", "u").replace("w", "u")
-    result = result.replace("k", "c").replace("q", "c").replace("(", "c").replace("<", "c")
-    result = result.replace("z", "s").replace("$", "s").replace("5", "s")
-    result = result.replace("p", "r").replace("2", "r")
-    result = result.replace("8", "b").replace("6", "b").replace("3", "b")
-
-    return re.sub(r'[^a-z]', '', result)
-
-
-def contains_scrub(text: str) -> bool:
-    """
-    The Master Structural Filter. Analyzes direct text blocks
-    for hidden layouts, density anomalies, and ordered wildcards.
-    """
-    if not text:
-        return False
-
-    text = re.sub(r'[\s\n\r]+', '', text)
-    text = text.replace('\ufe0f', '')
-    text = re.sub(r'<a?:([a-zA-Z0-9_]+):[0-9]+>', r'\1', text)
-    text = urllib.parse.unquote(text.lower())
-    text = unicodedata.normalize('NFC', text)
-
-    # Re-apply the global translation layer logic to text strings
-    text = clean_single_char(text)
-
-    # Direct & Ordered Regular Expression Verifications
-    bad_words = ["scrub", "scurb", "scrab"]
-    for word in bad_words:
-        if word in text or word[::-1] in text:
-            return True
-
-    if re.search(r's.*c.*r.*u.*b', text):
-        return True
-
-    return False
-
-
-# ==========================================
-# MAIN DISCORD EVENT INTEGRATION PIPELINE
-# ==========================================
-async def process_incoming_message(message):
-    if message.author.bot or message.content.startswith(BOT_PREFIX):
-        return False
-
-    user_id = message.author.id
-    current_time = time.time()
-
-    # 1. Sweep message independently first
-    if contains_scrub(message.content):
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        return True
-
-    # 2. Safely capture the full character stream out into the caching database
-    cleaned_char = clean_single_char(message.content)
-    if cleaned_char:
-        USER_HISTORY[user_id].append((current_time, cleaned_char))
-
-    # 3. Clean Cache: Wipe old history values
-    USER_HISTORY[user_id] = [
-        msg for msg in USER_HISTORY[user_id] if current_time - msg[0] <= HISTORY_EXPIRY
-    ]
-
-    # 4. Compile the historical character phrase
-    stitched_phrase = "".join([msg[1] for msg in USER_HISTORY[user_id]])
-
-    # 5. Evaluate combined cache string structure
-    if contains_scrub(stitched_phrase):
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        USER_HISTORY[user_id].clear()
-        return True
-
-    return False
 @bot.event
 async def on_message(message: discord.Message):
     # ─────────────────────────────────────────────────────────────────────────
@@ -7182,7 +7031,7 @@ async def on_message(message: discord.Message):
     # ─────────────────────────────────────────────────────────────────────────
     # 2. SIMPLE TEXT FILTERS (Ultimate Loophole-Free Scrub Filter)
     # ─────────────────────────────────────────────────────────────────────────
-    if message.guild and message.guild.id == 1481151926216429683:
+    """if message.guild and message.guild.id == 1481151926216429683:
         pass  # Skip whitelist server
     elif contains_scrub(message.content):
         try:
@@ -7198,7 +7047,7 @@ async def on_message(message: discord.Message):
             await message.delete()
             return  # Hard stop
         except Exception as e:
-            print(f"[SCRUB FILTER] Failed to respond or delete: {e}")
+            print(f"[SCRUB FILTER] Failed to respond or delete: {e}")"""
 
     # ─────────────────────────────────────────────────────────────────────────
     # 3. ADVANCED AUTO-MODERATION PIPELINE (N-word & API Filters)
@@ -7383,9 +7232,9 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
-@bot.event
+"""@bot.event
 async def on_message_edit(before: discord.Message, after: discord.Message):
-    """Intercept message edits and process them through the independent scrub filter."""
+  
     if after.author.bot or not after.guild:
         return
 
@@ -7406,7 +7255,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
             await message.delete()
             return  # Hard stop
         except Exception as e:
-            print(f"[SCRUB FILTER] Failed to respond or delete: {e}")
+            print(f"[SCRUB FILTER] Failed to respond or delete: {e}")"""
 
 
 
