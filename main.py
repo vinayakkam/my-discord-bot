@@ -2377,7 +2377,7 @@ async def rocketdesign(ctx):
 
 
 
-SCORES_FILE = "scores.json"
+SCORES_FILE = "persistent/scores.json"
 
 def load_scores():
     """Load scores from a JSON file if it exists, otherwise return empty dict."""
@@ -4986,8 +4986,8 @@ ROLE_MAPPING = {
 ELECTION_LOGO_URL = "https://media.discordapp.net/attachments/1421476807189991444/1426195894814117918/92ecea0f-2a16-4c0b-9b03-e3662cbd16d7.png?ex=68ea57ee&is=68e9066e&hm=378057ab1ccc76bc9347189960514911729d2510500065717b273c5584ad1a3e&=&format=webp&quality=lossless&width=960&height=960"
 
 # File paths for data persistence
-ELECTIONS_FILE = "active_elections.json"
-HISTORY_FILE = "election_history.json"
+ELECTIONS_FILE = "persistent/active_elections.json"
+HISTORY_FILE = "persistent/election_history.json"
 
 # Store active elections
 active_elections = {}

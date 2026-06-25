@@ -2,3 +2,5 @@
 discord.log
 
 /.cache
+/persistent/
+/data/
