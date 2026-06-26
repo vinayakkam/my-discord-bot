@@ -452,6 +452,7 @@ def set_bot_instance(bot):
     global bot_instance
     bot_instance = bot
 
+#hi this is a test
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 def run():
