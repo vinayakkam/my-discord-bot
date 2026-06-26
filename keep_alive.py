@@ -316,7 +316,55 @@ def get_allowed_users(guild_id):
 
 
 # ── Welcome channel ───────────────────────────────────────────────────────────
-@app.route('/api/welcome_channel', methods=['POST'])
+@app.route('/api/channels/<guild_id>', methods=['GET'])
+@require_api_key
+def get_channels(guild_id):
+    """Return text channels for a guild using the bot instance."""
+    try:
+        if bot_instance is None:
+            return jsonify({'success': False, 'error': 'Bot not connected to API yet'}), 503
+
+        import asyncio
+
+        async def _fetch():
+            guild = bot_instance.get_guild(int(guild_id))
+            if guild is None:
+                # Try fetching if not in cache
+                try:
+                    guild = await bot_instance.fetch_guild(int(guild_id))
+                except Exception:
+                    return None
+            channels = await guild.fetch_channels()
+            return [
+                {
+                    'id':        str(c.id),
+                    'name':      c.name,
+                    'type':      c.type.value,
+                    'position':  c.position,
+                    'parent_id': str(c.category_id) if c.category_id else None,
+                    'parent_name': c.category.name if c.category else None,
+                }
+                for c in channels
+                if c.type.value in (0, 5)   # text + announcement
+            ]
+
+        # Run async from sync Flask context
+        loop = asyncio.new_event_loop()
+        channels = loop.run_until_complete(_fetch())
+        loop.close()
+
+        if channels is None:
+            return jsonify({'success': False, 'error': 'Bot is not in that server'}), 404
+
+        # Sort: by category position then channel position
+        channels.sort(key=lambda c: (c.get('parent_id') or '', c.get('position', 0)))
+
+        return jsonify({'success': True, 'channels': channels, 'count': len(channels)})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @require_api_key
 def set_welcome_channel():
     try:
