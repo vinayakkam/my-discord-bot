@@ -12,7 +12,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # ── CORS: allow the dashboard origin ────────────────────────────────────────
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # ── Config file paths ────────────────────────────────────────────────────────
 CONFIG_DIR             = "config"
