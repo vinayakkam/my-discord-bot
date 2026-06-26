@@ -4177,6 +4177,7 @@ async def gif(ctx):
 
     await ctx.send(embed=embed)
 
+
 @bot.command(name="lightsaber")
 async def gif(ctx):
     """Send an embed with a GIF."""
