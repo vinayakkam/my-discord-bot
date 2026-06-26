@@ -4164,6 +4164,19 @@ async def gif(ctx):
 
     await ctx.send(embed=embed)
 
+@bot.command(name="hugeboom")
+async def gif(ctx):
+    """Send an embed with a GIF."""
+    embed = discord.Embed(
+        title="**Huge BOOM**",
+        description="Here is your Huge Boom!",
+        color=discord.Color.blurple()
+    )
+    embed.set_image(url="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExamxra2Y1ZDdkZzc5ZHE4dnBqazN3ZnB6bzkzZWNxbzB2b3BkZWVrciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6T3JJ4G47IDDsafTox/giphy.gif")
+    # Replace with any GIF URL
+
+    await ctx.send(embed=embed)
+
 @bot.command(name="lightsaber")
 async def gif(ctx):
     """Send an embed with a GIF."""
