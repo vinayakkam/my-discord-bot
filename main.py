@@ -7030,15 +7030,6 @@ BOT_PREFIX = "!"  # Change this to match your actual bot prefix
 
 @bot.event
 async def on_message(message: discord.Message):
-    # ─────────────────────────────────────────────────────────────────────────
-    # 1. SHARED GUARD CLAUSES & LOGGING
-    # ─────────────────────────────────────────────────────────────────────────
-    try:
-        print(
-            f"[on_message] {message.author} in {getattr(message.channel, 'name', message.channel)}: {message.content!r}")
-    except Exception:
-        pass
-
     # Ignore bot messages globally (Except for specific fallback command processors)
     if message.author.bot:
         return
