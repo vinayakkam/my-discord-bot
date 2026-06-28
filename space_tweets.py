@@ -149,8 +149,8 @@ HARDCODED_SERVERS: dict[int, dict] = {
         "channel_id": 1418959517957357579,
         "enabled":    False,
     },
-    1481151926216429683: {
-        "channel_id": 1507775435545772052,
+    1341485158129205278: {
+        "channel_id": 1520698600047251537,
         "enabled":    True,
     },
 }
