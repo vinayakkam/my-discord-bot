@@ -61,7 +61,7 @@ NITTER_MIRRORS: list[str] = [
     "https://nitter.net/{username}/rss",
     "https://xcancel.com/{username}/rss",
 ]
-
+RSSHUB_URL="https://rss.app"
 # ─────────────────────────────────────────────
 #  Accounts
 # ─────────────────────────────────────────────
@@ -145,9 +145,9 @@ def _extract_feed_avatar(feed: feedparser.FeedParserDict) -> Optional[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 HARDCODED_SERVERS: dict[int, dict] = {
-    1210475350119813120: {
-        "channel_id": 1418959517957357579,
-        "enabled":    False,
+    1524814576313696317: {
+        "channel_id": 1524814577664135281,
+        "enabled":    True,
     },
     1341485158129205278: {
         "channel_id": 1520698600047251537,
