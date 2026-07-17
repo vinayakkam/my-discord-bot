@@ -7263,6 +7263,6 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
             print(f"[SCRUB FILTER] Failed to respond or delete: {e}")"""
 
 
-
+"""HI this is a test"""
 
 bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
