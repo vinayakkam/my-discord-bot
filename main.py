@@ -7008,8 +7008,10 @@ from discord.ext import commands
 import os
 from space_tweets import setup_space_tweets
 from booster_catch import setup_booster_catch
+from pixel_art import setup_pixel_art
 import logging
 setup_booster_catch(bot, add_score, scores)
+setup_pixel_art(bot)
 
 @bot.event
 async def on_ready():

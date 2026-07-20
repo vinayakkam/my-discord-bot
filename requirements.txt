@@ -13,3 +13,4 @@ wavelink>=3.2.0
 spotipy
 PyNaCl
 bs4
+pillow
