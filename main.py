@@ -7009,6 +7009,7 @@ import os
 from space_tweets import setup_space_tweets
 from booster_catch import setup_booster_catch
 import logging
+setup_booster_catch(bot, add_score, scores)
 
 @bot.event
 async def on_ready():
@@ -7020,7 +7021,7 @@ async def on_ready():
     print(f"🔃 Slash commands synced")
     if not daily_galaxy_backup.is_running():
         daily_galaxy_backup.start()
-    setup_booster_catch(bot, add_score, scores)
+
 
 
 

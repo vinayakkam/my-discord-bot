@@ -26,13 +26,10 @@ GRID_H    = 18
 TOWER_ROW = 18
 GROUND_ROW= 19
 
-# FIX 2: Wall boundaries moved inward so booster is always reachable by arms.
-# Old: WALL_L=1, WALL_R=30. Arm_left_min = ARM_HALF+2 = 7, inner = 8 → col 1 unreachable.
-# New: WALL_L=3, WALL_R=28. Arm can reach col 3 inner edge.
 WALL_L = 3       # left wall — booster bounces off this column
 WALL_R = 28      # right wall
 
-# Physics (sim-verified: g=0.11 gives ~17s fall)
+# Physics (UNCHANGED)
 GRAVITY     = 0.11
 DRAG_COEFF  = 0.12
 DRY_MASS    = 10.0
@@ -41,25 +38,19 @@ ENGINE_THRUST     = 20.0
 FUEL_FLOW         = 0.9
 THRUST_PULSE_DURATION = 1.2
 
-# FIX 3: Wind uses Ornstein-Uhlenbeck mean reversion (theta=1.5, half-life ~0.46s)
-# instead of pure inertia decay which let wind camp at extremes for the full fall.
 WIND_BASE_ACCEL  = 0.5
-WIND_OU_THETA    = 1.5    # mean-reversion speed — higher = reverts faster
+WIND_OU_THETA    = 1.5    # mean-reversion speed
 WIND_OU_SIGMA    = 0.22   # diffusion noise
-# Wall bounce wind suppression: after hitting a wall, wind is dampened for this long
 WIND_SUPPRESS_DURATION = 0.5   # seconds
 
-# Catch geometry (sim-verified)
+# Catch geometry
 CATCH_ZONE_Y     = 14.0
 CRASH_Y          = 19.5
 ARM_HALF         = 5
 ARM_INNER_MARGIN = 1
 
-# FIX 2 (cont): ARM_CENTER_MIN set so the arm's inner edge exactly reaches WALL_L.
-# Formula: inner_left = (center - ARM_HALF) + ARM_INNER_MARGIN = WALL_L
-# => center = WALL_L + ARM_HALF - ARM_INNER_MARGIN
-ARM_CENTER_MIN = WALL_L + ARM_HALF - ARM_INNER_MARGIN   # = 7  (inner_left = WALL_L = 3 ✅)
-ARM_CENTER_MAX = WALL_R - ARM_HALF + ARM_INNER_MARGIN   # = 24 (inner_right = WALL_R = 28 ✅)
+ARM_CENTER_MIN = WALL_L + ARM_HALF - ARM_INNER_MARGIN   # = 7
+ARM_CENTER_MAX = WALL_R - ARM_HALF + ARM_INNER_MARGIN   # = 24
 
 # Catch quality thresholds (wu/s)
 PERFECT_VY = 0.8;  GOOD_VY = 1.6;  ROUGH_VY = 2.8
@@ -74,7 +65,7 @@ DISP_SLOW = 1.30
 
 
 # ══════════════════════════════════════════════════════════════════
-#  STAR FIELD — seeded once, never flickers
+#  STAR FIELD
 # ══════════════════════════════════════════════════════════════════
 
 def _make_star_field(seed: int) -> list:
@@ -109,28 +100,48 @@ class CatchGameView(discord.ui.View):
             for item in self.children:
                 item.disabled = True
 
-    def _ok(self, i: discord.Interaction) -> bool:
-        return i.user == self.game.ctx.author
+    def _ok(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.game.ctx.author.id
 
-    @discord.ui.button(label="← Arms",    style=discord.ButtonStyle.secondary, emoji="⬅️", row=0)
-    async def btn_left(self, i, b):
-        if self._ok(i): self.game.action_move_arms(-4); self.sync_buttons()
-        await i.response.defer()
+    @discord.ui.button(label="← Arms", style=discord.ButtonStyle.secondary, emoji="⬅️", row=0)
+    async def btn_left(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._ok(interaction):
+            self.game.action_move_arms(-4)
+            self.sync_buttons()
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
 
-    @discord.ui.button(label="Arms →",    style=discord.ButtonStyle.secondary, emoji="➡️", row=0)
-    async def btn_right(self, i, b):
-        if self._ok(i): self.game.action_move_arms(+4); self.sync_buttons()
-        await i.response.defer()
+    @discord.ui.button(label="Arms →", style=discord.ButtonStyle.secondary, emoji="➡️", row=0)
+    async def btn_right(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._ok(interaction):
+            self.game.action_move_arms(+4)
+            self.sync_buttons()
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
 
-    @discord.ui.button(label="🔥 THRUST", style=discord.ButtonStyle.danger,    emoji="⬆️", row=0)
-    async def btn_thrust(self, i, b):
-        if self._ok(i): self.game.action_thrust(); self.sync_buttons()
-        await i.response.defer()
+    @discord.ui.button(label="🔥 THRUST", style=discord.ButtonStyle.danger, emoji="⬆️", row=0)
+    async def btn_thrust(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._ok(interaction):
+            self.game.action_thrust()
+            self.sync_buttons()
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
 
-    @discord.ui.button(label="🥢 CATCH!", style=discord.ButtonStyle.success,               row=0)
-    async def btn_catch(self, i, b):
-        if self._ok(i): self.game.action_catch(); self.sync_buttons()
-        await i.response.defer()
+    @discord.ui.button(label="🥢 CATCH!", style=discord.ButtonStyle.success, row=0)
+    async def btn_catch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._ok(interaction):
+            self.game.action_catch()
+            self.sync_buttons()
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
 
     async def on_timeout(self):
         for item in self.children:
@@ -166,7 +177,7 @@ class BoosterCatchGame:
     def __init__(self, ctx):
         self.ctx = ctx
 
-        # Kinematics — spawn in safe middle zone, not near walls
+        # Kinematics
         self.pos_x: float = random.uniform(WALL_L + 4.0, WALL_R - 4.0)
         self.pos_y: float = 0.0
         self.vel_x: float = random.uniform(-0.5, 0.5)
@@ -175,11 +186,11 @@ class BoosterCatchGame:
         # Fuel & mass
         self.fuel_kg: float = float(FULL_FUEL_KG)
 
-        # Wind — OU process, starts near zero
+        # Wind
         self.wind_accel: float      = random.uniform(-0.1, 0.1)
-        self._wind_suppress: float  = 0.0   # countdown timer suppressing wind after wall hit
+        self._wind_suppress: float  = 0.0
 
-        # Arms — start centered
+        # Arms
         self.arm_center: float = float(GRID_W // 2)
         self._last_arm_center  = self.arm_center
 
@@ -199,7 +210,6 @@ class BoosterCatchGame:
         self._sonic_boom_frame: int = -999
         self._last_vel_y: float     = 0.0
 
-        # Wind direction indicator for visual animation
         self._wind_arrow_frame: int = 0
 
         # Game state
@@ -210,11 +220,9 @@ class BoosterCatchGame:
         self.score:             int  = 0
         self.altitude_warned:   int  = 0
         self._advisory_shown:   bool = False
-        self._catch_vel_y:      float = 0.0   # velocity at moment of catch (for score display)
+        self._catch_vel_y:      float = 0.0
 
         self.timeline: list = ["🚀 **Booster 16 separation confirmed**"]
-
-    # ── Properties ─────────────────────────────────────────────────
 
     @property
     def mass(self) -> float:
@@ -236,8 +244,6 @@ class BoosterCatchGame:
     def arm_right(self) -> float:
         return self.arm_center + self.ARM_HALF
 
-    # ── PHYSICS ────────────────────────────────────────────────────
-
     def update_physics(self, dt: float):
         if self.state == "over":
             return
@@ -246,13 +252,10 @@ class BoosterCatchGame:
         self._last_vel_y = self.vel_y
         self._wind_arrow_frame += 1
 
-        # ── 1. Wind — Ornstein-Uhlenbeck mean reversion ──────────────
-        # dW = -theta * W * dt + sigma * sqrt(dt) * N(0,1)
-        # This guarantees wind oscillates and can't stay at extremes.
-        # After a wall hit, wind is suppressed to 0 for WIND_SUPPRESS_DURATION.
+        # ── 1. Wind ──────────────────────────────────────────────────
         if self._wind_suppress > 0:
             self._wind_suppress -= dt
-            self.wind_accel *= max(0.0, 1.0 - dt * 4)   # rapidly damp during suppression
+            self.wind_accel *= max(0.0, 1.0 - dt * 4)
         else:
             dW = (-WIND_OU_THETA * self.wind_accel * dt
                   + WIND_OU_SIGMA * math.sqrt(dt) * random.gauss(0, 1))
@@ -272,7 +275,7 @@ class BoosterCatchGame:
             self.engine_on    = False
             self.thrust_timer = max(0.0, self.thrust_timer)
 
-        # ── 3. Forces → accelerations ────────────────────────────────
+        # ── 3. Forces ────────────────────────────────────────────────
         m = self.mass
         acc_y = (
             GRAVITY
@@ -284,26 +287,22 @@ class BoosterCatchGame:
             + self.wind_accel
         )
 
-        # ── 4. Semi-implicit Euler ────────────────────────────────────
+        # ── 4. Euler integration ──────────────────────────────────────
         self.vel_y += acc_y * dt
         self.vel_x += acc_x * dt
         self.vel_x  = max(-6.0, min(6.0, self.vel_x))
         self.pos_y += self.vel_y * dt
         self.pos_x += self.vel_x * dt
 
-        # Sonic boom trigger
         if self._last_vel_y < 3.0 <= self.vel_y:
             self._sonic_boom_frame = self.anim_frame
 
-        # ── 5. Wall boundaries — FIX 1 ───────────────────────────────
-        # OLD: vel_x = abs(vel_x) * 0.2  — so weak wind immediately re-pushes to wall
-        # NEW: elastic bounce (vel_x *= -0.65) + reverse wind + suppress wind briefly
+        # ── 5. Wall boundaries ───────────────────────────────────────
         if self.pos_x < WALL_L:
             self.pos_x = float(WALL_L)
             bounce_speed = abs(self.vel_x)
-            self.vel_x   = bounce_speed * 0.65   # elastic: push right with 65% energy
+            self.vel_x   = bounce_speed * 0.65
 
-            # Log with severity
             if bounce_speed > 1.5:
                 self.timeline.append(f"💥 **WALL SLAM (left) — {bounce_speed:.1f} wu/s**")
             elif bounce_speed > 0.5:
@@ -311,14 +310,13 @@ class BoosterCatchGame:
             else:
                 self.timeline.append("· Grazed left boundary")
 
-            # Reverse and suppress wind so it can't immediately push back
-            self.wind_accel     = abs(self.wind_accel) * 0.4   # flip to rightward
+            self.wind_accel     = abs(self.wind_accel) * 0.4
             self._wind_suppress = WIND_SUPPRESS_DURATION
 
         elif self.pos_x > WALL_R:
             self.pos_x = float(WALL_R)
             bounce_speed = abs(self.vel_x)
-            self.vel_x   = -bounce_speed * 0.65   # elastic: push left
+            self.vel_x   = -bounce_speed * 0.65
 
             if bounce_speed > 1.5:
                 self.timeline.append(f"💥 **WALL SLAM (right) — {bounce_speed:.1f} wu/s**")
@@ -327,7 +325,7 @@ class BoosterCatchGame:
             else:
                 self.timeline.append("· Grazed right boundary")
 
-            self.wind_accel     = -abs(self.wind_accel) * 0.4   # flip to leftward
+            self.wind_accel     = -abs(self.wind_accel) * 0.4
             self._wind_suppress = WIND_SUPPRESS_DURATION
 
         # ── 6. Altitude warnings ─────────────────────────────────────
@@ -358,15 +356,14 @@ class BoosterCatchGame:
 
         # ── 9. Crash ─────────────────────────────────────────────────
         if self.pos_y >= CRASH_Y:
-            self.state = "over"; self.success = False
+            self.state = "over"
+            self.success = False
             spd = self.vel_y
             self.timeline.append(
                 "💥 **CATASTROPHIC IMPACT — Total loss**" if spd > 3.5 else
                 "💥 **Hard impact — Severe damage**"      if spd > 2.0 else
                 "💥 **Rough contact — Booster buckled**"
             )
-
-    # ── PLAYER ACTIONS ─────────────────────────────────────────────
 
     def action_move_arms(self, direction: int):
         nc = max(ARM_CENTER_MIN, min(ARM_CENTER_MAX, self.arm_center + direction))
@@ -388,7 +385,6 @@ class BoosterCatchGame:
         il  = self.arm_left  + ARM_INNER_MARGIN
         ir  = self.arm_right - ARM_INNER_MARGIN
         ok  = il <= self.pos_x <= ir
-        # FIX: near-miss now shows how many cols off the booster is
         dist_from_center = abs(self.pos_x - self.arm_center)
         near = dist_from_center < (self.ARM_HALF + 2.5)
 
@@ -404,8 +400,9 @@ class BoosterCatchGame:
                     f"❌ **Missed — booster {cols_off:.1f} cols outside arms**")
             return
 
-        vy = abs(self.vel_y); vx = abs(self.vel_x)
-        self._catch_vel_y = self.vel_y   # store for score screen
+        vy = abs(self.vel_y)
+        vx = abs(self.vel_x)
+        self._catch_vel_y = self.vel_y
 
         if   vy < PERFECT_VY and vx < PERFECT_VX: self.catch_result, self.score = "perfect", 250
         elif vy < GOOD_VY    and vx < GOOD_VX:    self.catch_result, self.score = "good",    170
@@ -422,9 +419,7 @@ class BoosterCatchGame:
         self.success = True
         self.state   = "over"
 
-    # ══════════════════════════════════════════════════════════════
-    #  RENDERING
-    # ══════════════════════════════════════════════════════════════
+    # ── RENDERING ──────────────────────────────────────────────────
 
     def _get_booster_sprite(self) -> tuple:
         f = self.anim_frame % 8
@@ -435,7 +430,6 @@ class BoosterCatchGame:
 
     def _exhaust_particles(self) -> list:
         if not self.engine_on: return []
-        # FIX: clamp bx to safe range so particles don't appear outside grid
         bx = max(WALL_L, min(WALL_R, int(self.pos_x)))
         by = int(self.pos_y)
         f  = self.anim_frame % 8
@@ -505,7 +499,6 @@ class BoosterCatchGame:
         f8      = self.anim_frame % 8
 
         nose_s, body_s, eng_s = self._get_booster_sprite()
-        # FIX: booster col clamped to [WALL_L, WALL_R] — always visible, never off-screen
         brow = max(0, min(GRID_H - 3, int(self.pos_y)))
         bcol = max(WALL_L, min(WALL_R, int(self.pos_x)))
 
@@ -535,33 +528,27 @@ class BoosterCatchGame:
                 if (row,col) in twinkle_set:
                     line[col] = twinkle_set[(row,col)]
 
-            # Wind indicator — animated arrow that pulses in direction
             if row == 2:
                 ws = abs(self.wind_accel)
                 af = self._wind_arrow_frame % 8
                 if ws > WIND_BASE_ACCEL * 0.55:
-                    # Strong: alternate arrow and emoji
                     line[GRID_W-2] = ("🌪️" if self.wind_accel > 0 else "💨") if af < 4 else \
                                      ("→"  if self.wind_accel > 0 else "←")
                 elif ws > WIND_BASE_ACCEL * 0.20:
                     line[GRID_W-2] = "~" if self.wind_accel > 0 else "≈"
 
-            # Catch zone gradient on right edge
             if row >= GRID_H - 3:
                 line[GRID_W-1] = "░" if row == GRID_H-3 else "▒" if row == GRID_H-2 else "█"
 
-            # Booster (3 rows)
             if row == brow:     line[bcol] = nose_s
             elif row == brow+1: line[bcol] = body_s
             elif row == brow+2: line[bcol] = eng_s
 
-            # Particles
             if row in particle_map:
                 for pc, pch in particle_map[row]:
                     if WALL_L <= pc <= WALL_R and line[pc] in ("", " "):
                         line[pc] = pch
 
-            # Trajectory prediction arrow
             if self.catch_window_open and row == brow + 3:
                 pred_x = int(self.pos_x + self.vel_x * 0.5)
                 pred_x = max(WALL_L, min(WALL_R, pred_x))
@@ -576,17 +563,14 @@ class BoosterCatchGame:
         al = max(0, int(self.arm_left))
         ar = min(GRID_W-1, int(self.arm_right))
 
-        # Left arm gripper
         for i in range(al, min(al+4, GRID_W)):
             tower[i] = ("╠" if self.catch_window_open else "╞") if i==al else \
                        ("═" if i==al+1 else "╪" if i==al+2 else "┤")
 
-        # Right arm gripper
         for i in range(max(0, ar-3), ar+1):
             tower[i] = ("╣" if self.catch_window_open else "╡") if i==ar else \
                        ("═" if i==ar-1 else "╪" if i==ar-2 else "├")
 
-        # Animated dashed catch gap
         il = al+4; ir2 = ar-3
         if il < ir2 and self.catch_window_open:
             for i in range(il, ir2+1):
@@ -600,7 +584,6 @@ class BoosterCatchGame:
         if self.catch_window_open and 4 <= gc <= GRID_W-5:
             tower[gc] = "🎯" if f8 < 4 else "⭕"
 
-        # Energy pulse on arm move
         if abs(self.arm_center - self._last_arm_center) > 0.1:
             for i in range(max(0,al-1), min(GRID_W,ar+2)):
                 if tower[i] == "═" and random.random() < 0.35:
@@ -627,7 +610,6 @@ class BoosterCatchGame:
         dot  = "🟢" if fp>60 else "🟡" if fp>35 else "🟠" if fp>15 else "🔴"
         fuel_bar = dot*fblk + "⚫"*(16-fblk)
 
-        # Wind string — shows suppression state too
         ws = abs(self.wind_accel)
         if self._wind_suppress > 0:
             wind_str = f"🔇 Suppressed ({self._wind_suppress:.1f}s)"
@@ -772,8 +754,13 @@ def _register_commands(bot: commands.Bot):
             burn_penalty = max(0, (game.manual_burns - 2) * 8)
             total        = base + time_bonus + fuel_bonus + vel_bonus + prec_bonus - burn_penalty
 
-            if _add_score: _add_score(uid, total)
-            career = (_scores_ref or {}).get(str(uid), 0)
+            if _add_score:
+                try:
+                    _add_score(uid, total)
+                except Exception:
+                    pass
+
+            career = (_scores_ref.get(str(uid), 0) if isinstance(_scores_ref, dict) else 0)
 
             final = discord.Embed(
                 title       = "🏆 MISSION SUCCESS — BOOSTER RECOVERED",
@@ -818,8 +805,14 @@ def _register_commands(bot: commands.Bot):
                             value=f"**Total:** {career:,} pts", inline=False)
         else:
             consolation = 10
-            if _add_score: _add_score(uid, consolation)
-            career = (_scores_ref or {}).get(str(uid), 0)
+            if _add_score:
+                try:
+                    _add_score(uid, consolation)
+                except Exception:
+                    pass
+
+            career = (_scores_ref.get(str(uid), 0) if isinstance(_scores_ref, dict) else 0)
+
             final = discord.Embed(
                 title       = "💥 MISSION FAILED — BOOSTER LOST",
                 description = "Post-mission analysis:",
@@ -892,4 +885,4 @@ def _register_commands(bot: commands.Bot):
             "• Near-miss tells you exactly how many cols to adjust"
         ), inline=False)
         emb.set_footer(text="!catchbooster to start")
-        await ctx.send(emb)
+        await ctx.send(embed=emb)
