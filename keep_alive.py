@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template_string
 from flask_cors import CORS
 from threading import Thread
 import json
@@ -42,8 +42,171 @@ GITHUB_REPO = os.getenv('GITHUB_REPO', 'vinayakkam/my-discord-bot')
 GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
 DISCORD_CLIENT_ID = os.getenv('DISCORD_CLIENT_ID', '1414168461172539454')
 DISCORD_CLIENT_SECRET = os.getenv('DISCORD_CLIENT_SECRET', '')
+CUSTOM_DOMAIN = os.getenv('CUSTOM_DOMAIN', 'api.olittechnologies.co.in')
 
 bot_instance = None
+
+# ── Fancy HTML Template for Root Route ────────────────────────────────────────
+INDEX_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OLIT Discord Bot API</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-color: #6366f1;
+            --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --green: #10b981;
+            --border: #334155;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 850px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+        .header {
+            background: var(--accent-gradient);
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+        }
+        .header p {
+            color: rgba(255,255,255,0.8);
+            font-size: 0.95rem;
+            margin-top: 5px;
+        }
+        .status-bar {
+            display: flex;
+            justify-content: space-around;
+            padding: 15px;
+            background: rgba(15, 23, 42, 0.4);
+            border-bottom: 1px solid var(--border);
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        .dot {
+            width: 10px;
+            height: 10px;
+            background-color: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--green);
+        }
+        .content {
+            padding: 30px;
+        }
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--text-primary);
+            border-left: 4px solid var(--accent-color);
+            padding-left: 10px;
+        }
+        .endpoints {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        .endpoint-card {
+            background: #0f172a;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+        }
+        .method {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.75rem;
+        }
+        .get { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .post { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+        .footer {
+            text-align: center;
+            padding: 15px;
+            border-top: 1px solid var(--border);
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>OLIT Discord Bot API</h1>
+            <p>v3.0 Dashboard & Service Control</p>
+        </div>
+        <div class="status-bar">
+            <div class="status-item"><span class="dot"></span> Status: <strong>Online</strong></div>
+            <div class="status-item">Domain: <strong>{{ domain }}</strong></div>
+            <div class="status-item">GitHub Sync: <strong>{{ "Enabled" if github else "Disabled" }}</strong></div>
+        </div>
+        <div class="content">
+            <div class="section-title">Available Endpoints</div>
+            <div class="endpoints">
+                <div class="endpoint-card">
+                    <div><span class="method get">GET</span> /health</div>
+                    <span style="color: var(--text-secondary)">Healthcheck status</span>
+                </div>
+                <div class="endpoint-card">
+                    <div><span class="method post">POST</span> /webhook</div>
+                    <span style="color: var(--text-secondary)">GitHub Auto-Deploy Trigger</span>
+                </div>
+                <div class="endpoint-card">
+                    <div><span class="method get">GET</span> /api/stats</div>
+                    <span style="color: var(--text-secondary)">Bot usage statistics</span>
+                </div>
+                <div class="endpoint-card">
+                    <div><span class="method post">POST</span> /api/add_command</div>
+                    <span style="color: var(--text-secondary)">Add custom guild command</span>
+                </div>
+            </div>
+        </div>
+        <div class="footer">
+            OLIT Technologies &copy; {{ year }} &bull; All Rights Reserved
+        </div>
+    </div>
+</body>
+</html>
+"""
 
 
 # ── Persistence ──────────────────────────────────────────────────────────────
@@ -169,16 +332,32 @@ def require_api_key(f):
 # ── Root / Health ─────────────────────────────────────────────────────────────
 @app.route('/')
 def home():
-    return jsonify({
-        'status': 'running',
-        'service': 'OLIT Discord Bot API',
-        'version': '3.0',
-    })
+    # If client requests JSON (e.g., bot/fetch requests), return JSON.
+    # Otherwise render the HTML dashboard for browsers.
+    if request.headers.get('Accept') == 'application/json':
+        return jsonify({
+            'status': 'running',
+            'service': 'OLIT Discord Bot API',
+            'domain': CUSTOM_DOMAIN,
+            'version': '3.0',
+        })
+    return render_template_string(INDEX_HTML, domain=CUSTOM_DOMAIN, github=bool(GITHUB_TOKEN), year=datetime.now().year)
 
 
 @app.route('/health')
 def health():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+
+
+# ── Custom JSON 404 Handler ───────────────────────────────────────────────────
+@app.errorhandler(404)
+def not_found_error(error):
+    return jsonify({
+        'success': False,
+        'error': 'Endpoint not found',
+        'status': 404,
+        'timestamp': datetime.now().isoformat()
+    }), 404
 
 
 # ── Webhook Auto-Restart Endpoint ────────────────────────────────────────────
@@ -187,11 +366,9 @@ def github_webhook():
     data = request.json or {}
     expected_ref = f"refs/heads/{GITHUB_BRANCH}"
 
-    # Verify the push happened on the configured branch (default: refs/heads/main)
     if data.get('ref') != expected_ref:
         return jsonify({'success': True, 'message': f'Ignored push to non-target branch: {data.get("ref")}'}), 200
 
-    # Start restart thread so response returns quickly
     Thread(target=deploy_and_restart, daemon=True).start()
     log_req('/webhook', 'POST', {'ref': data.get('ref')})
 
@@ -271,7 +448,6 @@ def manage_automod():
         if action == 'add':
             if word not in automod_config[guild_id]:
                 automod_config[guild_id].append(word)
-            # auto-enable on first word
             if not automod_enabled.get(guild_id_int):
                 automod_enabled[guild_id_int] = True
                 save_automod_enabled()
@@ -377,7 +553,6 @@ def get_channels(guild_id):
         async def _fetch():
             guild = bot_instance.get_guild(int(guild_id))
             if guild is None:
-                # Try fetching if not in cache
                 try:
                     guild = await bot_instance.fetch_guild(int(guild_id))
                 except Exception:
@@ -396,7 +571,6 @@ def get_channels(guild_id):
                 if c.type.value in (0, 5)  # text + announcement
             ]
 
-        # Run async from sync Flask context
         loop = asyncio.new_event_loop()
         channels = loop.run_until_complete(_fetch())
         loop.close()
@@ -404,7 +578,6 @@ def get_channels(guild_id):
         if channels is None:
             return jsonify({'success': False, 'error': 'Bot is not in that server'}), 404
 
-        # Sort: by category position then channel position
         channels.sort(key=lambda c: (c.get('parent_id') or '', c.get('position', 0)))
 
         return jsonify({'success': True, 'channels': channels, 'count': len(channels)})
@@ -517,6 +690,8 @@ def run():
     load_all_data()
     print("=" * 50)
     print("🚀 OLIT Discord Bot API v3.0")
+    print(f"🌐 Domain: https://{CUSTOM_DOMAIN}")
+    print(f"🔗 Webhook: https://{CUSTOM_DOMAIN}/webhook")
     print(f"🔑 API Key: {'set' if API_KEY else 'MISSING'}")
     print(f"🔗 GitHub: {'enabled' if GITHUB_TOKEN else 'disabled'}")
     print("=" * 50)
