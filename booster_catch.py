@@ -14,7 +14,7 @@ def setup_booster_catch(bot: commands.Bot, add_score_fn: Callable, scores_dict: 
     _add_score  = add_score_fn
     _scores_ref = scores_dict
     _register_commands(bot)
-    print("[BOOSTER CATCH] Bug-fixed edition loaded — !catchbooster ready")
+    print("[BOOSTER CATCH] Bug-fixed edition loaded — !catchbooster / /catchbooster ready")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -101,7 +101,7 @@ class CatchGameView(discord.ui.View):
                 item.disabled = True
 
     def _ok(self, interaction: discord.Interaction) -> bool:
-        return interaction.user.id == self.game.ctx.author.id
+        return interaction.user.id == self.game.author_id
 
     @discord.ui.button(label="← Arms", style=discord.ButtonStyle.secondary, emoji="⬅️", row=0)
     async def btn_left(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -174,8 +174,9 @@ class BoosterCatchGame:
         ("▲","🎯","▼"), ("▲","🎯","▼"), ("△","📍","▽"), ("▲","🎯","▼"),
     ]
 
-    def __init__(self, ctx):
-        self.ctx = ctx
+    def __init__(self, author_id: int, author_name: str):
+        self.author_id = author_id
+        self.author_name = author_name
 
         # Kinematics
         self.pos_x: float = random.uniform(WALL_L + 4.0, WALL_R - 4.0)
@@ -687,9 +688,9 @@ class BoosterCatchGame:
 
 def _register_commands(bot: commands.Bot):
 
-    @bot.command(name="catchbooster", aliases=["booster","mechzilla","catch16"])
-    async def cmd_catchbooster(ctx):
-        game = BoosterCatchGame(ctx)
+    @bot.hybrid_command(name="catchbooster", aliases=["booster","mechzilla","catch16"], description="Play Mechzilla booster catch game")
+    async def cmd_catchbooster(ctx: commands.Context):
+        game = BoosterCatchGame(ctx.author.id, ctx.author.display_name)
         view = CatchGameView(game)
         msg  = await ctx.send(
             embed=game.make_embed("🚀 **Booster 16 separation confirmed — Descent begun**"),
@@ -849,8 +850,8 @@ def _register_commands(bot: commands.Bot):
         except Exception:
             await ctx.send(embed=final)
 
-    @bot.command(name="catchhelp", aliases=["boosterhelp"])
-    async def cmd_catchhelp(ctx):
+    @bot.hybrid_command(name="catchhelp", aliases=["boosterhelp"], description="Display guide and physics info for booster catch")
+    async def cmd_catchhelp(ctx: commands.Context):
         emb = discord.Embed(
             title       = "🚀 Booster Catch — Controls & Physics",
             description = "Catch Booster 16 using Mechzilla chopstick arms. ~17 s cinematic descent.",

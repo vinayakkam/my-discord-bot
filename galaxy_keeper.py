@@ -1046,8 +1046,8 @@ async def _before_backup():
 def _register_commands(bot: commands.Bot):
     """Registers all galaxy commands onto main.py's bot instance."""
 
-    @bot.command(name="galaxy", aliases=["explore","space","g"])
-    async def cmd_galaxy(ctx):
+    @bot.hybrid_command(name="galaxy", aliases=["explore","space","g"], description="Open the interactive galaxy map")
+    async def cmd_galaxy(ctx: commands.Context):
         """Open the galaxy explorer."""
         uid  = ctx.author.id
         emb  = _map_embed(uid)
@@ -1068,8 +1068,8 @@ def _register_commands(bot: commands.Bot):
                               inline=False)
             await ctx.send(embed=welcome, delete_after=30)
 
-    @bot.command(name="gscan", aliases=["probe","gsys"])
-    async def cmd_scan(ctx):
+    @bot.hybrid_command(name="gscan", aliases=["probe","gsys"], description="Scan your current star system")
+    async def cmd_scan(ctx: commands.Context):
         """Scan the current star system."""
         ud  = _get_user(ctx.author.id)
         pos = ud["position"]
@@ -1077,19 +1077,19 @@ def _register_commands(bot: commands.Bot):
         await ctx.send(embed=_scan_embed(sys, ctx.author.id),
                        view=_ExploreView(ctx.author.id, sys))
 
-    @bot.command(name="gstats", aliases=["gprofile","gme","galaxystats"])
-    async def cmd_stats(ctx):
+    @bot.hybrid_command(name="gstats", aliases=["gprofile","gme","galaxystats"], description="Show your galaxy commander profile")
+    async def cmd_stats(ctx: commands.Context):
         """Show your commander profile."""
         await ctx.send(embed=_stats_embed(ctx.author.id, ctx.author))
 
-    @bot.command(name="shipyard", aliases=["gupgrade","gshop","upgrade","shop"])
-    async def cmd_shipyard(ctx):
+    @bot.hybrid_command(name="shipyard", aliases=["gupgrade","gshop","upgrade","shop"], description="Open the deep space shipyard upgrade shop")
+    async def cmd_shipyard(ctx: commands.Context):
         """Open the ship upgrade shop."""
         view = _ShipyardView(ctx.author.id)
         await ctx.send(embed=view._embed(), view=view)
 
-    @bot.command(name="story", aliases=["pulse","gmissions","galaxyinfo","gstory"])
-    async def cmd_story(ctx):
+    @bot.hybrid_command(name="story", aliases=["pulse","gmissions","galaxyinfo","gstory"], description="View Pulse-3 storyline progress")
+    async def cmd_story(ctx: commands.Context):
         """View Pulse-3 storyline progress."""
         uid = ctx.author.id
         if uid == _MASTER_ID:
@@ -1145,8 +1145,8 @@ def _register_commands(bot: commands.Bot):
             emb.add_field(name=ev["title"], value=ev["desc"], inline=False)
         await ctx.send(embed=emb)
 
-    @bot.command(name="gleaderboard", aliases=["gtop","glb","grankings","galacticleaderboard"])
-    async def cmd_lb(ctx):
+    @bot.hybrid_command(name="gleaderboard", aliases=["gtop","glb","grankings","galacticleaderboard"], description="View top galaxy explorers")
+    async def cmd_lb(ctx: commands.Context):
         """Galaxy exploration leaderboard."""
         gs = _load_json(SCORES_FILE)
         if not gs:
@@ -1162,8 +1162,8 @@ def _register_commands(bot: commands.Bot):
         emb.description = "\n".join(lines)
         await ctx.send(embed=emb)
 
-    @bot.command(name="worldinfo", aliases=["gbiome","gsector"])
-    async def cmd_world(ctx):
+    @bot.hybrid_command(name="worldinfo", aliases=["gbiome","gsector"], description="Show information about your current sector biome")
+    async def cmd_world(ctx: commands.Context):
         """Info about your current sector biome."""
         ud    = _get_user(ctx.author.id)
         pos   = ud["position"]
@@ -1176,8 +1176,8 @@ def _register_commands(bot: commands.Bot):
         emb.add_field(name="Position", value=f"`({pos[0]}, {pos[1]})`", inline=True)
         await ctx.send(embed=emb)
 
-    @bot.command(name="teleport", aliases=["tp","goto"])
-    async def cmd_teleport(ctx, location: str = None, x: int = None, y: int = None, member: discord.Member = None):
+    @bot.hybrid_command(name="teleport", aliases=["tp","goto"], description="Teleport commander to a location (Master Only)")
+    async def cmd_teleport(ctx: commands.Context, location: str = None, x: int = None, y: int = None, member: discord.Member = None):
         """Master-only teleport command."""
         if ctx.author.id != _MASTER_ID:
             return await ctx.send("❌ Master only.")
@@ -1227,31 +1227,31 @@ def _register_commands(bot: commands.Bot):
             except discord.Forbidden:
                 await ctx.send(f"⚠️ Couldn't DM {member.mention}")
 
-    @bot.command(name="galaxyadmin")
+    @bot.hybrid_command(name="galaxyadmin", description="View galaxy system stats (Owner Only)")
     @commands.is_owner()
-    async def cmd_admin(ctx):
+    async def cmd_admin(ctx: commands.Context):
         total   = len(_galaxy)
         systems = sum(len(d.get("discovered",[])) for d in _galaxy.values())
         await ctx.send(f"🌌 Galaxy: **{total}** players · **{systems}** systems · **{len(_world)}** sectors")
 
-    @bot.command(name="forcebackup")
+    @bot.hybrid_command(name="forcebackup", description="Force Git backup of galaxy database (Owner Only)")
     @commands.is_owner()
-    async def cmd_forcebackup(ctx):
+    async def cmd_forcebackup(ctx: commands.Context):
         _save_all()
         result = _git_push("Manual backup via !forcebackup")
         await ctx.send(f"```\n{result}\n```")
 
-    @bot.command(name="galaxyhelp", aliases=["ghelp"])
-    async def cmd_ghelp(ctx):
+    @bot.hybrid_command(name="galaxyhelp", aliases=["ghelp"], description="Display Galaxy Keeper help manual")
+    async def cmd_ghelp(ctx: commands.Context):
         """Galaxy Keeper command list."""
         emb = discord.Embed(title="🌌 Galaxy Keeper — Commands", color=0x1a1a2e)
         emb.add_field(name="🚀 Exploration",
-                      value="`!galaxy` — Open map\n`!gscan` — Scan system\n`!worldinfo` — Biome info",
+                      value="`!galaxy` / `/galaxy` — Open map\n`!gscan` / `/gscan` — Scan system\n`!worldinfo` / `/worldinfo` — Biome info",
                       inline=False)
         emb.add_field(name="📊 Profile",
-                      value="`!gstats` — Commander profile\n`!story` — Pulse-3 progress\n`!gleaderboard` — Top explorers",
+                      value="`!gstats` / `/gstats` — Commander profile\n`!story` / `/story` — Pulse-3 progress\n`!gleaderboard` / `/gleaderboard` — Top explorers",
                       inline=False)
-        emb.add_field(name="🔧 Upgrades", value="`!shipyard` — Ship upgrade shop", inline=False)
+        emb.add_field(name="🔧 Upgrades", value="`!shipyard` / `/shipyard` — Ship upgrade shop", inline=False)
         emb.add_field(name="⚔️ Boss Fight",
                       value="1. Solve 4 puzzles at `(15,25)` `(-20,30)` `(35,-15)` `(-25,-40)`\n"
                             "2. Travel to `(-78, 42)`\n3. Scan → Fight Boss",

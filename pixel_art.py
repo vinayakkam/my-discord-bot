@@ -6,7 +6,7 @@ import io
 
 def setup_pixel_art(bot: commands.Bot):
     _register_commands(bot)
-    print("[PIXEL ART] Interactive UI module loaded — !pixelart ready (Max 256px + Presets)")
+    print("[PIXEL ART] Interactive UI module loaded — !pixelart / /pixelart ready (Max 256px + Presets)")
 
 
 # ─── PRESET RETRO PALETTES ───────────────────────────────────────────
@@ -281,27 +281,31 @@ class PixelArtUI(discord.ui.View):
 
 # ─── COMMAND REGISTRATION ────────────────────────────────────────────
 def _register_commands(bot: commands.Bot):
-    @bot.command(name="pixelart", aliases=["pixel", "pixelfy", "retroart"])
-    async def cmd_pixelart(ctx, *, args: str = ""):
+    @bot.hybrid_command(
+        name="pixelart",
+        aliases=["pixel", "pixelfy", "retroart"],
+        description="Generates pixel art with an interactive UI from an image attachment"
+    )
+    async def cmd_pixelart(ctx: commands.Context, file_attachment: discord.Attachment = None):
         """
         Generates pixel art with an interactive UI (16 - 256px resolution).
         Upload an image, reply to an image, or pass an image URL!
         """
-        attachment = None
+        attachment = file_attachment
 
-        if ctx.message.attachments:
+        if not attachment and ctx.message and ctx.message.attachments:
             attachment = ctx.message.attachments[0]
-        elif ctx.message.reference and ctx.message.reference.message_id:
+        elif not attachment and ctx.message and ctx.message.reference and ctx.message.reference.message_id:
             referenced_msg = await ctx.channel.fetch_message(ctx.message.reference.message_id)
             if referenced_msg.attachments:
                 attachment = referenced_msg.attachments[0]
 
-        if not attachment or not attachment.content_type.startswith("image/"):
+        if not attachment or not attachment.content_type or not attachment.content_type.startswith("image/"):
             emb = discord.Embed(
                 title="🖼️ Missing Image",
                 description=(
                     "Please **attach an image**, reply to an image message, "
-                    "or type `!pixelart` with an upload!"
+                    "or run `/pixelart` with an attached file!"
                 ),
                 color=0xFFCC00
             )
