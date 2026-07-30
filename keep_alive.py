@@ -462,10 +462,92 @@ def not_found_error(error):
     }), 404
 
 
+WEBHOOK_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webhook Status | OLIT Bot</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #090d16;
+            --surface: #111827;
+            --border: #1f293d;
+            --text-main: #f3f4f6;
+            --text-muted: #6b7280;
+            --accent: #a855f7;
+            --accent-glow: rgba(168, 85, 247, 0.15);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 24px;
+        }
+        .card {
+            width: 100%;
+            max-width: 500px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 32px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--accent-glow);
+            color: var(--accent);
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            margin-bottom: 16px;
+        }
+        .dot { width: 6px; height: 6px; background-color: var(--accent); border-radius: 50%; }
+        h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
+        p { color: var(--text-muted); font-size: 0.875rem; line-height: 1.5; margin-bottom: 24px; }
+        .code-box {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="badge"><span class="dot"></span> POST Endpoint</div>
+        <h1>GitHub Deployment Webhook</h1>
+        <p>This endpoint is actively listening for GitHub repository push events. Direct GET requests from browsers do not trigger deployments.</p>
+        <div class="code-box">
+            Target Branch: {{ branch }}
+        </div>
+    </div>
+</body>
+</html>
+"""
+
 # ── Webhook Auto-Deploy Endpoint ──────────────────────────────────────────────
 @app.route('/webhook', methods=['GET', 'POST'])
 def github_webhook():
+    # If a user visits in a browser, serve the styled interface
     if request.method == 'GET':
+        if 'text/html' in request.headers.get('Accept', ''):
+            return render_template_string(WEBHOOK_HTML, branch=GITHUB_BRANCH)
         return jsonify({
             'success': True,
             'message': 'Webhook listener active. Send a POST request from GitHub to trigger deployment.'
