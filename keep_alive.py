@@ -463,8 +463,14 @@ def not_found_error(error):
 
 
 # ── Webhook Auto-Deploy Endpoint ──────────────────────────────────────────────
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['GET', 'POST'])
 def github_webhook():
+    if request.method == 'GET':
+        return jsonify({
+            'success': True,
+            'message': 'Webhook listener active. Send a POST request from GitHub to trigger deployment.'
+        }), 200
+
     # 1. Check GitHub HMAC signature if secret configured
     signature = request.headers.get('X-Hub-Signature-256')
     if GITHUB_SECRET and not verify_signature(request.data, GITHUB_SECRET, signature):
