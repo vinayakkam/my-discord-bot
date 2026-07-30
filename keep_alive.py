@@ -5,6 +5,8 @@ import json
 import os
 import sys
 import subprocess
+import hmac
+import hashlib
 from datetime import datetime
 import requests
 import base64
@@ -13,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 app = Flask(__name__)
 
-# ── CORS: allow the dashboard origin ────────────────────────────────────────
+# ── CORS ──────────────────────────────────────────────────────────────────────
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # ── Config file paths ────────────────────────────────────────────────────────
@@ -38,6 +40,7 @@ api_logs = []
 # ── Env ──────────────────────────────────────────────────────────────────────
 API_KEY = os.getenv('API_KEY', 'Olittech447443456989260909-087')
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+GITHUB_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET', '')  # Secret for HMAC verification
 GITHUB_REPO = os.getenv('GITHUB_REPO', 'vinayakkam/my-discord-bot')
 GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
 DISCORD_CLIENT_ID = os.getenv('DISCORD_CLIENT_ID', '1414168461172539454')
@@ -46,162 +49,255 @@ CUSTOM_DOMAIN = os.getenv('CUSTOM_DOMAIN', 'api.olittechnologies.co.in')
 
 bot_instance = None
 
-# ── Fancy HTML Template for Root Route ────────────────────────────────────────
+# ── Minimalist Dark Theme Template ────────────────────────────────────────────
 INDEX_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OLIT Discord Bot API</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <title>OLIT Bot Core</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --accent-color: #6366f1;
-            --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --green: #10b981;
-            --border: #334155;
+            --bg: #090d16;
+            --surface: #111827;
+            --surface-hover: #1f2937;
+            --border: #1f293d;
+            --text-main: #f3f4f6;
+            --text-muted: #6b7280;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.15);
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.15);
         }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            padding: 20px;
+            padding: 24px;
+            -webkit-font-smoothing: antialiased;
         }
-        .container {
+
+        .card {
             width: 100%;
-            max-width: 850px;
-            background: var(--card-bg);
+            max-width: 720px;
+            background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 16px;
-            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
+            border-radius: 12px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
             overflow: hidden;
         }
+
         .header {
-            background: var(--accent-gradient);
-            padding: 30px;
-            text-align: center;
-        }
-        .header h1 {
-            font-size: 2rem;
-            font-weight: 700;
-            color: #ffffff;
-            letter-spacing: -0.5px;
-        }
-        .header p {
-            color: rgba(255,255,255,0.8);
-            font-size: 0.95rem;
-            margin-top: 5px;
-        }
-        .status-bar {
+            padding: 28px 32px;
+            border-bottom: 1px solid var(--border);
             display: flex;
-            justify-content: space-around;
-            padding: 15px;
-            background: rgba(15, 23, 42, 0.4);
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text-main);
+        }
+
+        .header p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .badge-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--success-glow);
+            color: var(--success);
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .indicator {
+            width: 6px;
+            height: 6px;
+            background-color: var(--success);
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
             border-bottom: 1px solid var(--border);
         }
-        .status-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.9rem;
-            color: var(--text-secondary);
+
+        .meta-item {
+            padding: 16px 32px;
+            border-right: 1px solid var(--border);
         }
-        .dot {
-            width: 10px;
-            height: 10px;
-            background-color: var(--green);
-            border-radius: 50%;
-            box-shadow: 0 0 10px var(--green);
+
+        .meta-item:last-child {
+            border-right: none;
         }
-        .content {
-            padding: 30px;
-        }
-        .section-title {
-            font-size: 1.1rem;
+
+        .meta-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
             font-weight: 600;
-            margin-bottom: 15px;
-            color: var(--text-primary);
-            border-left: 4px solid var(--accent-color);
-            padding-left: 10px;
         }
+
+        .meta-value {
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-top: 4px;
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .body-content {
+            padding: 32px;
+        }
+
+        .section-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
         .endpoints {
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            margin-bottom: 25px;
+            gap: 8px;
         }
-        .endpoint-card {
-            background: #0f172a;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px 16px;
+
+        .endpoint-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            font-family: 'Fira Code', monospace;
+            padding: 12px 16px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            transition: border-color 0.15s ease;
+        }
+
+        .endpoint-row:hover {
+            border-color: #374151;
+        }
+
+        .endpoint-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-family: 'JetBrains Mono', monospace;
             font-size: 0.85rem;
         }
+
         .method {
-            padding: 4px 8px;
+            padding: 3px 8px;
             border-radius: 4px;
-            font-weight: bold;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
+            font-weight: 700;
         }
-        .get { background: rgba(16, 185, 129, 0.2); color: #10b981; }
-        .post { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
-        .footer {
-            text-align: center;
-            padding: 15px;
-            border-top: 1px solid var(--border);
+
+        .method.get { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .method.post { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+
+        .endpoint-desc {
             font-size: 0.8rem;
-            color: var(--text-secondary);
+            color: var(--text-muted);
+        }
+
+        .footer {
+            padding: 16px 32px;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
         }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="card">
         <div class="header">
-            <h1>OLIT Discord Bot API</h1>
-            <p>v3.0 Dashboard & Service Control</p>
+            <div>
+                <h1>OLIT Bot Service API</h1>
+                <p>System Management & Integration Layer</p>
+            </div>
+            <div class="badge-status">
+                <span class="indicator"></span> Online
+            </div>
         </div>
-        <div class="status-bar">
-            <div class="status-item"><span class="dot"></span> Status: <strong>Online</strong></div>
-            <div class="status-item">Domain: <strong>{{ domain }}</strong></div>
-            <div class="status-item">GitHub Sync: <strong>{{ "Enabled" if github else "Disabled" }}</strong></div>
+
+        <div class="meta-grid">
+            <div class="meta-item">
+                <div class="meta-label">Domain</div>
+                <div class="meta-value">{{ domain }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">GitHub Auto-Sync</div>
+                <div class="meta-value">{{ "Active" if github else "Inactive" }}</div>
+            </div>
         </div>
-        <div class="content">
-            <div class="section-title">Available Endpoints</div>
+
+        <div class="body-content">
+            <div class="section-title">Core Endpoints</div>
             <div class="endpoints">
-                <div class="endpoint-card">
-                    <div><span class="method get">GET</span> /health</div>
-                    <span style="color: var(--text-secondary)">Healthcheck status</span>
+                <div class="endpoint-row">
+                    <div class="endpoint-left">
+                        <span class="method get">GET</span>
+                        <span>/health</span>
+                    </div>
+                    <span class="endpoint-desc">Health Status Verification</span>
                 </div>
-                <div class="endpoint-card">
-                    <div><span class="method post">POST</span> /webhook</div>
-                    <span style="color: var(--text-secondary)">GitHub Auto-Deploy Trigger</span>
+                <div class="endpoint-row">
+                    <div class="endpoint-left">
+                        <span class="method post">POST</span>
+                        <span>/webhook</span>
+                    </div>
+                    <span class="endpoint-desc">GitHub Deployment Listener</span>
                 </div>
-                <div class="endpoint-card">
-                    <div><span class="method get">GET</span> /api/stats</div>
-                    <span style="color: var(--text-secondary)">Bot usage statistics</span>
+                <div class="endpoint-row">
+                    <div class="endpoint-left">
+                        <span class="method get">GET</span>
+                        <span>/api/stats</span>
+                    </div>
+                    <span class="endpoint-desc">Service Telemetry</span>
                 </div>
-                <div class="endpoint-card">
-                    <div><span class="method post">POST</span> /api/add_command</div>
-                    <span style="color: var(--text-secondary)">Add custom guild command</span>
+                <div class="endpoint-row">
+                    <div class="endpoint-left">
+                        <span class="method post">POST</span>
+                        <span>/api/add_command</span>
+                    </div>
+                    <span class="endpoint-desc">Custom Command Registration</span>
                 </div>
             </div>
         </div>
+
         <div class="footer">
-            OLIT Technologies &copy; {{ year }} &bull; All Rights Reserved
+            <span>OLIT Technologies &copy; {{ year }}</span>
+            <span>v3.0.0</span>
         </div>
     </div>
 </body>
@@ -230,8 +326,7 @@ def load_all_data():
     welcome_channels = {int(k): int(v) for k, v in raw_wc.items()}
     api_logs = _load(API_LOGS_FILE, [])[-1000:]
 
-    print(f"✅ Loaded: {len(guild_commands)} guilds, {len(automod_config)} automod, "
-          f"{len(welcome_channels)} welcome channels")
+    print(f"✅ Loaded data for guilds and automod configurations.")
 
 
 def _save(path, data):
@@ -283,20 +378,30 @@ def commit_to_github(file_path, content, message):
             payload['sha'] = sha
         requests.put(url, headers=headers, json=payload)
     except Exception as e:
-        print(f"⚠️  GitHub sync: {e}")
+        print(f"⚠️  GitHub sync error: {e}")
 
 
-# ── Auto-Deploy & Restart Helper ─────────────────────────────────────────────
+# ── Auto-Deploy & Webhook Security Helper ─────────────────────────────────────
+def verify_signature(payload_body, secret, signature_header):
+    """Verifies that the webhook payload was sent by GitHub."""
+    if not secret or not signature_header:
+        return True  # Skip check if secret isn't configured
+
+    hash_object = hmac.new(secret.encode('utf-8'), msg=payload_body, digestmod=hashlib.sha256)
+    expected_signature = "sha256=" + hash_object.hexdigest()
+    return hmac.compare_digest(expected_signature, signature_header)
+
+
 def deploy_and_restart():
-    """Pulls changes from git, updates packages, and restarts the process."""
+    """Pulls changes from git, installs requirements, and exits process to trigger auto-restart."""
     try:
-        print("🔄 Push received via Webhook! Syncing with GitHub...")
+        print("🔄 Webhook triggered deployment! Pulling latest changes from Git...")
         subprocess.run(["git", "pull", "origin", GITHUB_BRANCH], check=True)
 
         if os.path.exists("requirements.txt"):
             subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
 
-        print("✅ Update complete. Shutting down process to trigger auto-restart...")
+        print("✅ Git pull successful. Shutting down process to trigger service restart...")
         os._exit(0)
     except Exception as e:
         print(f"❌ Auto-deploy failed: {e}")
@@ -332,8 +437,6 @@ def require_api_key(f):
 # ── Root / Health ─────────────────────────────────────────────────────────────
 @app.route('/')
 def home():
-    # If client requests JSON (e.g., bot/fetch requests), return JSON.
-    # Otherwise render the HTML dashboard for browsers.
     if request.headers.get('Accept') == 'application/json':
         return jsonify({
             'status': 'running',
@@ -349,7 +452,6 @@ def health():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
 
-# ── Custom JSON 404 Handler ───────────────────────────────────────────────────
 @app.errorhandler(404)
 def not_found_error(error):
     return jsonify({
@@ -360,19 +462,31 @@ def not_found_error(error):
     }), 404
 
 
-# ── Webhook Auto-Restart Endpoint ────────────────────────────────────────────
+# ── Webhook Auto-Deploy Endpoint ──────────────────────────────────────────────
 @app.route('/webhook', methods=['POST'])
 def github_webhook():
+    # 1. Check GitHub HMAC signature if secret configured
+    signature = request.headers.get('X-Hub-Signature-256')
+    if GITHUB_SECRET and not verify_signature(request.data, GITHUB_SECRET, signature):
+        return jsonify({'success': False, 'error': 'Invalid webhook signature'}), 401
+
+    # 2. Check Event Type
+    event = request.headers.get('X-GitHub-Event', 'push')
+    if event == 'ping':
+        return jsonify({'success': True, 'message': 'Ping acknowledged'}), 200
+
     data = request.json or {}
     expected_ref = f"refs/heads/{GITHUB_BRANCH}"
 
-    if data.get('ref') != expected_ref:
-        return jsonify({'success': True, 'message': f'Ignored push to non-target branch: {data.get("ref")}'}), 200
+    # Verify branch matches push event target
+    if data.get('ref') and data.get('ref') != expected_ref:
+        return jsonify({'success': True, 'message': f'Ignored branch {data.get("ref")}'}), 200
 
+    # 3. Trigger auto-deploy background thread
     Thread(target=deploy_and_restart, daemon=True).start()
     log_req('/webhook', 'POST', {'ref': data.get('ref')})
 
-    return jsonify({'success': True, 'message': 'Auto-deploy triggered successfully.'}), 200
+    return jsonify({'success': True, 'message': 'Deployment process initialized.'}), 200
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
@@ -543,7 +657,6 @@ def get_allowed_users(guild_id):
 @app.route('/api/channels/<guild_id>', methods=['GET'])
 @require_api_key
 def get_channels(guild_id):
-    """Return text channels for a guild using the bot instance."""
     try:
         if bot_instance is None:
             return jsonify({'success': False, 'error': 'Bot not connected to API yet'}), 503
@@ -568,7 +681,7 @@ def get_channels(guild_id):
                     'parent_name': c.category.name if c.category else None,
                 }
                 for c in channels
-                if c.type.value in (0, 5)  # text + announcement
+                if c.type.value in (0, 5)
             ]
 
         loop = asyncio.new_event_loop()
@@ -664,7 +777,7 @@ def get_logs():
     return jsonify({'success': True, 'logs': api_logs[-limit:], 'total': len(api_logs)})
 
 
-# ── Bot helper functions (called from main.py) ────────────────────────────────
+# ── Bot helper functions ──────────────────────────────────────────────────────
 def get_guild_commands(guild_id):      return guild_commands.get(str(guild_id), {})
 
 
