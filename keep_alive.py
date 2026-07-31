@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request, render_template_string
 from flask_cors import CORS
-from threading import Thread, Lock
+from threading import Thread
 import json
 import os
 import sys
@@ -10,7 +10,6 @@ import hashlib
 from datetime import datetime
 import requests
 import base64
-import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,18 +29,13 @@ API_LOGS_FILE = os.path.join(CONFIG_DIR, "api_logs.json")
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 
-# ── In-memory storage & state ─────────────────────────────────────────────────
+# ── In-memory storage ────────────────────────────────────────────────────────
 guild_commands = {}
 automod_config = {}
 automod_enabled = {}
 allowed_users = {}
 welcome_channels = {}
 api_logs = []
-
-bot_instance = None
-bot_starting = False
-bot_ready = False
-start_lock = Lock()
 
 # ── Env ──────────────────────────────────────────────────────────────────────
 API_KEY = os.getenv('API_KEY', 'Olittech447443456989260909-087')
@@ -53,191 +47,7 @@ DISCORD_CLIENT_ID = os.getenv('DISCORD_CLIENT_ID', '1414168461172539454')
 DISCORD_CLIENT_SECRET = os.getenv('DISCORD_CLIENT_SECRET', '')
 CUSTOM_DOMAIN = os.getenv('CUSTOM_DOMAIN', 'api.olittechnologies.co.in')
 
-# ── Animated Cold-Start Template ──────────────────────────────────────────────
-STARTING_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Starting OLIT Bot Core...</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg: #090d16;
-            --surface: #111827;
-            --border: #1f293d;
-            --text-main: #f3f4f6;
-            --text-muted: #6b7280;
-            --accent: #3b82f6;
-            --accent-glow: rgba(59, 130, 246, 0.35);
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background-color: var(--bg);
-            color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 24px;
-            overflow: hidden;
-        }
-
-        .loader-card {
-            width: 100%;
-            max-width: 460px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 40px 32px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
-            text-align: center;
-            position: relative;
-        }
-
-        .spinner-box {
-            position: relative;
-            width: 90px;
-            height: 90px;
-            margin: 0 auto 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .ring {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            border: 3px solid transparent;
-            border-top-color: var(--accent);
-            border-right-color: rgba(59, 130, 246, 0.2);
-            animation: spin 1.2s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
-        }
-
-        .ring-inner {
-            position: absolute;
-            width: 70%;
-            height: 70%;
-            border-radius: 50%;
-            border: 2px solid transparent;
-            border-bottom-color: #60a5fa;
-            animation: spin-reverse 0.9s linear infinite;
-        }
-
-        .core-dot {
-            width: 12px;
-            height: 12px;
-            background: var(--accent);
-            border-radius: 50%;
-            box-shadow: 0 0 15px var(--accent);
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        @keyframes spin-reverse {
-            0% { transform: rotate(360deg); }
-            100% { transform: rotate(0deg); }
-        }
-
-        @keyframes pulse {
-            0%, 100% { transform: scale(0.8); opacity: 0.6; }
-            50% { transform: scale(1.2); opacity: 1; }
-        }
-
-        h2 {
-            font-size: 1.25rem;
-            font-weight: 700;
-            letter-spacing: -0.01em;
-            margin-bottom: 8px;
-        }
-
-        p.status-msg {
-            font-size: 0.875rem;
-            color: var(--text-muted);
-            margin-bottom: 24px;
-        }
-
-        .progress-bar-bg {
-            width: 100%;
-            height: 6px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 999px;
-            overflow: hidden;
-            border: 1px solid var(--border);
-        }
-
-        .progress-bar-fill {
-            height: 100%;
-            width: 30%;
-            background: linear-gradient(90deg, #3b82f6, #60a5fa);
-            border-radius: 999px;
-            animation: shimmer 2s infinite ease-in-out;
-        }
-
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(350%); }
-        }
-
-        .domain-tag {
-            margin-top: 24px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            background: var(--bg);
-            padding: 6px 12px;
-            border-radius: 6px;
-            display: inline-block;
-            border: 1px solid var(--border);
-        }
-    </style>
-</head>
-<body>
-    <div class="loader-card">
-        <div class="spinner-box">
-            <div class="ring"></div>
-            <div class="ring-inner"></div>
-            <div class="core-dot"></div>
-        </div>
-        <h2>Booting OLIT Service Engine</h2>
-        <p class="status-msg">Initializing core components and launching Discord Bot...</p>
-
-        <div class="progress-bar-bg">
-            <div class="progress-bar-fill"></div>
-        </div>
-
-        <div class="domain-tag">{{ domain }}</div>
-    </div>
-
-    <script>
-        async function checkStatus() {
-            try {
-                const res = await fetch('/health');
-                const data = await res.json();
-                if (data.status === 'healthy' && data.bot_ready === true) {
-                    window.location.reload();
-                } else {
-                    setTimeout(checkStatus, 2000);
-                }
-            } catch (e) {
-                setTimeout(checkStatus, 2000);
-            }
-        }
-        setTimeout(checkStatus, 2500);
-    </script>
-</body>
-</html>
-"""
+bot_instance = None
 
 # ── Minimalist Dark Theme Template ────────────────────────────────────────────
 INDEX_HTML = """
@@ -597,35 +407,6 @@ def deploy_and_restart():
         print(f"❌ Auto-deploy failed: {e}")
 
 
-# ── Cold Start / Bootstrapper Thread ──────────────────────────────────────────
-def start_bot_process():
-    """Triggers bot startup when a request arrives while bot is offline."""
-    global bot_starting, bot_ready
-    with start_lock:
-        if bot_starting or bot_ready or bot_instance is not None:
-            return
-        bot_starting = True
-
-    try:
-        print("⚡ Cold-start triggered: Spawning Bot process...")
-        if os.path.exists("bot.py"):
-            subprocess.Popen([sys.executable, "bot.py"])
-        elif os.path.exists("main.py"):
-            subprocess.Popen([sys.executable, "main.py"])
-
-        time.sleep(3)
-        bot_ready = True
-    except Exception as e:
-        print(f"❌ Failed to cold-start bot: {e}")
-    finally:
-        bot_starting = False
-
-
-def ensure_bot_started():
-    if not bot_ready and not bot_starting and bot_instance is None:
-        Thread(target=start_bot_process, daemon=True).start()
-
-
 # ── Request logging ───────────────────────────────────────────────────────────
 def log_req(endpoint, method, data):
     api_logs.append({
@@ -656,16 +437,9 @@ def require_api_key(f):
 # ── Root / Health ─────────────────────────────────────────────────────────────
 @app.route('/')
 def home():
-    ensure_bot_started()
-
-    # Show animated loading screen if bot is booting up
-    if bot_starting or (not bot_ready and bot_instance is None):
-        return render_template_string(STARTING_HTML, domain=CUSTOM_DOMAIN)
-
     if request.headers.get('Accept') == 'application/json':
         return jsonify({
             'status': 'running',
-            'bot_ready': bot_ready or (bot_instance is not None),
             'service': 'OLIT Discord Bot API',
             'domain': CUSTOM_DOMAIN,
             'version': '3.0',
@@ -675,11 +449,7 @@ def home():
 
 @app.route('/health')
 def health():
-    return jsonify({
-        'status': 'healthy',
-        'bot_ready': bot_ready or (bot_instance is not None),
-        'timestamp': datetime.now().isoformat()
-    })
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
 
 @app.errorhandler(404)
@@ -771,10 +541,10 @@ WEBHOOK_HTML = """
 </html>
 """
 
-
 # ── Webhook Auto-Deploy Endpoint ──────────────────────────────────────────────
 @app.route('/webhook', methods=['GET', 'POST'])
 def github_webhook():
+    # If a user visits in a browser, serve the styled interface
     if request.method == 'GET':
         if 'text/html' in request.headers.get('Accept', ''):
             return render_template_string(WEBHOOK_HTML, branch=GITHUB_BRANCH)
@@ -783,10 +553,12 @@ def github_webhook():
             'message': 'Webhook listener active. Send a POST request from GitHub to trigger deployment.'
         }), 200
 
+    # 1. Check GitHub HMAC signature if secret configured
     signature = request.headers.get('X-Hub-Signature-256')
     if GITHUB_SECRET and not verify_signature(request.data, GITHUB_SECRET, signature):
         return jsonify({'success': False, 'error': 'Invalid webhook signature'}), 401
 
+    # 2. Check Event Type
     event = request.headers.get('X-GitHub-Event', 'push')
     if event == 'ping':
         return jsonify({'success': True, 'message': 'Ping acknowledged'}), 200
@@ -794,9 +566,11 @@ def github_webhook():
     data = request.json or {}
     expected_ref = f"refs/heads/{GITHUB_BRANCH}"
 
+    # Verify branch matches push event target
     if data.get('ref') and data.get('ref') != expected_ref:
         return jsonify({'success': True, 'message': f'Ignored branch {data.get("ref")}'}), 200
 
+    # 3. Trigger auto-deploy background thread
     Thread(target=deploy_and_restart, daemon=True).start()
     log_req('/webhook', 'POST', {'ref': data.get('ref')})
 
@@ -1108,9 +882,8 @@ def get_welcome_channel_id(guild_id):  return welcome_channels.get(int(guild_id)
 
 
 def set_bot_instance(bot):
-    global bot_instance, bot_ready
+    global bot_instance
     bot_instance = bot
-    bot_ready = True
 
 
 # ── Runner ────────────────────────────────────────────────────────────────────
@@ -1127,11 +900,10 @@ def run():
 
 
 def keep_alive():
-    """Call this if importing from another main file"""
-    t = Thread(target=run, daemon=False) # Keep process alive
+    t = Thread(target=run, daemon=True)
     t.start()
     print("✅ API server started on :5023")
 
+
 if __name__ == '__main__':
-    # Running directly will lock Python open so Nginx stays connected
     run()
