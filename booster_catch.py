@@ -945,3 +945,11 @@ def _register_commands(bot: commands.Bot):
             synced = await bot.tree.sync()
             await ctx.send(
                 f"🌐 Globally synced **{len(synced)}** slash commands! (May take up to 1 hr to show up globally)")
+    @bot.command(name="clearguild", hidden=True)
+    @commands.is_owner()
+    async def clear_guild_commands(ctx):
+        guild = discord.Object(id=ctx.guild.id)
+        # Clear all commands attached to this specific guild
+        bot.tree.clear_commands(guild=guild)
+        await bot.tree.sync(guild=guild)
+        await ctx.send("🧹 Cleared guild-specific commands! Duplicate commands should disappear in a few seconds.")
