@@ -1127,10 +1127,11 @@ def run():
 
 
 def keep_alive():
-    t = Thread(target=run, daemon=True)
+    """Call this if importing from another main file"""
+    t = Thread(target=run, daemon=False) # Keep process alive
     t.start()
     print("✅ API server started on :5023")
 
-
 if __name__ == '__main__':
+    # Running directly will lock Python open so Nginx stays connected
     run()
