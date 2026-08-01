@@ -7015,6 +7015,7 @@ setup_pixel_art(bot)
 
 @bot.event
 async def on_ready():
+    await bot.change_presence(status=discord.Status.do_not_disturb)
     print(f"✅ Logged in as {bot.user}")
     print(f"📊 Servers: {len(bot.guilds)}")
     setup_galaxy(bot, add_score, MASTER_ID)
