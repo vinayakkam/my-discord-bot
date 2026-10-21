@@ -4,3 +4,15 @@ discord.log
 /.cache
 /persistent/
 /data/
+/.venv/Lib/site-packages/PIL/
+/.venv/Lib/site-packages/
+/.venv/Scripts/
+/.venv/etc/bash_completion.d/
+/.venv/
+/__pycache__/
+/ffmpeg_bin/extract/ffmpeg-master-latest-win64-gpl/
+/ffmpeg_bin/
+/ffmpeg_folder/
+/nodejs_bin/
+/.idea/misc.xml
+/.idea/
