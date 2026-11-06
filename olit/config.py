@@ -77,10 +77,18 @@ AUTOMOD_TIMEOUT_HOURS = 24
 # word (`appbcbash`, `appbceq`, `appbaa`, `appsheriff`).
 SERVER_EMOJIS = {
     1411425019434766499: {
-        "bash_emojis": [1414192630165667872, 1414188725163790336, 1414192628010061824],
-        "eq_emoji": 1414188725163790336,
-        "aa_emoji": 1414192630165667872,
-        "sheriff_emoji": 1414192628010061824,
+        # `appbaa` -> BAA emoji
+        "aa_emoji": 1412810109083717762,
+        # `appbceq` -> BCEQ emoji
+        "eq_emoji": 1412810095967994040,
+        # `appsheriff` -> Sheriff emoji
+        "sheriff_emoji": 1412810083955511326,
+        # `appbcbash` reacts with all three of the above, in order.
+        "bash_emojis": [
+            1412810109083717762,
+            1412810095967994040,
+            1412810083955511326,
+        ],
     },
 }
 

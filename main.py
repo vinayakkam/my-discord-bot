@@ -17,6 +17,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from keep_alive import keep_alive, get_guild_commands, get_automod_words, get_allowed_users_list
+from olit import config
 import discord
 from discord import ui, ButtonStyle, Interaction, Embed
 import galaxy_keeper
@@ -360,15 +361,10 @@ async def on_command_error(ctx, error):
 
 
 
-server_emojis = {
-    1411425019434766499: {  # Replace with your actual server ID
-        "bash_emojis": [1414192630165667872, 1414188725163790336, 1414192628010061824],
-        "eq_emoji": 1414188725163790336,
-        "aa_emoji": 1414192630165667872,
-        "sheriff_emoji": 1414192628010061824
-    }
-    # Add more servers here if needed
-}
+# Per-guild custom emoji reaction triggers. Defined once in olit/config.py so
+# the IDs are not duplicated between modules; aliased here under the original
+# name so the four handlers below are unchanged.
+server_emojis = config.SERVER_EMOJIS
 
 
 
