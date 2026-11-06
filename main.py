@@ -810,8 +810,24 @@ def dice_payout(sides: int) -> int:
 
 
 @bot.command(name="dice")
-async def dice(ctx, guess: int = None, sides: int = 6):
-    """Roll a die, optionally calling the result. Usage: !dice [guess] [sides]"""
+async def dice(ctx, first: int = None, second: int = None):
+    """Roll a die, optionally calling the result.
+
+    A single argument is the die size, which is what people actually expect
+    from `!dice 100`:
+
+        !dice          roll a d6
+        !dice 100      roll a d100
+        !dice 3 20     call 3 on a d20
+    """
+    if first is None:
+        guess, sides = None, 6
+    elif second is None:
+        # One number means "roll a die this big", not "guess this on a d6".
+        guess, sides = None, first
+    else:
+        guess, sides = first, second
+
     # Deliberately no upper bound on `sides` -- rolling a ludicrous die is part
     # of the fun. Only a d1 or smaller is rejected, since there is nothing to
     # roll.

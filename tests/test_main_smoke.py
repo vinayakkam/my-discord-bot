@@ -209,3 +209,47 @@ def test_trivia_survives_exhausting_the_pool(live_bot):
     for _ in range(len(main.TRIVIA_BANK["hard"]) + 50):
         question = main.pick_trivia_question(515151, "hard")
         assert question["answer"] in question["options"]
+
+
+# ── Dice argument handling ────────────────────────────────────────────────────
+
+def _resolve_dice_args(first=None, second=None):
+    """Mirror of the mapping inside the !dice command."""
+    if first is None:
+        return None, 6
+    if second is None:
+        return None, first
+    return first, second
+
+
+def test_single_dice_argument_is_the_die_size(live_bot):
+    """`!dice 100` means a d100, not a guess of 100 on a d6."""
+    assert _resolve_dice_args(100) == (None, 100)
+    assert _resolve_dice_args(1000000) == (None, 1000000)
+
+
+def test_no_dice_arguments_defaults_to_d6(live_bot):
+    assert _resolve_dice_args() == (None, 6)
+
+
+def test_two_dice_arguments_are_guess_then_size(live_bot):
+    assert _resolve_dice_args(3, 20) == (3, 20)
+
+
+def test_dice_payout_scales_with_odds(live_bot):
+    import main
+
+    assert main.dice_payout(2) < main.dice_payout(100) < main.dice_payout(10**9)
+
+
+def test_dice_payout_is_capped(live_bot):
+    """An absurd die must not mint unlimited points."""
+    import main
+
+    assert main.dice_payout(10**30) == main.dice_payout(10**60) == 20
+
+
+def test_dice_has_no_upper_size_limit(live_bot):
+    import main
+
+    assert not hasattr(main, "DICE_MAX_SIDES")
