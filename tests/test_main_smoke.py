@@ -180,3 +180,32 @@ def test_score_keys_are_strings():
     from olit import storage
 
     assert all(isinstance(k, str) for k in storage.scores)
+
+
+def test_trivia_pool_is_large(live_bot):
+    """The hand-written bank held only 60 questions, so repeats came fast."""
+    import main
+
+    from olit.features import trivia_bank
+
+    sizes = trivia_bank.bank_sizes(main.TRIVIA_BANK)
+    assert sum(sizes.values()) > 200, sizes
+    for difficulty, count in sizes.items():
+        assert count >= 40, f"{difficulty} only has {count}"
+
+
+def test_trivia_avoids_immediate_repeats(live_bot):
+    import main
+
+    drawn = [main.pick_trivia_question(424242, "easy")["question"]
+             for _ in range(25)]
+    assert len(set(drawn)) == len(drawn), "a question repeated within 25 draws"
+
+
+def test_trivia_survives_exhausting_the_pool(live_bot):
+    """Drawing more times than the pool holds must not raise or hang."""
+    import main
+
+    for _ in range(len(main.TRIVIA_BANK["hard"]) + 50):
+        question = main.pick_trivia_question(515151, "hard")
+        assert question["answer"] in question["options"]

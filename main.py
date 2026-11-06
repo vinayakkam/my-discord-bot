@@ -1501,6 +1501,46 @@ TRIVIA_QUESTIONS = {
 
 LETTERS = ["A", "B", "C"]
 
+# ── Question pool ─────────────────────────────────────────────────────────────
+# The 60 hand-written questions above are the curated seed. olit/features/
+# trivia_bank.py generates several hundred more from astronomy data tables
+# (planet properties, the moon-to-parent mapping, bright stars, launch vehicles
+# and mission history), so the pool no longer repeats after a handful of games
+# and nobody has to write questions by hand. Everything stays space-themed.
+from olit.features import trivia_bank
+
+TRIVIA_BANK = trivia_bank.build_bank(TRIVIA_QUESTIONS)
+
+print("[TRIVIA] Question pool: "
+      + ", ".join(f"{d} {n}" for d, n in trivia_bank.bank_sizes(TRIVIA_BANK).items())
+      + f" (total {sum(trivia_bank.bank_sizes(TRIVIA_BANK).values())})")
+
+# Per-player memory of recently asked prompts, so the same question does not
+# come back immediately. Keyed by user ID, holding the last N prompt strings.
+TRIVIA_RECENT_MEMORY = 25
+_trivia_recent: Dict[int, List[str]] = {}
+
+
+def pick_trivia_question(user_id: int, difficulty: str) -> dict:
+    """Choose a question for `user_id`, avoiding their recent ones.
+
+    Falls back to the full pool once a player has seen everything, so this can
+    never fail to return a question.
+    """
+    pool = TRIVIA_BANK.get(difficulty) or TRIVIA_QUESTIONS[difficulty]
+    recent = _trivia_recent.setdefault(user_id, [])
+
+    unseen = [q for q in pool if q["question"] not in recent]
+    question = random.choice(unseen or pool)
+
+    recent.append(question["question"])
+    # Keep the memory bounded, and never longer than the pool itself or every
+    # question would be filtered out.
+    limit = min(TRIVIA_RECENT_MEMORY, max(1, len(pool) - 1))
+    del recent[:-limit]
+
+    return question
+
 
 class TriviaDifficultyDropdown(discord.ui.Select):
     def __init__(self, ctx):
@@ -1632,7 +1672,7 @@ class TriviaPlayAgainButton(discord.ui.Button):
 
 
 async def send_trivia_question(ctx, difficulty):
-    q = random.choice(TRIVIA_QUESTIONS[difficulty])
+    q = pick_trivia_question(ctx.author.id, difficulty)
 
     options = q["options"][:3]
     random.shuffle(options)
