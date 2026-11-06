@@ -658,6 +658,10 @@ async def ping(interaction: discord.Interaction):
 # so the first pair was dead code with incompatible key types.
 from olit.storage import scores, add_score, save_scores, load_scores
 
+# Shared base for the minigame views: author lock plus timeout cleanup, which
+# most of these views previously lacked.
+from olit.features import gameui
+
 # -----------------------------------
 # 1️⃣ Rock Paper Scissors
 # -----------------------------------
@@ -794,111 +798,241 @@ async def coinflip(ctx):
 # -----------------------------------
 # 3️⃣ Dice Roll
 # -----------------------------------
+def dice_payout(sides: int) -> int:
+    """Points for correctly calling a `sides`-sided die.
+
+    A flat reward paid the same for a 1-in-2 call as for a 1-in-1000 one, so
+    there was no reason to attempt a hard roll. This scales with the actual
+    odds -- 2 points on a d2, 3 on a d6, 7 on a d100 -- and is capped at 20 so
+    an absurdly large die cannot mint unlimited points.
+    """
+    return max(2, min(20, 1 + int(math.log2(sides))))
+
+
 @bot.command(name="dice")
 async def dice(ctx, guess: int = None, sides: int = 6):
-    """Roll a dice. Usage: !dice [guess] [sides]"""
-    if sides <= 1:
-        embed = discord.Embed(
+    """Roll a die, optionally calling the result. Usage: !dice [guess] [sides]"""
+    # Deliberately no upper bound on `sides` -- rolling a ludicrous die is part
+    # of the fun. Only a d1 or smaller is rejected, since there is nothing to
+    # roll.
+    if sides < 2:
+        await ctx.send(embed=discord.Embed(
             title="🎲 Dice Roll",
-            description="Please use at least 2 sides.",
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=embed)
+            description="A die needs at least **2** sides. Go as big as you like.",
+            color=discord.Color.red(),
+        ))
         return
+
+    # Reject an out-of-range call instead of silently rolling without it.
+    if guess is not None and not (1 <= guess <= sides):
+        await ctx.send(embed=discord.Embed(
+            title="🎲 Dice Roll",
+            description=(
+                f"**{guess}** isn't on a {sides}-sided die. "
+                f"Pick a number from **1** to **{sides}**."
+            ),
+            color=discord.Color.red(),
+        ))
+        return
+
     result = random.randint(1, sides)
+    payout = dice_payout(sides)
 
-    if guess and 1 <= guess <= sides:
-        if guess == result:
-            desc = f"You rolled **{result}**. 🎉 You guessed correctly (+1 point)"
-            add_score(ctx.author.id, 1)
-        else:
-            desc = f"You rolled **{result}**. 😢 You guessed wrong."
+    if guess is None:
+        desc = f"You rolled **{result}** on a d{sides}."
+        color = discord.Color.blurple()
+    elif guess == result:
+        total = add_score(ctx.author.id, payout)
+        desc = (
+            f"You called **{guess}** and rolled **{result}** — correct! 🎉\n"
+            f"**+{payout} points** (1-in-{sides} odds)\nTotal: **{total}**"
+        )
+        color = discord.Color.green()
     else:
-        desc = f"You rolled **{result}**."
+        desc = (
+            f"You called **{guess}** but rolled **{result}**. 😢\n"
+            f"A correct call on a d{sides} was worth **{payout}** points."
+        )
+        color = discord.Color.red()
 
-    embed = discord.Embed(
-        title="🎲 Dice Roll",
-        description=desc,
-        color=discord.Color.green()
-    )
+    embed = discord.Embed(title="🎲 Dice Roll", description=desc, color=color)
+    embed.set_footer(text=f"d{sides} • higher-sided dice pay more")
     await ctx.send(embed=embed)
 
 # -----------------------------------
 # 4️⃣ Number Guessing
 # -----------------------------------
+# Range the secret number is drawn from, and how many tries a player gets.
+GUESS_MIN, GUESS_MAX = 1, 50
+GUESS_MAX_ATTEMPTS = 5
+
+
+def guess_hint(target: int, attempt: int, span: int) -> str:
+    """A hot/cold hint for a wrong guess.
+
+    The band widths scale with the size of the range, so the hints stay
+    meaningful if GUESS_MAX changes.
+    """
+    distance = abs(target - attempt)
+    direction = "higher ⬆️" if attempt < target else "lower ⬇️"
+
+    if distance <= max(1, span // 25):
+        heat = "🔥 Boiling"
+    elif distance <= max(2, span // 10):
+        heat = "🌡️ Warm"
+    elif distance <= max(4, span // 4):
+        heat = "❄️ Cold"
+    else:
+        heat = "🧊 Freezing"
+
+    return f"{heat} — try {direction}"
+
+
+def guess_payout(attempts_used: int) -> int:
+    """Points for a correct guess: fewer attempts pay more."""
+    return max(1, GUESS_MAX_ATTEMPTS + 1 - attempts_used)
+
+
 class GuessModal(discord.ui.Modal, title="🔢 Number Guessing Game"):
-    def __init__(self, ctx, number):
+    """Collects one numeric guess and reports back through the parent view."""
+
+    def __init__(self, parent_view: "GuessView"):
         super().__init__()
-        self.ctx = ctx
-        self.number = number
+        self.parent_view = parent_view
 
         self.guess_input = discord.ui.TextInput(
-            label="Enter your guess (1-10):",
+            label=f"Your guess ({GUESS_MIN}-{GUESS_MAX})",
             style=discord.TextStyle.short,
-            placeholder="Type a number between 1 and 10",
+            placeholder=f"A number between {GUESS_MIN} and {GUESS_MAX}",
             required=True,
-            max_length=2
+            max_length=len(str(GUESS_MAX)),
         )
         self.add_item(self.guess_input)
 
     async def on_submit(self, interaction: discord.Interaction):
+        raw = self.guess_input.value.strip()
         try:
-            guess_num = int(self.guess_input.value)
+            attempt = int(raw)
         except ValueError:
             await interaction.response.send_message(
-                "❌ Invalid number! Please type a valid integer.", ephemeral=True
+                f"❌ `{raw}` isn't a whole number.", ephemeral=True
             )
             return
 
-        if guess_num == self.number:
-            embed = discord.Embed(
-                title="🎉 Correct!",
-                description=f"You guessed it! The number was **{self.number}** (+1 point).",
-                color=discord.Color.green()
+        if not (GUESS_MIN <= attempt <= GUESS_MAX):
+            # Out-of-range input does not burn an attempt.
+            await interaction.response.send_message(
+                f"❌ Stay between **{GUESS_MIN}** and **{GUESS_MAX}**.",
+                ephemeral=True,
             )
-            add_score(interaction.user.id, 1)
-        else:
-            embed = discord.Embed(
-                title="😢 Wrong Guess",
-                description=f"Nope, the number was **{self.number}**.",
-                color=discord.Color.red()
-            )
+            return
 
-        await interaction.response.edit_message(embed=embed, view=None)
+        await self.parent_view.register_guess(interaction, attempt)
 
 
-class GuessView(discord.ui.View):
-    def __init__(self, ctx, number):
-        super().__init__(timeout=15)
+class GuessView(gameui.GameView):
+    """Number guessing with hot/cold hints over several attempts.
+
+    The original version allowed a single guess and immediately revealed the
+    answer, so there was nothing to deduce.
+    """
+
+    def __init__(self, ctx, number: int):
+        super().__init__(author_id=ctx.author.id, timeout=120)
         self.ctx = ctx
         self.number = number
+        self.attempts: list[int] = []
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message(
-                "⚠️ This guessing session isn’t yours.", ephemeral=True
+    @property
+    def attempts_left(self) -> int:
+        return GUESS_MAX_ATTEMPTS - len(self.attempts)
+
+    def build_embed(self, status: str = "", color=None) -> discord.Embed:
+        embed = discord.Embed(
+            title="🔢 Number Guessing Game",
+            description=(
+                f"I picked a number between **{GUESS_MIN}** and **{GUESS_MAX}**.\n"
+                + (f"\n{status}\n" if status else "")
+            ),
+            color=color or discord.Color.purple(),
+        )
+        embed.add_field(name="Attempts left", value=str(self.attempts_left))
+        if self.attempts:
+            embed.add_field(
+                name="Already tried",
+                value=", ".join(str(a) for a in self.attempts),
+                inline=False,
             )
-            return False
-        return True
+        embed.set_footer(
+            text=f"Guess in 1 try for {guess_payout(1)} points, "
+                 f"down to {guess_payout(GUESS_MAX_ATTEMPTS)} on the last"
+        )
+        return embed
 
-    @discord.ui.button(label="Make a Guess", style=discord.ButtonStyle.primary, emoji="🎲")
-    async def make_guess(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = GuessModal(self.ctx, self.number)
-        await interaction.response.send_modal(modal)
+    async def register_guess(self, interaction: discord.Interaction, attempt: int):
+        """Score a guess, then either end the game or ask for another."""
+        if attempt in self.attempts:
+            await interaction.response.send_message(
+                f"You already tried **{attempt}**.", ephemeral=True
+            )
+            return
+
+        self.attempts.append(attempt)
+
+        if attempt == self.number:
+            points = guess_payout(len(self.attempts))
+            total = add_score(interaction.user.id, points)
+            self.disable_all()
+            embed = discord.Embed(
+                title="🎉 Correct!",
+                description=(
+                    f"The number was **{self.number}**.\n"
+                    f"Found in **{len(self.attempts)}** "
+                    f"attempt{'s' if len(self.attempts) != 1 else ''} — "
+                    f"**+{points} points**\nTotal: **{total}**"
+                ),
+                color=discord.Color.green(),
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            self.stop()
+            return
+
+        if self.attempts_left == 0:
+            self.disable_all()
+            embed = discord.Embed(
+                title="😔 Out of attempts",
+                description=(
+                    f"The number was **{self.number}**.\n"
+                    f"You tried: {', '.join(str(a) for a in self.attempts)}"
+                ),
+                color=discord.Color.red(),
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            self.stop()
+            return
+
+        hint = guess_hint(self.number, attempt, GUESS_MAX - GUESS_MIN)
+        await interaction.response.edit_message(
+            embed=self.build_embed(
+                status=f"**{attempt}** is wrong. {hint}",
+                color=discord.Color.orange(),
+            ),
+            view=self,
+        )
+
+    @discord.ui.button(label="Make a Guess",
+                       style=discord.ButtonStyle.primary, emoji="🎲")
+    async def make_guess(self, interaction: discord.Interaction,
+                         button: discord.ui.Button):
+        await interaction.response.send_modal(GuessModal(self))
 
 
 @bot.command(name="guess")
 async def guess(ctx):
-    number = random.randint(1, 10)
-
-    embed = discord.Embed(
-        title="🔢 Number Guessing Game",
-        description=f"I picked a number between **1 and 10**.\nClick below to make your guess!",
-        color=discord.Color.purple()
-    )
-
+    """Guess the secret number using hot/cold hints."""
+    number = random.randint(GUESS_MIN, GUESS_MAX)
     view = GuessView(ctx, number)
-    await ctx.send(embed=embed, view=view)
+    await view.send(ctx, embed=view.build_embed())
 
 # -----------------------------------
 # 5️⃣ Scoreboard Commands
