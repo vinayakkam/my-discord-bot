@@ -1,6 +1,8 @@
 from flask import Flask, jsonify, request, render_template_string
 from flask_cors import CORS
 from threading import Thread
+import asyncio
+from concurrent.futures import TimeoutError as FuturesTimeout
 import json
 import os
 import sys
@@ -48,6 +50,39 @@ DISCORD_CLIENT_SECRET = os.getenv('DISCORD_CLIENT_SECRET', '')
 CUSTOM_DOMAIN = os.getenv('CUSTOM_DOMAIN', 'api.olittechnologies.co.in')
 
 bot_instance = None
+
+# How long an API request will wait for the bot's event loop to answer.
+BOT_CALL_TIMEOUT = 15
+
+
+def run_on_bot_loop(coro_factory, timeout: int = BOT_CALL_TIMEOUT):
+    """Run a coroutine on the bot's event loop from this Flask worker thread.
+
+    Flask handlers run in a different thread from the bot. discord.py objects
+    (and the aiohttp session underneath them) are bound to the loop the bot was
+    started on, so spinning up a fresh loop here and awaiting them fails with
+    "attached to a different loop". `run_coroutine_threadsafe` hands the work
+    to the correct loop and blocks this thread for the result.
+
+    `coro_factory` must be a zero-argument callable returning a fresh
+    coroutine; it is only called once the target loop is confirmed alive.
+
+    Returns (ok, value). On failure `value` is a human-readable reason.
+    """
+    if bot_instance is None:
+        return False, 'Bot not connected to API yet'
+
+    loop = getattr(bot_instance, 'loop', None)
+    if loop is None or not loop.is_running():
+        return False, 'Bot event loop is not running yet'
+
+    try:
+        future = asyncio.run_coroutine_threadsafe(coro_factory(), loop)
+        return True, future.result(timeout=timeout)
+    except FuturesTimeout:
+        return False, f'Bot did not respond within {timeout}s'
+    except Exception as exc:
+        return False, str(exc)
 
 # ── Minimalist Dark Theme Template ────────────────────────────────────────────
 INDEX_HTML = """
@@ -326,7 +361,7 @@ def load_all_data():
     welcome_channels = {int(k): int(v) for k, v in raw_wc.items()}
     api_logs = _load(API_LOGS_FILE, [])[-1000:]
 
-    print(f"✅ Loaded data for guilds and automod configurations.")
+    print("✅ Loaded data for guilds and automod configurations.")
 
 
 def _save(path, data):
@@ -696,7 +731,9 @@ def get_automod_status(guild_id):
 
 
 @app.route('/api/automod/<guild_id>', methods=['GET'])
-def get_automod_words(guild_id):
+def get_automod_words_route(guild_id):
+    # Named *_route so it does not collide with the bot-facing
+    # get_automod_words() helper defined near the bottom of this file.
     words = automod_config.get(str(guild_id), [])
     return jsonify({'success': True, 'words': words, 'count': len(words)})
 
@@ -745,13 +782,17 @@ def get_allowed_users(guild_id):
 @app.route('/api/channels/<guild_id>', methods=['GET'])
 @require_api_key
 def get_channels(guild_id):
+    """List the text channels of a guild, for the dashboard's channel picker.
+
+    Needs the gateway, so it goes through run_on_bot_loop(). If the bot has not
+    handed itself to this module via set_bot_instance(), this returns 503 --
+    which is what made the dashboard's "set welcome channel" picker come up
+    empty.
+    """
     try:
-        if bot_instance is None:
-            return jsonify({'success': False, 'error': 'Bot not connected to API yet'}), 503
-
-        import asyncio
-
         async def _fetch():
+            # get_guild() reads the local cache; fetch_guild() falls back to the
+            # REST API in case the cache is cold.
             guild = bot_instance.get_guild(int(guild_id))
             if guild is None:
                 try:
@@ -769,19 +810,21 @@ def get_channels(guild_id):
                     'parent_name': c.category.name if c.category else None,
                 }
                 for c in channels
+                # Types 0 and 5 are text and announcement channels; welcome
+                # messages can only be sent to those.
                 if c.type.value in (0, 5)
             ]
 
-        loop = asyncio.new_event_loop()
-        channels = loop.run_until_complete(_fetch())
-        loop.close()
+        ok, result = run_on_bot_loop(_fetch)
+        if not ok:
+            return jsonify({'success': False, 'error': result}), 503
 
-        if channels is None:
+        if result is None:
             return jsonify({'success': False, 'error': 'Bot is not in that server'}), 404
 
-        channels.sort(key=lambda c: (c.get('parent_id') or '', c.get('position', 0)))
+        result.sort(key=lambda c: (c.get('parent_id') or '', c.get('position', 0)))
 
-        return jsonify({'success': True, 'channels': channels, 'count': len(channels)})
+        return jsonify({'success': True, 'channels': result, 'count': len(result)})
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -790,18 +833,34 @@ def get_channels(guild_id):
 @app.route('/api/welcome_channel', methods=['POST'])
 @require_api_key
 def set_welcome_channel():
-    try:
-        data = request.json
-        guild_id = int(data.get('guild_id', 0))
-        channel_id = int(data.get('channel_id', 0))
+    """Store the welcome channel for a guild, from the dashboard.
 
+    Accepts a JSON body or a form post: the dashboard has sent both, and the
+    old `request.json` access raised a 415 whenever the Content-Type header was
+    not exactly application/json, which looked like "saving does nothing".
+    """
+    try:
+        data = request.get_json(silent=True) or request.form or {}
+
+        try:
+            guild_id = int(data.get('guild_id', 0))
+            channel_id = int(data.get('channel_id', 0))
+        except (TypeError, ValueError):
+            return jsonify({'success': False,
+                            'error': 'guild_id and channel_id must be numeric IDs'}), 400
+
+        if not guild_id or not channel_id:
+            return jsonify({'success': False,
+                            'error': 'guild_id and channel_id are required'}), 400
+
+        # Keys are ints in memory and stringified on save; see save_welcome_channels().
         welcome_channels[guild_id] = channel_id
         save_welcome_channels()
         commit_to_github('config/welcome_channels.json',
                          {str(k): str(v) for k, v in welcome_channels.items()},
                          f'👋 Welcome channel set for {guild_id}')
         log_req('/api/welcome_channel', 'POST', data)
-        return jsonify({'success': True, 'message': f'Welcome channel set', 'channel_id': str(channel_id)})
+        return jsonify({'success': True, 'message': 'Welcome channel set', 'channel_id': str(channel_id)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
