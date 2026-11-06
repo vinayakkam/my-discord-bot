@@ -661,65 +661,96 @@ from olit.storage import scores, add_score, save_scores, load_scores
 # Shared base for the minigame views: author lock plus timeout cleanup, which
 # most of these views previously lacked.
 from olit.features import gameui
+from olit import storage
 
 # -----------------------------------
 # 1️⃣ Rock Paper Scissors
 # -----------------------------------
-class RPSView(discord.ui.View):
+# Both of these now extend gameui.GameView, which supplies the author lock and
+# the on_timeout cleanup they were missing, and both award a streak bonus for
+# consecutive wins so a run is worth more than the same number of scattered
+# wins. Streaks persist via olit.storage.
+RPS_BEATS = {"rock": "scissors", "paper": "rock", "scissors": "paper"}
+RPS_EMOJI = {"rock": "🪨", "paper": "📄", "scissors": "✂️"}
+
+#: Points for a single win, before the streak bonus.
+RPS_WIN_POINTS = 1
+COINFLIP_WIN_POINTS = 1
+
+
+def streak_note(game: str, user_id) -> str:
+    """A short description of the player's current run, or empty."""
+    streak = storage.get_streak(game, user_id)
+    if streak < 2:
+        return ""
+    return f"🔥 **{streak}** in a row"
+
+
+class RPSView(gameui.GameView):
+    """Rock paper scissors against the bot, with a streak bonus."""
+
     def __init__(self, ctx, timeout=30):
-        super().__init__(timeout=timeout)
+        super().__init__(author_id=ctx.author.id, timeout=timeout)
         self.ctx = ctx
         self.user = ctx.author
-        self.options = ["rock", "paper", "scissors"]
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Only the invoking user can click."""
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message(
-                "⚠️ This RPS session isn’t yours.", ephemeral=True
-            )
-            return False
-        return True
+        self.options = list(RPS_BEATS)
 
     async def play(self, interaction, user_choice):
         bot_choice = random.choice(self.options)
+
         if user_choice == bot_choice:
-            result = "It's a draw! 🤝"
-            color = discord.Color.yellow()
-        elif (
-            (user_choice == "rock" and bot_choice == "scissors")
-            or (user_choice == "paper" and bot_choice == "rock")
-            or (user_choice == "scissors" and bot_choice == "paper")
-        ):
-            result = "You win! 🎉 (+1 point)"
-            add_score(interaction.user.id, 1)
-            color = discord.Color.green()
+            outcome = "draw"
+        elif RPS_BEATS[user_choice] == bot_choice:
+            outcome = "win"
         else:
+            outcome = "loss"
+
+        if outcome == "win":
+            streak = storage.bump_streak("rps", interaction.user.id)
+            bonus = gameui.streak_bonus(streak)
+            points = RPS_WIN_POINTS + bonus
+            total = add_score(interaction.user.id, points)
+            result = (
+                f"You win! 🎉 **+{points}**"
+                + (f" ({RPS_WIN_POINTS} + {bonus} streak)" if bonus else "")
+                + f"\nTotal: **{total}**"
+            )
+            color = discord.Color.green()
+        elif outcome == "draw":
+            # A draw neither extends nor breaks the run.
+            result = "It's a draw! 🤝 Your streak is safe."
+            color = discord.Color.yellow()
+        else:
+            broken = storage.reset_streak("rps", interaction.user.id)
             result = "You lose! 😢"
+            if broken >= 2:
+                result += f"\nThat ends a **{broken}**-win streak."
             color = discord.Color.red()
 
-        embed = discord.Embed(
-            title="🪨📄✂️ Rock Paper Scissors",
-            color=color
-        )
-        embed.add_field(name="Your Choice", value=user_choice.capitalize())
-        embed.add_field(name="Bot's Choice", value=bot_choice.capitalize())
+        embed = discord.Embed(title="🪨📄✂️ Rock Paper Scissors", color=color)
+        embed.add_field(name="Your Choice",
+                        value=f"{RPS_EMOJI[user_choice]} {user_choice.capitalize()}")
+        embed.add_field(name="Bot's Choice",
+                        value=f"{RPS_EMOJI[bot_choice]} {bot_choice.capitalize()}")
         embed.add_field(name="Result", value=result, inline=False)
 
-        # Disable buttons after click
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(embed=embed, view=self)
+        note = streak_note("rps", interaction.user.id)
+        if note:
+            embed.set_footer(text=note)
 
-    @discord.ui.button(label="🪨 Rock", style=discord.ButtonStyle.primary)
+        self.disable_all()
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+    @discord.ui.button(label="Rock", emoji="🪨", style=discord.ButtonStyle.primary)
     async def rock(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.play(interaction, "rock")
 
-    @discord.ui.button(label="📄 Paper", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Paper", emoji="📄", style=discord.ButtonStyle.primary)
     async def paper(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.play(interaction, "paper")
 
-    @discord.ui.button(label="✂️ Scissors", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Scissors", emoji="✂️", style=discord.ButtonStyle.primary)
     async def scissors(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.play(interaction, "scissors")
 
@@ -732,54 +763,61 @@ async def rps(ctx):
         description=f"{ctx.author.mention}, click a button below to play!",
         color=discord.Color.blurple()
     )
+    note = streak_note("rps", ctx.author.id)
+    if note:
+        embed.add_field(name="Current run", value=note, inline=False)
+
     view = RPSView(ctx)
-    await ctx.send(embed=embed, view=view)
+    await view.send(ctx, embed=embed)
 
 # -----------------------------------
 # 2️⃣ Coin Flip
 # -----------------------------------
-class CoinFlipView(discord.ui.View):
+class CoinFlipView(gameui.GameView):
+    """Call heads or tails, with a streak bonus."""
+
     def __init__(self, ctx, timeout=30):
-        super().__init__(timeout=timeout)
+        super().__init__(author_id=ctx.author.id, timeout=timeout)
         self.ctx = ctx
         self.user = ctx.author
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Ensure only the user who started the game can press the button."""
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message(
-                "⚠️ This coin flip session isn’t yours.", ephemeral=True
-            )
-            return False
-        return True
-
     async def flip_coin(self, interaction, guess):
         result = random.choice(["heads", "tails"])
+        face = "🪙" if result == "heads" else "🎯"
+
         if guess == result:
-            desc = f"It’s **{result.capitalize()}**! You guessed right 🎉 (+1 point)"
-            add_score(interaction.user.id, 1)
+            streak = storage.bump_streak("coinflip", interaction.user.id)
+            bonus = gameui.streak_bonus(streak)
+            points = COINFLIP_WIN_POINTS + bonus
+            total = add_score(interaction.user.id, points)
+            desc = (
+                f"It's **{result.capitalize()}** {face} — you called it! 🎉\n"
+                f"**+{points}**"
+                + (f" ({COINFLIP_WIN_POINTS} + {bonus} streak)" if bonus else "")
+                + f"\nTotal: **{total}**"
+            )
             color = discord.Color.green()
         else:
-            desc = f"It’s **{result.capitalize()}**! You guessed wrong 😢"
+            broken = storage.reset_streak("coinflip", interaction.user.id)
+            desc = f"It's **{result.capitalize()}** {face} — wrong call. 😢"
+            if broken >= 2:
+                desc += f"\nThat ends a **{broken}**-win streak."
             color = discord.Color.red()
 
-        embed = discord.Embed(
-            title="🪙 Coin Flip",
-            description=desc,
-            color=color
-        )
+        embed = discord.Embed(title="🪙 Coin Flip", description=desc, color=color)
+        note = streak_note("coinflip", interaction.user.id)
+        if note:
+            embed.set_footer(text=note)
 
-        # Disable all buttons after click
-        for child in self.children:
-            child.disabled = True
-
+        self.disable_all()
         await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
 
-    @discord.ui.button(label="🪙 Heads", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Heads", emoji="🪙", style=discord.ButtonStyle.primary)
     async def heads(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.flip_coin(interaction, "heads")
 
-    @discord.ui.button(label="🪙 Tails", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Tails", emoji="🎯", style=discord.ButtonStyle.secondary)
     async def tails(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.flip_coin(interaction, "tails")
 
@@ -792,8 +830,12 @@ async def coinflip(ctx):
         description=f"{ctx.author.mention}, choose **Heads** or **Tails** below!",
         color=discord.Color.gold()
     )
+    note = streak_note("coinflip", ctx.author.id)
+    if note:
+        embed.add_field(name="Current run", value=note, inline=False)
+
     view = CoinFlipView(ctx)
-    await ctx.send(embed=embed, view=view)
+    await view.send(ctx, embed=embed)
 
 # -----------------------------------
 # 3️⃣ Dice Roll
@@ -1183,7 +1225,6 @@ async def leaderboard(ctx):
 
         # Track role changes
         role_removed_from = []
-        role_assignment_failed = False
 
         # Remove role from everyone else who has it
         for member in guild.members:
@@ -1580,29 +1621,74 @@ class TriviaDifficultyDropdown(discord.ui.Select):
         await send_trivia_question(self.ctx, difficulty)
 
 
-class TriviaDifficultyView(discord.ui.View):
+class TriviaDifficultyView(gameui.GameView):
+    """Difficulty picker. Locked to the player and expires cleanly."""
+
     def __init__(self, ctx, timeout=60):
-        super().__init__(timeout=timeout)
+        super().__init__(author_id=ctx.author.id, timeout=timeout)
+        self.ctx = ctx
         self.add_item(TriviaDifficultyDropdown(ctx))
 
 
-class AnswerButtons(discord.ui.View):
+class AnswerButtons(gameui.GameView):
+    """The A/B/C answer buttons for one trivia question.
+
+    Running out of time now reveals the correct answer instead of leaving the
+    question on screen with live-looking buttons that error when pressed.
+    """
+
     def __init__(self, ctx, correct_letter, points, letter_to_option, q, difficulty):
-        super().__init__(timeout=30)
+        super().__init__(author_id=ctx.author.id, timeout=30)
         self.ctx = ctx
         self.correct_letter = correct_letter
         self.points = points
         self.letter_to_option = letter_to_option
         self.q = q
         self.difficulty = difficulty
+        self.answered = False
         for L in LETTERS:
             if L in letter_to_option:
                 self.add_item(AnswerButton(L, self))
 
-    async def disable_all(self, interaction):
-        for child in self.children:
-            child.disabled = True
-        await interaction.message.edit(view=self)
+    async def disable_and_edit(self, interaction):
+        """Grey out the buttons on the message that was just clicked.
+
+        Named distinctly from GameView.disable_all(), which takes no arguments
+        and only mutates the components.
+        """
+        self.disable_all()
+        try:
+            await interaction.message.edit(view=self)
+        except discord.HTTPException:
+            pass
+
+    async def on_timeout(self):
+        """Reveal the answer when the 30 seconds run out."""
+        if self.answered:
+            return
+        self.disable_all()
+
+        correct_option = self.letter_to_option.get(self.correct_letter,
+                                                   self.q.get("answer", "?"))
+        embed = discord.Embed(
+            title="⏰ Time's up!",
+            description=(
+                f"**{self.q['question']}**\n\n"
+                f"The correct answer was **{self.correct_letter}) {correct_option}**.\n\n"
+                f"No points awarded — you had 30 seconds."
+            ),
+            color=discord.Color.greyple(),
+        )
+        embed.add_field(name="Difficulty", value=self.difficulty.upper(), inline=True)
+        embed.add_field(name="Was worth", value=f"{self.points} pts", inline=True)
+        embed.set_footer(text="Run !trivia to try another question.")
+
+        if self.message is not None:
+            try:
+                await self.message.edit(
+                    embed=embed, view=TriviaPlayAgainView(self.ctx))
+            except discord.HTTPException:
+                pass
 
 
 class AnswerButton(discord.ui.Button):
@@ -1623,14 +1709,8 @@ class AnswerButton(discord.ui.Button):
         points = view.points
         q = view.q
 
-        await view.disable_all(interaction)  # disables buttons immediately
-
-        # Create difficulty color mapping
-        difficulty_colors = {
-            "easy": discord.Color.green(),
-            "medium": discord.Color.orange(),
-            "hard": discord.Color.red()
-        }
+        view.answered = True  # stops on_timeout revealing the answer afterwards
+        await view.disable_and_edit(interaction)  # disables buttons immediately
 
         if chosen == correct_letter:
             add_score(interaction.user.id, points)
@@ -1658,9 +1738,11 @@ class AnswerButton(discord.ui.Button):
         await interaction.response.edit_message(embed=result_embed, view=TriviaPlayAgainView(view.ctx))
 
 
-class TriviaPlayAgainView(discord.ui.View):
+class TriviaPlayAgainView(gameui.GameView):
+    """Offers another question. Locked to the player, expires cleanly."""
+
     def __init__(self, ctx):
-        super().__init__(timeout=60)
+        super().__init__(author_id=ctx.author.id, timeout=60)
         self.ctx = ctx
         self.add_item(TriviaPlayAgainButton(ctx))
 
@@ -1721,7 +1803,8 @@ async def send_trivia_question(ctx, difficulty):
     embed.set_footer(text=f"Trivia for {ctx.author.name}")
 
     view = AnswerButtons(ctx, correct_letter, points, letter_to_option, q, difficulty)
-    await ctx.send(embed=embed, view=view)
+    # Keep the message so the timeout handler can reveal the answer on it.
+    await view.send(ctx, embed=embed)
 
 
 # === Main command ===
@@ -1739,7 +1822,9 @@ async def trivia(ctx):
     embed.add_field(name="⏰ Time Limit", value="30 seconds per question", inline=True)
     embed.add_field(name="🎮 Your Game", value=f"Started by {ctx.author.mention}", inline=True)
 
-    await ctx.send(embed=embed, view=TriviaDifficultyView(ctx))
+    # Keep the message so the view can disable itself when it expires.
+    view = TriviaDifficultyView(ctx)
+    await view.send(ctx, embed=embed)
 
 
 
@@ -1788,19 +1873,14 @@ class MathQuizModal(discord.ui.Modal, title="🧮 Math Quiz Answer"):
         await interaction.response.edit_message(embed=embed, view=None)
 
 
-class MathQuizView(discord.ui.View):
+class MathQuizView(gameui.GameView):
+    """Opens the answer modal. The author lock and timeout cleanup are
+    inherited from GameView."""
+
     def __init__(self, ctx, answer):
-        super().__init__(timeout=60)
+        super().__init__(author_id=ctx.author.id, timeout=60)
         self.ctx = ctx
         self.answer = answer
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message(
-                "⚠️ This quiz isn’t for you.", ephemeral=True
-            )
-            return False
-        return True
 
     @discord.ui.button(label="Answer Question", style=discord.ButtonStyle.primary, emoji="✏️")
     async def answer_question(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1831,7 +1911,7 @@ async def mathquiz(ctx):
     )
 
     view = MathQuizView(ctx, answer)
-    await ctx.send(embed=embed, view=view)
+    await view.send(ctx, embed=embed)
 
 # -----------------------------------
 # 8️⃣ Word Unscramble
@@ -1935,19 +2015,17 @@ class UnscrambleModal(discord.ui.Modal, title="Unscramble the Word"):
         await interaction.response.edit_message(embed=embed, view=None)
 
 
-class UnscrambleView(discord.ui.View):
+class UnscrambleView(gameui.GameView):
+    """Opens the guess modal. Keeps its own on_timeout, which reveals the word."""
+
     def __init__(self, ctx, word: str, points: int, timeout: int = 60):
-        super().__init__(timeout=timeout)
+        super().__init__(author_id=ctx.author.id, timeout=timeout)
         self.ctx = ctx
         self.word = word
         self.points = points
-        self.message: discord.Message | None = None
 
     @discord.ui.button(label="Unscramble", style=discord.ButtonStyle.primary, emoji="🔤")
     async def unscramble_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This is not your game.", ephemeral=True)
-            return
         modal = UnscrambleModal(self.ctx, self.word, self.points)
         await interaction.response.send_modal(modal)
 
@@ -2031,22 +2109,36 @@ class DifficultyDropdown(discord.ui.Select):
             view.message = interaction.message
 
 
-class DifficultyView(discord.ui.View):
+class DifficultyView(gameui.GameView):
+    """Difficulty dropdown for the unscramble game."""
+
     def __init__(self, ctx):
-        super().__init__(timeout=30)
+        super().__init__(author_id=ctx.author.id, timeout=30)
         self.ctx = ctx
         self.add_item(DifficultyDropdown(ctx))
 
     async def on_timeout(self):
+        """Replace the prompt with a timeout notice.
+
+        The previous version built this embed and then threw it away -- there
+        was no message reference to edit, so nothing ever happened and the
+        dropdown stayed on screen looking usable. GameView.send() now records
+        the message.
+        """
+        self.disable_all()
+        if self.message is None:
+            return
         try:
-            timeout_embed = discord.Embed(
-                title="⏳ Selection Timeout",
-                description="You took too long to select a difficulty level.",
-                color=discord.Color.orange()
+            await self.message.edit(
+                embed=discord.Embed(
+                    title="⏳ Selection Timeout",
+                    description="You took too long to select a difficulty level.\n"
+                                "Run `!unscramble` to start again.",
+                    color=discord.Color.orange(),
+                ),
+                view=self,
             )
-            # This will only work if we stored the message reference
-            # We'll handle this in the command
-        except Exception:
+        except discord.HTTPException:
             pass
 
 
@@ -2317,26 +2409,19 @@ player_states = {}  # user_id -> {fuel, food, research, turns, active}
 
 
 # ======= Mission UI View =======
-class MissionView(discord.ui.View):
+class MissionView(gameui.GameView):
+    """Mission control panel.
+
+    Deliberately has no timeout: a mission stays playable indefinitely. The
+    author lock and disable_all() come from GameView.
+    """
+
+    not_yours_message = (
+        "⚠️ These buttons belong to someone else. Start your own with `!mission`."
+    )
+
     def __init__(self, author_id):
-        super().__init__(timeout=None)
-        self.author_id = author_id
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Restrict button presses to mission owner."""
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message(
-                "⚠️ These buttons belong to someone else. Start your own with `!mission`.",
-                ephemeral=True
-            )
-            return False
-        return True
-
-    def disable_all(self):
-        """Disable all buttons after mission ends."""
-        for child in self.children:
-            if isinstance(child, discord.ui.Button):
-                child.disabled = True
+        super().__init__(author_id=author_id, timeout=None)
 
     @discord.ui.button(label="🚀 Launch", style=discord.ButtonStyle.primary)
     async def launch(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4488,8 +4573,12 @@ def save_election_history(history):
 
 
 def load_active_elections():
-    """Load active elections from JSON file"""
-    global active_elections
+    """Load active elections from JSON file.
+
+    Mutates `active_elections` in place rather than rebinding it, so other
+    modules holding a reference keep seeing the live dict. No `global`
+    declaration is needed for that.
+    """
     if os.path.exists(ELECTIONS_FILE):
         try:
             with open(ELECTIONS_FILE, 'r') as f:

@@ -79,3 +79,62 @@ def add_score(user_id, points: int = 1) -> int:
 def get_score(user_id) -> int:
     """Return a user's current score, 0 if they have never played."""
     return scores.get(str(user_id), 0)
+
+
+# ── Win streaks ───────────────────────────────────────────────────────────────
+# Per-game consecutive-win counters, so a run of wins can pay a bonus. Kept in
+# their own file rather than mixed into `scores`, which is a flat point total.
+
+STREAKS_FILE = "persistent/streaks.json"
+
+
+def load_streaks() -> Dict[str, Dict[str, int]]:
+    """Read the streak table: {game: {user_id: current_streak}}."""
+    data = read_json(STREAKS_FILE, {})
+    if not isinstance(data, dict):
+        return {}
+    # Drop anything malformed rather than letting it crash a game later.
+    return {
+        game: {str(uid): int(n) for uid, n in players.items()}
+        for game, players in data.items()
+        if isinstance(players, dict)
+    }
+
+
+#: Live streak table. Mutate in place; see the note on `scores`.
+streaks: Dict[str, Dict[str, int]] = load_streaks()
+
+
+def save_streaks() -> bool:
+    """Persist the current streak table."""
+    return write_json(STREAKS_FILE, streaks)
+
+
+def get_streak(game: str, user_id) -> int:
+    """A user's current run of wins in `game`, 0 if none."""
+    return streaks.get(game, {}).get(str(user_id), 0)
+
+
+def bump_streak(game: str, user_id) -> int:
+    """Extend a user's winning run and return its new length."""
+    key = str(user_id)
+    table = streaks.setdefault(game, {})
+    table[key] = table.get(key, 0) + 1
+    save_streaks()
+    return table[key]
+
+
+def reset_streak(game: str, user_id) -> int:
+    """End a user's run. Returns the length it had reached."""
+    key = str(user_id)
+    table = streaks.setdefault(game, {})
+    had = table.pop(key, 0)
+    if had:
+        save_streaks()
+    return had
+
+
+def best_streaks(game: str, limit: int = 10):
+    """Current runs in `game`, longest first, as (user_id, streak) pairs."""
+    table = streaks.get(game, {})
+    return sorted(table.items(), key=lambda kv: kv[1], reverse=True)[:limit]
