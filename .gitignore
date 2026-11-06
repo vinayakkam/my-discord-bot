@@ -16,3 +16,6 @@ discord.log
 /nodejs_bin/
 /.idea/misc.xml
 /.idea/
+
+# Local AI assistant notes - intentionally untracked
+CLAUDE.md
