@@ -7137,8 +7137,17 @@ async def on_message(message: discord.Message):
                         embed.set_footer(text=f"User ID: {message.author.id} | Message auto-deleted")
 
                         await message.channel.send(embed=embed)
+                        # Describe which filter fired. This used to reference an
+                        # undefined `filter_type`, raising NameError *after* the
+                        # timeout had already been applied.
+                        filter_label = (
+                            "Built-in N-word filter" if is_nword
+                            else "Custom API filter" if is_custom
+                            else "Auto-moderation"
+                        )
                         print(
-                            f"[AUTO-MOD] ✅ User {message.author.name} ({message.author.id}) timed out in {message.guild.name} - {filter_type}: {detected_word}")
+                            f"[AUTO-MOD] ✅ User {message.author.name} ({message.author.id}) "
+                            f"timed out in {message.guild.name} - {filter_label}: {detected_word}")
 
                     except discord.Forbidden:
                         warning_embed = discord.Embed(
@@ -7154,7 +7163,7 @@ async def on_message(message: discord.Message):
                                                 value=f"{'Built-in filter' if is_nword else 'Custom API filter'}",
                                                 inline=True)
                         warning_embed.add_field(name="📍 Channel", value=f"{message.channel.mention}", inline=True)
-                        await message.channel.send(warning_embed)
+                        await message.channel.send(embed=warning_embed)
                         print(f"[AUTO-MOD] ⚠️ Missing permissions to timeout {message.author.name}")
                     except Exception as e:
                         print(f"[AUTO-MOD ERROR] Failed to moderate {message.author.name}: {e}")
