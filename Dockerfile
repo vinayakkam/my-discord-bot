@@ -1,9 +1,12 @@
 # Lightweight Python base image
 FROM python:3.11-slim
 
-# Make logs show immediately and avoid pip cache
+# Make logs show immediately and avoid pip cache.
+# PYTHONIOENCODING keeps the emoji in the bot's status messages from raising
+# UnicodeEncodeError when Docker captures stdout as a non-UTF-8 stream.
 ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONIOENCODING=utf-8
 
 # Create and switch to app directory
 WORKDIR /app

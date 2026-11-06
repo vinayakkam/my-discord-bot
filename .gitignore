@@ -9,7 +9,8 @@ discord.log
 /.venv/Scripts/
 /.venv/etc/bash_completion.d/
 /.venv/
-/__pycache__/
+__pycache__/
+*.pyc
 /ffmpeg_bin/extract/ffmpeg-master-latest-win64-gpl/
 /ffmpeg_bin/
 /ffmpeg_folder/
@@ -19,3 +20,6 @@ discord.log
 
 # Local AI assistant notes - intentionally untracked
 CLAUDE.md
+
+# Test artifacts
+.pytest_cache/
