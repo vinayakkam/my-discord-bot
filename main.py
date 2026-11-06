@@ -6261,7 +6261,6 @@ async def github_info_command(ctx):
 import discord
 from discord.ext import commands
 import os
-from space_tweets import setup_space_tweets
 from booster_catch import setup_booster_catch
 from pixel_art import setup_pixel_art
 import logging
@@ -6283,13 +6282,6 @@ async def setup_hook():
     Everything here must happen exactly once. on_ready is the wrong place: it
     fires again on every reconnect.
     """
-    # setup_space_tweets is a *synchronous* function that schedules its own
-    # add_cog task. on_ready previously did `await setup_space_tweets(bot)`,
-    # and awaiting its None return raised TypeError -- which aborted on_ready
-    # before it reached tree.sync(), so slash commands were never synced and
-    # the daily galaxy backup never started.
-    setup_space_tweets(bot)
-
     synced = await bot.tree.sync()
     print(f"🔃 Synced {len(synced)} slash commands")
 

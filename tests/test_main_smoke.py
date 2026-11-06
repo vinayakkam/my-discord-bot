@@ -113,14 +113,6 @@ def test_every_registered_command_is_documented(live_bot):
     )
 
 
-# space_tweets registers its cog via bot.loop.create_task, so its commands only
-# exist once the bot has logged in and setup_hook has run. They cannot be seen
-# by an offline import, unlike every other feature module.
-_LOGIN_DEFERRED = {
-    "spacenow", "spacestatus", "spacetoggle", "spacediag", "spacedebug",
-}
-
-
 def test_catalog_has_no_phantom_commands(live_bot):
     """Every catalogued command actually exists on the bot."""
     registered = set()
@@ -130,24 +122,11 @@ def test_catalog_has_no_phantom_commands(live_bot):
 
     phantom = sorted(
         cmd.name for cmd in registry.all_commands(include_hidden=True)
-        if cmd.name not in registered and cmd.name not in _LOGIN_DEFERRED
+        if cmd.name not in registered
     )
     assert not phantom, (
         "documented in olit/registry.py but not registered: " + ", ".join(phantom)
     )
-
-
-def test_space_commands_exist_in_their_cog():
-    """Cover the login-deferred commands by inspecting the cog class directly."""
-    from space_tweets import SpaceTweetsCog
-
-    defined = {
-        attr.name
-        for attr in SpaceTweetsCog.__dict__.values()
-        if hasattr(attr, "name")
-    }
-    missing = sorted(_LOGIN_DEFERRED - defined)
-    assert not missing, f"documented space commands not found in the cog: {missing}"
 
 
 def test_galaxy_commands_register_at_import(live_bot):
@@ -169,7 +148,7 @@ def test_on_ready_does_not_do_one_time_setup():
     import main
 
     source = inspect.getsource(main.on_ready)
-    for forbidden in ("tree.sync", "setup_galaxy", "setup_space_tweets",
+    for forbidden in ("tree.sync", "setup_galaxy",
                       "daily_galaxy_backup.start"):
         assert forbidden not in source, (
             f"{forbidden} is in on_ready and will re-run on every reconnect"

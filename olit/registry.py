@@ -4,7 +4,7 @@ This is the single source of truth for help text. The old help command had the
 whole listing hardcoded inside embed literals, which drifted badly out of date
 -- it advertised "35+ commands" and "15+ games" while the bot actually
 registers more than eighty commands, and it omitted every galaxy, booster,
-pixel-art and space-news command.
+pixel-art or galaxy command.
 
 tests/test_help.py asserts that every command actually registered on the bot
 appears here, so this file cannot silently fall behind again.
@@ -80,18 +80,13 @@ GAMES = Category(
 
 SPACE = Category(
     key="space", title="Space & Mission Simulators", emoji="\U0001F680",
-    blurb="Launch simulations, vehicle design and live spaceflight news.",
+    blurb="Launch simulations and vehicle design.",
     commands=[
         Cmd("starship", "Interactive launch-success predictor"),
         Cmd("predict", "Run a full six-stage test campaign on a vehicle",
             usage="[ship name]"),
         Cmd("mission", "Command a mission: launch, refuel and research"),
         Cmd("rocketdesign", "Design a rocket and have it scored"),
-        Cmd("spacenow", "Latest spaceflight news and launch updates"),
-        Cmd("spacestatus", "Status of the space news feed"),
-        Cmd("spacetoggle", "Turn the space news feed on or off", admin=True),
-        Cmd("spacediag", "Diagnose the space news feed", admin=True),
-        Cmd("spacedebug", "Verbose space feed debug output", hidden=True),
     ],
 )
 
