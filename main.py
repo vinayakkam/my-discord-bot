@@ -1,5 +1,4 @@
 from keep_alive import keep_alive, get_guild_commands, get_automod_words, get_allowed_users_list
-keep_alive()
 import discord
 from discord import ui, ButtonStyle, Interaction, Embed
 import galaxy_keeper
@@ -17,6 +16,7 @@ import json
 import asyncio
 import glob
 import math
+import traceback
 from typing import Dict, Any, List, Optional
 import requests
 import base64
@@ -293,16 +293,52 @@ async def test_welcome(ctx):
 
 @bot.event
 async def on_command_error(ctx, error):
-    """Handle command errors"""
+    """The bot's single command error handler.
+
+    There must be exactly one @bot.event for a given event name: a second
+    definition silently replaces the first rather than chaining. main.py used to
+    define this twice, so the earlier handler's ChannelNotFound branch never
+    ran.
+    """
+    if isinstance(error, commands.CommandNotFound):
+        # Unknown "!word" may be a custom dashboard command, already handled in
+        # on_message. Staying quiet avoids yelling at ordinary chatter.
+        return
+
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ You don't have permission to use this command!")
+    elif isinstance(error, commands.BotMissingPermissions):
+        missing = ", ".join(error.missing_permissions)
+        await ctx.send(f"❌ I'm missing the required permissions: {missing}")
     elif isinstance(error, commands.ChannelNotFound):
         await ctx.send("❌ Channel not found! Please mention a valid channel.")
-    elif isinstance(error, commands.CommandNotFound):
-        pass  # Ignore - might be custom command
+    elif isinstance(error, commands.MemberNotFound):
+        await ctx.send("❌ I couldn't find that member in this server.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(
+            f"❌ Missing argument `{error.param.name}`.\n"
+            f"Usage: `{ctx.prefix}{ctx.command.qualified_name} "
+            f"{ctx.command.signature}`"
+        )
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send(
+            f"❌ Bad argument: {error}\n"
+            f"Usage: `{ctx.prefix}{ctx.command.qualified_name} "
+            f"{ctx.command.signature}`"
+        )
+    elif isinstance(error, commands.CommandOnCooldown):
+        await ctx.send(
+            f"⏳ That command is on cooldown. Try again in "
+            f"{error.retry_after:.1f}s."
+        )
+    elif isinstance(error, commands.NoPrivateMessage):
+        await ctx.send("❌ That command only works inside a server.")
     else:
-        print(f"Error: {error}")
-        await ctx.send(f"❌ An error occurred: {str(error)}")
+        # Unexpected: log the full traceback for debugging rather than only the
+        # message, but keep the user-facing text short.
+        print(f"[COMMAND ERROR] {ctx.command} raised {type(error).__name__}: {error}")
+        traceback.print_exception(type(error), error, error.__traceback__)
+        await ctx.send("❌ Something went wrong running that command.")
 
 
 
@@ -4318,663 +4354,17 @@ async def dev(ctx):
     await ctx.send(embed=embed, view=view)
 
 
-class HelpView(discord.ui.View):
-    """Interactive view for the help command with category buttons"""
-
-    def __init__(self, bot):
-        super().__init__(timeout=300)
-        self.bot = bot
-
-    @discord.ui.button(label="🎮 Games", style=discord.ButtonStyle.primary, emoji="🎮")
-    async def games_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = self.create_games_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="🛠️ Utility", style=discord.ButtonStyle.secondary, emoji="🛠️")
-    async def utility_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = self.create_utility_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="🎭 Fun", style=discord.ButtonStyle.success, emoji="🎭")
-    async def fun_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = self.create_fun_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="👑 Admin", style=discord.ButtonStyle.danger, emoji="👑")
-    async def admin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = self.create_admin_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="🏠 Home", style=discord.ButtonStyle.gray, emoji="🏠")
-    async def home_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = self.create_main_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    def create_main_embed(self):
-        """Create the main help embed with comprehensive overview"""
-        embed = discord.Embed(
-            title="🚀 OLIT Bot - Mission Control Center",
-            description=(
-                "**Welcome to your comprehensive space-themed Discord bot!**\n\n"
-                "I'm Launch Tower, your ultimate mission control companion. "
-                "From epic space games to advanced server management, I've got everything covered!\n\n"
-                "📊 **Bot Statistics:**\n"
-                f"• Servers: {len(self.bot.guilds)}\n"
-                f"• Users: {len(set(self.bot.get_all_members()))}\n"
-                f"• Commands: 35+\n"
-                f"• Games: 15+ Interactive experiences\n\n"
-                "🎯 **Quick Start Guide:**\n"
-                "Click the category buttons below to explore all features!"
-            ),
-            color=discord.Color.blurple()
-        )
-
-        embed.add_field(
-            name="🎮 Games & Entertainment",
-            value=(
-                "**15+ Interactive Games with Scoring!**\n"
-                "• Space Trivia (3 difficulties)\n"
-                "• Mechzilla Booster Catch Game\n"
-                "• Rock Paper Scissors • Coin Flip\n"
-                "• Word Unscramble • Math Quiz\n"
-                "• Starship Mission Simulator\n"
-                "• Rocket Design Challenge\n"
-                "• Galaxy Exploration RPG"
-            ),
-            inline=True
-        )
-
-        embed.add_field(
-            name="🛠️ Utility & Management",
-            value=(
-                "**Advanced Server Tools**\n"
-                "• Performance Monitoring\n"
-                "• Auto-Moderation System\n"
-                "• Welcome Message System\n"
-                "• Leader Role Assignment\n"
-                "• Timeout Management\n"
-                "• Global Leaderboards"
-            ),
-            inline=True
-        )
-
-        embed.add_field(
-            name="🎭 Fun & Entertainment",
-            value=(
-                "**Space-Themed Content**\n"
-                "• Animated GIFs Collection\n"
-                "• Custom Emoji Reactions\n"
-                "• Space Catchphrases\n"
-                "• Mission Control Roleplay\n"
-                "• Interactive UI Elements\n"
-                "• Dynamic Visual Effects"
-            ),
-            inline=True
-        )
-
-        embed.set_thumbnail(url=self.bot.user.display_avatar.url)
-        embed.set_footer(
-            text="🌟 Over 35 commands | Made for space enthusiasts | Click buttons to explore!",
-            icon_url=self.bot.user.display_avatar.url
-        )
-
-        return embed
-
-    def create_games_embed(self):
-        """Create comprehensive games category embed with ALL games"""
-        embed = discord.Embed(
-            title="🎮 Complete Games Collection - 15+ Interactive Experiences",
-            description="**Master the cosmos with our comprehensive game suite! All games award points and contribute to server leaderboards.**",
-            color=discord.Color.green()
-        )
-
-        embed.add_field(
-            name="🎓 **Knowledge & Quiz Games**",
-            value=(
-                "`/trivia` or `!trivia`\n"
-                "🌟 **Space Trivia Challenge** - Test your cosmic knowledge!\n"
-                "• 🟩 Easy (1pt) • 🟨 Medium (2pts) • 🟥 Hard (3pts)\n"
-                "• 60+ Questions across all difficulties\n"
-                "• 30-second time limit per question\n\n"
-
-                "`!mathquiz`\n"
-                "🧮 **Mathematical Challenge** - Solve random equations!\n"
-                "• Addition, subtraction, multiplication, division\n"
-                "• Random number generation • 1 point per correct answer\n\n"
-
-                "`!unscramble`\n"
-                "🔤 **Word Unscramble Game** - Decode scrambled words!\n"
-                "• Multiple difficulty levels • Space-themed vocabulary\n"
-                "• 60-second time limit • Interactive UI buttons"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="🚀 **Space Mission Simulators**",
-            value=(
-                "`!starship`\n"
-                "🚀 **Interactive Starship Predictor** - Mission success calculator!\n"
-                "• Multiple choice mission parameters\n"
-                "• Weather, vehicle condition, payload factors\n"
-                "• Dynamic success probability with explanations\n\n"
-
-                "`!predict [ship_name]`\n"
-                "🎯 **Chat-Based Mission Simulation** - Complete testing sequence!\n"
-                "• 6 different test scenarios • 20-second response time\n"
-                "• Success/Partial/Failure options • Detailed scoring system\n\n"
-
-                "`!mission`\n"
-                "⚡ **Resource Management Game** - Manage fuel, food & research!\n"
-                "• Launch, Refuel, Research actions • Interactive UI buttons\n"
-                "• Survival mechanics • Progressive difficulty\n\n"
-
-                "`!rocketdesign`\n"
-                "🔧 **Rocket Design Challenge** - Build your perfect rocket!\n"
-                "• Engine selection (Raptor/Merlin/Ion Drive)\n"
-                "• Tank sizing • Payload configuration • Launch simulation"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="🎯 **Classic & Arcade Games**",
-            value=(
-                "`!rps`\n"
-                "✂️ **Rock Paper Scissors** - Classic game with interactive buttons!\n"
-                "• Beautiful UI • Instant results • Score tracking\n\n"
-
-                "`!coinflip`\n"
-                "🪙 **Coin Flip Challenge** - Heads or tails prediction!\n"
-                "• Interactive button selection • 50/50 odds\n\n"
-
-                "`!dice [guess] [sides]`\n"
-                "🎲 **Dice Rolling Game** - Predict the roll!\n"
-                "• Customizable dice sides • Optional guessing • Score points\n\n"
-
-                "`!guess`\n"
-                "🔢 **Number Guessing Game** - Predict numbers 1-10!\n"
-                "• Modal input system • 15-second time limit\n\n"
-
-                "`!catchbooster`\n"
-                "🦾 **ULTIMATE: Mechzilla Booster Catch Game**\n"
-                "• Advanced physics simulation • Real-time controls\n"
-                "• Fuel management • Precision landing mechanics\n"
-                "• Multiple scoring factors • Achievement system!"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="🌌 **Advanced RPG Systems**",
-            value=(
-                "`!galaxy` or `!explore`\n"
-                "🌟 **Galaxy Exploration RPG** - Discover the universe!\n"
-                "• 11x11 interactive galaxy map • Resource collection\n"
-                "• Ship upgrades • Achievement system • Rare discoveries\n"
-                "• Danger encounters • Credit economy • Exploration ranks\n\n"
-
-                "**📊 Scoring & Progression:**\n"
-                "All games contribute to your server leaderboard ranking!\n"
-                "Top players automatically receive Leader roles!\n"
-                "`!leaderboard` - View your server's top players"
-            ),
-            inline=False
-        )
-
-        embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/1234567890123456789.png")  # Replace with game icon
-        embed.set_footer(
-            text="🏆 Pro tip: Master all games to dominate the leaderboard! Points persist across sessions.")
-
-        return embed
-
-    def create_utility_embed(self):
-        """Create the utility category embed with all management features"""
-        embed = discord.Embed(
-            title="🛠️ Advanced Utility & Server Management",
-            description="**Professional-grade tools for server administration and performance monitoring**",
-            color=discord.Color.blue()
-        )
-
-        embed.add_field(
-            name="📡 **Performance & Monitoring**",
-            value=(
-                "`/ping` or `!ping`\n"
-                "🎯 **Advanced Latency Checker** - Multi-metric performance analysis\n"
-                "• WebSocket latency • API response time • Processing latency\n"
-                "• Beautiful embed display • Real-time timestamp\n"
-                "• Both slash and prefix command support"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="📊 **Scoring & Leadership System**",
-            value=(
-                "`!leaderboard`\n"
-                "🏆 **Interactive Leaderboard** - Server rankings with auto-roles!\n"
-                "• Game score tracking • Server-specific statistics\n"
-                "• Automatic Leader role assignment to top players\n"
-                "• Player count and total points display\n"
-                "• User avatar integration • Beautiful formatting\n\n"
-
-                "`!role_mapping [list/add/remove] [server_id] [role_id]` *(Master only)*\n"
-                "👑 **Leader Role Configuration** - Customize rewards per server\n"
-                "• Server-specific role mappings • Automatic role updates\n"
-                "• Permission validation • Status verification"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="🎉 **Welcome & Social Systems**",
-            value=(
-                "**🤖 Automatic Welcome Messages**\n"
-                "• Beautiful embed welcomes with user avatars\n"
-                "• Server member count tracking • Custom welcome channels\n"
-                "• Automatic server detection • Personalized greetings\n"
-                "*Configured per server - works automatically!*\n\n"
-
-                "**🗑️ Content Filtering**\n"
-                "• Automatic 'scrub' message deletion\n"
-                "• Clean server maintenance • No configuration needed"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="🛡️ **Advanced Auto-Moderation**",
-            value=(
-                "`!automod [status/enable/disable] [server_id]` *(Master only)*\n"
-                "🚨 **Intelligent Content Moderation** - Advanced protection system\n"
-                "• Automatic inappropriate content detection\n"
-                "• 24-hour timeout enforcement • Message deletion\n"
-                "• Server-specific configuration • Multi-variation detection\n\n"
-
-                "`!automod_exempt [add/remove/list] [user_id]` *(Master only)*\n"
-                "⚪ **User Exemption Management** - Whitelist trusted users\n"
-                "• Master user protection • Flexible exemption system\n"
-                "• Easy user management • Status verification"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="⏰ **Advanced Timeout System**",
-            value=(
-                "`!timeout_users`\n"
-                "👥 **Authorization Checker** - View timeout permissions per server\n"
-                "• Server-specific user lists • Permission validation\n"
-                "• User mention formatting • Access control verification"
-            ),
-            inline=False
-        )
-
-        embed.set_thumbnail(
-            url="https://cdn.discordapp.com/emojis/1234567890123456789.png")  # Replace with utility icon
-        embed.set_footer(text="⚙️ These tools ensure smooth server operation and enhanced user experience")
-
-        return embed
-
-    def create_fun_embed(self):
-        """Create the fun category embed with all entertainment features"""
-        embed = discord.Embed(
-            title="🎭 Fun & Entertainment - Space-Themed Content",
-            description="**Immersive space entertainment and social interaction features!**",
-            color=discord.Color.gold()
-        )
-
-        embed.add_field(
-            name="🚀 **Space Mission Control Roleplay**",
-            value=(
-                "`!hello` - 👋 Greet your Launch Tower companion\n"
-                "`!catch` - 🛸 Learn about Booster 16's perfect recovery\n"
-                "`!vent` - 💨 Experience Launch Tower venting sequence\n"
-                "`!behero` - 🦸 Water tower catching challenge description\n"
-                "*Perfect for space enthusiasts and SpaceX fans!*"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="💥 **Animated GIF Collection**",
-            value=(
-                "`!bigboom` - 🔥 **Epic explosion GIF** for dramatic moments\n"
-                "`!mediumboom` - 💥 **Medium explosion** for regular celebrations\n"
-                "`!smallboom` - ✨ **Small explosion** for minor events\n"
-                "`!lonely` - 🚗 **Space car vibes** - Starman chilling in space\n"
-                "`!wish` - 🌠 **Shooting stars** - Make a wish on cosmic beauty\n"
-                "*Add visual flair to any conversation!*"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="😀 **Interactive Emoji Reaction System**",
-            value=(
-                "**🎯 Text Triggers** *(type these in chat)*:\n"
-                "• `appbcbash` - 💥 Multiple bash emoji reactions\n"
-                "• `appbceq` - ⚖️ EQ emoji reaction\n"
-                "• `appbaa` - 📊 AA emoji reaction\n"
-                "• `appsheriff` - 🤠 Sheriff emoji reaction\n\n"
-
-                "**⚡ Slash Commands** *(react to last message)*:\n"
-                "`/appbcbash` `/appbceq` `/appbaa` `/appsheriff`\n"
-                "• Custom server emoji support • Fallback to default emojis\n"
-                "• Multi-server configuration • Safe emoji handling\n"
-                "*Automatic reactions make conversations more engaging!*"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="🎮 **Interactive Entertainment Features**",
-            value=(
-                "**🎪 Dynamic UI Elements:**\n"
-                "• Interactive buttons for all games\n"
-                "• Modal input systems for precise control\n"
-                "• Dropdown menus for complex selections\n"
-                "• Real-time status updates • Progress bars\n\n"
-
-                "**🌟 Visual Effects:**\n"
-                "• Animated embed colors • Dynamic status messages\n"
-                "• Progress indicators • Achievement notifications\n"
-                "• Particle effects in games • Atmospheric simulations"
-            ),
-            inline=False
-        )
-
-        embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/1234567890123456789.png")  # Replace with fun icon
-        embed.set_footer(text="🎉 Bring the excitement of space exploration to your Discord server!")
-
-        return embed
-
-    def create_admin_embed(self):
-        """Create the admin category embed with all master commands"""
-        embed = discord.Embed(
-            title="👑 Admin & Master Commands - Advanced Management",
-            description="**Powerful administrative tools for bot management and advanced server control**",
-            color=discord.Color.red()
-        )
-
-        embed.add_field(
-            name="🛡️ **Auto-Moderation Control**",
-            value=(
-                "`!automod [status/enable/disable] [server_id]`\n"
-                "🎛️ **Master Moderation System** - Server-wide content control\n"
-                "• Enable/disable per server • Status checking\n"
-                "• Automatic timeout enforcement • Multi-server support\n"
-                "• Intelligent content detection • 24-hour timeout duration\n\n"
-
-                "`!automod_exempt [add/remove/list] [user_id]`\n"
-                "⚪ **User Exemption Management** - Whitelist system\n"
-                "• Add/remove trusted users • List current exemptions\n"
-                "• Master user protection • User display formatting\n"
-                "• Safe user management • Permission validation"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="👑 **Role & Permission Management**",
-            value=(
-                "`!rolemapping [list/add/remove] [server_id] [role_id]`\n"
-                "🎭 **Leader Role Configuration** - Reward system management\n"
-                "• Configure Leader roles per server • Automatic role assignment\n"
-                "• Top player recognition • Permission validation\n"
-                "• Server information display • Role status verification\n\n"
-
-                "`!timeout_users`\n"
-                "👥 **Authorization Management** - View timeout permissions\n"
-                "• Server-specific user lists • Permission checking\n"
-                "• User mention formatting • Access control verification"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="🌌 **Galaxy System Administration** *(Master only)*",
-            value=(
-                "`!teleport [location/coords] [@user]`\n"
-                "🚀 **Advanced Teleportation System** - Master galaxy control\n"
-                "• **Preset Locations:** puzzle1, puzzle2, puzzle3, puzzle4, boss, home\n"
-                "• **Custom Coordinates:** `!teleport coords X Y [@user]`\n"
-                "• **User Teleportation:** Move any user to any location\n"
-                "• **Self Teleportation:** Navigate the galaxy instantly\n"
-                "*Master the entire galaxy exploration system!*"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="📊 **System Monitoring & Analytics**",
-            value=(
-                "**🔍 Server Statistics:**\n"
-                "• Multi-server configuration tracking\n"
-                "• User permission monitoring • Role assignment analytics\n"
-                "• Auto-moderation status reporting • Exemption list management\n\n"
-
-                "**⚙️ Bot Management:**\n"
-                "• Guild-specific settings • Error handling & logging\n"
-                "• Performance monitoring • Command usage tracking\n"
-                "• Cross-server data synchronization"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚠️ **Security & Access Control**",
-            value=(
-                "🔐 **Master ID Required** for all admin commands\n"
-                "🏠 **Server-Specific** configurations and exemptions\n"
-                "👥 **Granular Permissions** for different user groups\n"
-                "🛡️ **Protected Systems** prevent unauthorized access\n"
-                "⚡ **Real-Time Validation** ensures command safety\n"
-                "*Maximum security with flexible control options*"
-            ),
-            inline=False
-        )
-
-        embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/1234567890123456789.png")  # Replace with admin icon
-        embed.set_footer(text="⚠️ Master commands require proper authorization | Use responsibly")
-
-        return embed
-
-
-# Add the slash command to your bot
-@bot.tree.command(name="help", description="Show all available bot commands and features")
-async def help_slash(interaction: discord.Interaction, category: Optional[str] = None):
-    """Beautiful interactive help command with all games and features"""
-
-    view = HelpView(bot)
-
-    if category:
-        category = category.lower()
-        if category in ['games', 'game', 'gaming', 'play']:
-            embed = view.create_games_embed()
-        elif category in ['utility', 'util', 'tools', 'management']:
-            embed = view.create_utility_embed()
-        elif category in ['fun', 'entertainment', 'social', 'meme']:
-            embed = view.create_fun_embed()
-        elif category in ['admin', 'administration', 'master', 'mod']:
-            embed = view.create_admin_embed()
-        else:
-            embed = view.create_main_embed()
-    else:
-        embed = view.create_main_embed()
-
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
-
-
-# Also add a traditional prefix command version
-@bot.command(name="olithelp")
-async def help_prefix(ctx, category: str = None):
-    """Traditional prefix help command with all features"""
-
-    view = HelpView(bot)
-
-    if category:
-        category = category.lower()
-        if category in ['games', 'game', 'gaming', 'play']:
-            embed = view.create_games_embed()
-        elif category in ['utility', 'util', 'tools', 'management']:
-            embed = view.create_utility_embed()
-        elif category in ['fun', 'entertainment', 'social', 'meme']:
-            embed = view.create_fun_embed()
-        elif category in ['admin', 'administration', 'master', 'mod']:
-            embed = view.create_admin_embed()
-        else:
-            embed = view.create_main_embed()
-    else:
-        embed = view.create_main_embed()
-
-    await ctx.send(embed=embed, view=view)
-
-
-# Enhanced about command with complete feature list
-@bot.tree.command(name="about", description="Learn more about Launch Tower Bot's comprehensive features")
-async def about_command(interaction: discord.Interaction):
-    """Comprehensive bot information command"""
-
-    embed = discord.Embed(
-        title="🚀 About Launch Tower Bot - Complete Feature Overview",
-        description=(
-            "**The ultimate space-themed Discord bot for gaming and server management**\n\n"
-            "Launch Tower is your comprehensive mission control companion, bringing "
-            "the excitement of space exploration with professional server management tools!\n\n"
-            "🎮 **Gaming Features:**\n"
-            "• 15+ Interactive games with scoring system\n"
-            "• Space trivia with 60+ questions (3 difficulties)\n"
-            "• Advanced Mechzilla booster catch game\n"
-            "• Galaxy exploration RPG system\n"
-            "• Mission simulators and rocket design\n"
-            "• Classic games with modern UI\n\n"
-
-            "🛠️ **Management Features:**\n"
-            "• Advanced auto-moderation with exemptions\n"
-            "• Welcome message system with avatars\n"
-            "• Automatic leader role assignment\n"
-            "• Multi-server configuration support\n"
-            "• Performance monitoring tools\n"
-            "• Comprehensive admin controls\n\n"
-
-            "🎭 **Entertainment Features:**\n"
-            "• Animated GIF collection\n"
-            "• Interactive emoji reaction system\n"
-            "• Space-themed roleplay commands\n"
-            "• Dynamic visual effects\n"
-            "• Modal and button interactions"
-        ),
-        color=discord.Color.blurple()
-    )
-
-    embed.add_field(
-        name="📊 Complete Bot Statistics",
-        value=(
-            f"**Servers:** {len(bot.guilds)}\n"
-            f"**Users:** {len(set(bot.get_all_members()))}\n"
-            f"**Commands:** 35+\n"
-            f"**Games:** 15+\n"
-            f"**Admin Tools:** 10+\n"
-            f"**Fun Commands:** 12+"
-        ),
-        inline=True
-    )
-
-    embed.add_field(
-        name="🌟 Key Highlights",
-        value=(
-            "**Advanced Gaming:** Comprehensive scoring system\n"
-            "**Smart Moderation:** Multi-server auto-mod\n"
-            "**Role Automation:** Leader role rewards\n"
-            "**Space Theme:** SpaceX-inspired content\n"
-            "**Interactive UI:** Buttons, modals, dropdowns\n"
-            "**Professional:** Enterprise-grade features"
-        ),
-        inline=True
-    )
-
-    embed.add_field(
-        name="🚀 Getting Started",
-        value=(
-            "**Essential Commands:**\n"
-            "`/help` - Complete command guide\n"
-            "`/trivia` - Start with space trivia\n"
-            "`!catchbooster` - Try the ultimate game\n"
-            "`!leaderboard` - View server rankings\n"
-            "`/ping` - Check bot performance\n"
-            "`!galaxy` - Explore the universe"
-        ),
-        inline=True
-    )
-
-    embed.set_thumbnail(url=bot.user.display_avatar.url)
-    embed.set_footer(
-        text="🌌 OLIT Bot v4.0 | Comprehensive Space-Themed Discord Experience",
-        icon_url=bot.user.display_avatar.url
-    )
-
-    await interaction.response.send_message(embed=embed, ephemeral=False)
-
-
-# Command shortcuts for quick access to specific categories
-
-
-@bot.tree.command(name="commands", description="List all bot commands by category")
-async def commands_command(interaction: discord.Interaction):
-    """Quick command overview"""
-    embed = discord.Embed(
-        title="📋 Quick Command Reference",
-        description="**Essential commands organized by category**",
-        color=discord.Color.blurple()
-    )
-
-    embed.add_field(
-        name="🎮 Popular Games",
-        value=(
-            "`/trivia` - Space trivia quiz\n"
-            "`!catchbooster` - Mechzilla game\n"
-            "`!galaxy` - Space exploration\n"
-            "`!rps` - Rock paper scissors\n"
-            "`!starship` - Mission predictor"
-        ),
-        inline=True
-    )
-
-    embed.add_field(
-        name="🛠️ Utilities",
-        value=(
-            "`/ping` - Bot performance\n"
-            "`!leaderboard` - Server rankings\n"
-            "`/help` - Complete help system\n"
-            "`/about` - Bot information\n"
-            "`!timeout_users` - Permission check"
-        ),
-        inline=True
-    )
-
-    embed.add_field(
-        name="🎭 Fun Commands",
-        value=(
-            "`!bigboom` - Explosion GIF\n"
-            "`!hello` - Greet Launch Tower\n"
-            "`!wish` - Shooting stars\n"
-            "`/appbcbash` - Emoji reactions\n"
-            "`!vent` - Tower venting"
-        ),
-        inline=True
-    )
-
-    embed.set_footer(text="Use /help for detailed information about all commands")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-# Don't forget to remove the default help command
-bot.remove_command('help')
-
-print("✅ Complete help command system loaded successfully!")
-print("📊 Features: 35+ commands, 15+ games, comprehensive management tools")
-print("🚀 Ready for launch!")
+# ============================================
+# HELP SYSTEM
+# ============================================
+# Lives in olit/features/helpcmd.py and renders from the command catalog in
+# olit/registry.py. This block used to hardcode every category and command
+# name in embed literals, call bot.remove_command('help') and then never
+# define a replacement -- so plain `!help` silently did nothing and the real
+# menu was only reachable as `!olithelp` or `/help`.
+from olit.features import helpcmd
+
+helpcmd.setup(bot)
 
 import discord
 from discord.ext import commands
@@ -6295,17 +5685,6 @@ async def api_status(ctx):
 # ERROR HANDLER
 # ============================================
 
-@bot.event
-async def on_command_error(ctx, error):
-    """Handle command errors"""
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command!")
-    elif isinstance(error, commands.CommandNotFound):
-        # Check if it might be a custom command that wasn't handled
-        pass  # Already handled in on_message
-    else:
-        print(f"Error: {error}")
-        await ctx.send(f"❌ An error occurred: {str(error)}")
 
 
 # ============================================
@@ -7019,17 +6398,41 @@ import logging
 setup_booster_catch(bot, add_score, scores)
 setup_pixel_art(bot)
 
+# The galaxy RPG registers plain prefix commands and loads its save files, with
+# no need for a running event loop, so it is set up at import time. It used to
+# run inside on_ready, which fires again after every gateway RESUME -- the
+# second call tried to re-register the same commands and raised
+# CommandRegistrationError.
+setup_galaxy(bot, add_score, MASTER_ID)
+
+
+@bot.event
+async def setup_hook():
+    """One-time async setup, run after login but before on_ready.
+
+    Everything here must happen exactly once. on_ready is the wrong place: it
+    fires again on every reconnect.
+    """
+    # setup_space_tweets is a *synchronous* function that schedules its own
+    # add_cog task. on_ready previously did `await setup_space_tweets(bot)`,
+    # and awaiting its None return raised TypeError -- which aborted on_ready
+    # before it reached tree.sync(), so slash commands were never synced and
+    # the daily galaxy backup never started.
+    setup_space_tweets(bot)
+
+    synced = await bot.tree.sync()
+    print(f"🔃 Synced {len(synced)} slash commands")
+
+    if not daily_galaxy_backup.is_running():
+        daily_galaxy_backup.start()
+
+
 @bot.event
 async def on_ready():
+    """Fires on first connect and on every reconnect; keep it side-effect free."""
     await bot.change_presence(status=discord.Status.do_not_disturb)
     print(f"✅ Logged in as {bot.user}")
     print(f"📊 Servers: {len(bot.guilds)}")
-    setup_galaxy(bot, add_score, MASTER_ID)
-    await setup_space_tweets(bot)
-    await bot.tree.sync()  # ← add this
-    print(f"🔃 Slash commands synced")
-    if not daily_galaxy_backup.is_running():
-        daily_galaxy_backup.start()
 
 
 
@@ -7256,32 +6659,19 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
-"""@bot.event
-async def on_message_edit(before: discord.Message, after: discord.Message):
-  
-    if after.author.bot or not after.guild:
-        return
+def main():
+    """Start the API server thread and run the bot until it disconnects."""
+    if not TOKEN:
+        raise SystemExit(
+            "DISCORD_TOKEN is not set. Put it in .env before starting the bot."
+        )
 
-    if after.guild.id == 1481151926216429683:
-        return
-
-    if contains_scrub(after.content):
-        try:
-            # Create the beautiful embed (Footer removed)
-            warning_embed = discord.Embed(
-                title="🚨 Language Warning",
-                description=f"How could you say the S word, {message.author.mention}?",
-                color=0xFF2B2B,
-            )
-
-            # Send the embed and delete the message
-            await message.channel.send(embed=warning_embed)
-            await message.delete()
-            return  # Hard stop
-        except Exception as e:
-            print(f"[SCRUB FILTER] Failed to respond or delete: {e}")"""
+    # Flask dashboard API, on a daemon thread so it dies with the bot.
+    keep_alive()
+    bot.run(TOKEN, log_handler=handler, log_level=logging.INFO)
 
 
-"""HI this is a test for auto deploy"""
-
-bot.run(TOKEN, log_handler=handler, log_level=logging.DEBUG)
+# Guarded so importing this module registers every command without starting
+# the API server or blocking in bot.run(). The test suite relies on that.
+if __name__ == "__main__":
+    main()
