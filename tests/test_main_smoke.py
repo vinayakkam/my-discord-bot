@@ -184,3 +184,20 @@ def test_slash_commands_are_documented(live_bot):
         {c.name for c in live_bot.tree.get_commands()} - documented - exempt
     )
     assert not undocumented, f"undocumented slash commands: {undocumented}"
+
+
+def test_single_score_store(live_bot):
+    """main.py defined `scores` and `add_score` twice with different key types."""
+    import main
+
+    from olit import storage
+
+    assert main.scores is storage.scores, "main has its own score dict"
+    assert main.add_score is storage.add_score, "main has its own add_score"
+
+
+def test_score_keys_are_strings():
+    """JSON keys are strings; an int-keyed entry would never reload."""
+    from olit import storage
+
+    assert all(isinstance(k, str) for k in storage.scores)

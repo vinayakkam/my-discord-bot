@@ -651,12 +651,12 @@ async def ping(interaction: discord.Interaction):
     # Edit original response to show embed
     await interaction.edit_original_response(content=None, embed=embed)'''
 
-# In-memory scoreboard: {user_id: score}
-scores = {}
-
-def add_score(user_id, points=1):
-    """Increment a user's score."""
-    scores[user_id] = scores.get(user_id, 0) + points
+# Game scores live in olit/storage.py, which owns loading, saving and key
+# normalisation. main.py used to define `scores` and `add_score` twice -- an
+# in-memory version keyed by raw int here, and a persisting version keyed by
+# str further down. The later definition silently replaced the earlier one,
+# so the first pair was dead code with incompatible key types.
+from olit.storage import scores, add_score, save_scores, load_scores
 
 # -----------------------------------
 # 1️⃣ Rock Paper Scissors
@@ -2433,26 +2433,6 @@ async def rocketdesign(ctx):
 
 
 
-SCORES_FILE = "persistent/scores.json"
-
-def load_scores():
-    """Load scores from a JSON file if it exists, otherwise return empty dict."""
-    if os.path.exists(SCORES_FILE):
-        with open(SCORES_FILE, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_scores():
-    """Save current scores dict to JSON file."""
-    with open(SCORES_FILE, "w") as f:
-        json.dump(scores, f)
-
-scores = load_scores()
-
-def add_score(user_id, points=1):
-    """Add points to a user and persist to JSON."""
-    scores[str(user_id)] = scores.get(str(user_id), 0) + points
-    save_scores()
 
 
 @bot.command(name="games")
