@@ -71,7 +71,9 @@ GAMES = Category(
             aliases=("booster", "mechzilla", "catch16")),
         Cmd("catchhelp", "Controls and flight physics for the booster game",
             aliases=("boosterhelp",)),
-        Cmd("merrychristmas", "Start the Grinch present-grab event"),
+        Cmd("merrychristmas", "Start the 3-round Grinch reaction game"),
+        Cmd("grinchboard", "All-time Grinch rankings, or one player's record",
+            usage="[user]", aliases=("grinchstats",)),
         Cmd("christmashelp", "How the Christmas event works"),
     ],
 )
