@@ -2,6 +2,7 @@ from keep_alive import keep_alive, get_guild_commands, get_automod_words, get_al
 keep_alive()
 import discord
 from discord import ui, ButtonStyle, Interaction, Embed
+import galaxy_keeper
 from galaxy_keeper import setup_galaxy, daily_galaxy_backup
 from booster_catch import setup_booster_catch
 from discord.ext import commands,tasks
@@ -2412,7 +2413,8 @@ async def games(ctx):
     guild_member_ids = [member.id for member in ctx.guild.members] if ctx.guild else []
     guild_scores = {uid: pts for uid, pts in scores.items() if int(uid) in guild_member_ids}
     total_players = len(guild_scores)
-    total_galaxy_players = len(galaxy_user_data) if 'galaxy_user_data' in globals() else 0
+    # Galaxy progress lives in galaxy_keeper, not in this module's globals.
+    total_galaxy_players = galaxy_keeper.get_player_count()
 
     # Create main embed
     embed = discord.Embed(
@@ -2660,10 +2662,9 @@ async def personal_stats(ctx):
     # Get user's total score
     total_score = scores.get(user_id, 0)
 
-    # Get galaxy exploration data if available
-    galaxy_data = None
-    if 'galaxy_user_data' in globals() and user_id in galaxy_user_data:
-        galaxy_data = galaxy_user_data[user_id]
+    # Get galaxy exploration data if available. Returns None for players who
+    # have never used the galaxy commands, which hides those embed sections.
+    galaxy_data = galaxy_keeper.get_player_stats(user_id)
 
     # Create main stats embed
     embed = discord.Embed(

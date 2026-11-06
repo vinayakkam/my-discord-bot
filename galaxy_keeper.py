@@ -280,6 +280,53 @@ def _get_rank(n: int) -> str:
         if n >= thresh: r = name
     return r
 
+# ─── PUBLIC ACCESSORS (for main.py's !stats and !games) ────────────────────
+# This module owns the galaxy save schema. These two functions are the only
+# supported way to read it from outside, so the internal field names can change
+# without breaking the stats commands.
+
+def get_player_count() -> int:
+    """How many players have galaxy progress saved."""
+    return len(_galaxy)
+
+
+def get_player_stats(uid) -> dict | None:
+    """Return a player's galaxy progress, or None if they've never played.
+
+    Keys are normalised to the names the stats embeds use, which differ from
+    the on-disk field names (`discovered` -> `discovered_systems`,
+    `rare_finds` -> `rare_discoveries`, `upgrades` -> `ship_upgrades`).
+    """
+    raw = _galaxy.get(str(uid))
+    if not raw:
+        return None
+
+    discovered = raw.get("discovered") or set()
+    # `discovered` is a set in memory but a list of coordinate pairs on disk.
+    if isinstance(discovered, list):
+        discovered = {tuple(c) for c in discovered}
+
+    achievements = raw.get("achievements") or set()
+    if isinstance(achievements, list):
+        achievements = set(achievements)
+
+    return {
+        "discovered_systems": discovered,
+        "rare_discoveries": raw.get("rare_finds", []),
+        "achievements": achievements,
+        "exploration_rank": _get_rank(len(discovered)),
+        "credits": raw.get("credits", 0),
+        "total_credits_earned": raw.get("total_credits_earned", 0),
+        "fuel": raw.get("fuel", 0),
+        "max_fuel": raw.get("max_fuel", 100),
+        "resources": raw.get("resources", {}),
+        "ship_upgrades": raw.get("upgrades", {}),
+        "successful_explorations": raw.get("successful_explorations", 0),
+        "danger_encounters": raw.get("danger_encounters", 0),
+        "position": raw.get("position", [0, 0]),
+    }
+
+
 def _default_user(uid: int) -> dict:
     return {
         "uid": uid, "position": [0,0], "fuel": 100, "max_fuel": 100,
