@@ -141,3 +141,53 @@ def test_missing_files_are_reported_not_fatal(galaxy):
     result = g._backup_saves("missing")
     # galaxy_scores.json is never written by this fixture.
     assert "no file yet" in result
+
+
+# ── Reset ─────────────────────────────────────────────────────────────────────
+
+def test_reset_user_clears_progress(galaxy):
+    g, _ = galaxy
+    g._galaxy["77"] = g._default_user(77)
+    g._galaxy["77"]["credits"] = 999999
+    g._galaxy["77"]["discovered"] = {(1, 2), (3, 4)}
+
+    assert g.reset_user(77) is True
+    fresh = g._galaxy["77"]
+    assert fresh["credits"] == g._default_user(77)["credits"]
+    assert len(fresh["discovered"]) == 0
+
+
+def test_reset_user_reports_when_there_was_nothing(galaxy):
+    g, _ = galaxy
+    assert g.reset_user(12345) is False
+
+
+def test_reset_user_also_clears_their_galaxy_score(galaxy):
+    g, _ = galaxy
+    g._save_json(g.SCORES_FILE, {"88": 5000, "99": 1})
+    g._galaxy["88"] = g._default_user(88)
+
+    g.reset_user(88)
+    remaining = g._load_json(g.SCORES_FILE)
+    assert "88" not in remaining
+    assert remaining.get("99") == 1, "reset must not touch other players"
+
+
+def test_reset_all_clears_everyone_but_keeps_the_world(galaxy):
+    g, _ = galaxy
+    g._galaxy.update({"1": g._default_user(1), "2": g._default_user(2)})
+    g._world["0,0"] = {"name": "Nebula Nursery"}
+
+    assert g.reset_all_users() == 2
+    assert g._galaxy == {}
+    # Sectors are shared world state, not per-player progress.
+    assert "0,0" in g._world
+
+
+def test_reset_all_clears_the_score_file(galaxy):
+    g, _ = galaxy
+    g._save_json(g.SCORES_FILE, {"1": 10, "2": 20})
+    g._galaxy["1"] = g._default_user(1)
+
+    g.reset_all_users()
+    assert g._load_json(g.SCORES_FILE) == {}

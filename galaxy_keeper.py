@@ -374,6 +374,89 @@ _ACHIEVEMENTS = [
     ("Ancient Wisdom",      lambda ud: len(ud["story_state"]["hints_collected"]) >= 4),
 ]
 
+# ─── RESET ─────────────────────────────────────────────────────────
+
+def reset_user(uid) -> bool:
+    """Wipe one commander's progress back to a fresh start.
+
+    Returns True if there was anything to wipe. The generated world is left
+    alone -- sectors are shared, not per-player.
+    """
+    key = str(uid)
+    existed = key in _galaxy
+    _galaxy[key] = _default_user(int(uid))
+
+    # Galaxy scores live in their own file and are read on demand rather than
+    # held in memory, so they have to be edited there.
+    gs = _load_json(SCORES_FILE)
+    gs.pop(key, None)
+    _save_json(SCORES_FILE, gs)
+
+    _save_all()
+    return existed
+
+
+def reset_all_users() -> int:
+    """Wipe every commander's progress. Returns how many were cleared."""
+    count = len(_galaxy)
+    _galaxy.clear()
+    _save_json(SCORES_FILE, {})
+    _save_all()
+    return count
+
+
+class _ResetConfirmView(ui.View):
+    """Two-step confirmation, so a reset is never one misclick away."""
+
+    def __init__(self, invoker_id: int, target_label: str, on_confirm):
+        super().__init__(timeout=60)
+        self.invoker_id = invoker_id
+        self.target_label = target_label
+        self.on_confirm = on_confirm
+        self.message = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.invoker_id:
+            await interaction.response.send_message(
+                "❌ This confirmation isn't yours.", ephemeral=True)
+            return False
+        return True
+
+    @ui.button(label="Yes, reset", style=discord.ButtonStyle.danger, emoji="⚠️")
+    async def confirm(self, interaction: discord.Interaction, button: ui.Button):
+        summary = self.on_confirm()
+        for item in self.children:
+            item.disabled = True
+        emb = discord.Embed(
+            title="🧹 Progress reset",
+            description=summary,
+            color=0xff5555,
+        )
+        await interaction.response.edit_message(embed=emb, view=self)
+        self.stop()
+
+    @ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: ui.Button):
+        for item in self.children:
+            item.disabled = True
+        emb = discord.Embed(
+            title="Reset cancelled",
+            description=f"{self.target_label} was left untouched.",
+            color=0x5865f2,
+        )
+        await interaction.response.edit_message(embed=emb, view=self)
+        self.stop()
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+
 def _check_achievements(ud: dict) -> list:
     new = []
     for name, cond in _ACHIEVEMENTS:
@@ -1416,6 +1499,87 @@ def _register_commands(bot: commands.Bot):
                 await member.send(embed=dm)
             except discord.Forbidden:
                 await ctx.send(f"⚠️ Couldn't DM {member.mention}")
+
+    @bot.hybrid_command(name="galaxyreset", aliases=["greset"],
+                        description="Reset your galaxy progress back to a fresh start")
+    async def cmd_reset(ctx: commands.Context, target: str = None):
+        """Reset galaxy progress.
+
+        `!galaxyreset`           reset your own progress
+        `!galaxyreset @user`     reset someone else (owner only)
+        `!galaxyreset all`       reset every commander (owner only)
+
+        Always asks for confirmation first.
+        """
+        is_owner = ctx.author.id == _MASTER_ID
+
+        # ── Everyone ──
+        if target and target.lower() == "all":
+            if not is_owner:
+                return await ctx.send("❌ Only the bot owner can reset every commander.")
+
+            player_count = len(_galaxy)
+            emb = discord.Embed(
+                title="⚠️ Reset the entire galaxy?",
+                description=(
+                    f"This wipes the progress of **{player_count}** commander"
+                    f"{'s' if player_count != 1 else ''}: positions, fuel, "
+                    "credits, resources, upgrades, discoveries, achievements "
+                    "and story state.\n\n"
+                    "Discovered sectors themselves are kept.\n\n"
+                    "**This cannot be undone.**"
+                ),
+                color=0xff5555,
+            )
+            view = _ResetConfirmView(
+                ctx.author.id, "The galaxy",
+                lambda: f"Cleared progress for **{reset_all_users()}** commander(s).",
+            )
+            view.message = await ctx.send(embed=emb, view=view)
+            return
+
+        # ── Somebody else ──
+        member = None
+        if target:
+            try:
+                member = await commands.MemberConverter().convert(ctx, target)
+            except commands.BadArgument:
+                return await ctx.send(
+                    "❌ Couldn't find that member. Use `!galaxyreset`, "
+                    "`!galaxyreset @user` or `!galaxyreset all`."
+                )
+            if member.id != ctx.author.id and not is_owner:
+                return await ctx.send("❌ Only the bot owner can reset someone else.")
+
+        subject = member or ctx.author
+        own = subject.id == ctx.author.id
+        ud = _get_user(subject.id)
+
+        emb = discord.Embed(
+            title="⚠️ Reset galaxy progress?",
+            description=(
+                ("Your" if own else f"{subject.mention}'s")
+                + " commander profile will be wiped back to a fresh start."
+                "\n\n**This cannot be undone.**"
+            ),
+            color=0xff5555,
+        )
+        emb.add_field(name="💰 Credits", value=f"{ud['credits']:,}")
+        emb.add_field(name="🗺️ Systems", value=str(len(ud["discovered"])))
+        emb.add_field(name="🏅 Achievements", value=str(len(ud["achievements"])))
+        emb.set_thumbnail(url=subject.display_avatar.url)
+
+        def do_reset():
+            reset_user(subject.id)
+            return (("Your" if own else f"{subject.mention}'s")
+                    + " galaxy progress has been reset. "
+                    "Run `!galaxy` to start again.")
+
+        view = _ResetConfirmView(
+            ctx.author.id, ("Your profile" if own else f"{subject.display_name}'s profile"),
+            do_reset,
+        )
+        view.message = await ctx.send(embed=emb, view=view)
 
     @bot.hybrid_command(name="galaxyadmin", description="View galaxy system stats (Owner Only)")
     @commands.is_owner()

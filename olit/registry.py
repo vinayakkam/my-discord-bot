@@ -104,6 +104,8 @@ GALAXY = Category(
         Cmd("gleaderboard", "Top galaxy explorers"),
         Cmd("worldinfo", "Information about the generated galaxy"),
         Cmd("galaxyhelp", "Full galaxy command reference"),
+        Cmd("galaxyreset", "Reset your galaxy progress (asks to confirm)",
+            usage="[@user|all]", aliases=("greset",)),
         Cmd("galaxyadmin", "Galaxy admin tools", admin=True, hidden=True),
         Cmd("forcebackup", "Force a galaxy save backup", admin=True, hidden=True),
     ],
