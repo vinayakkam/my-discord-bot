@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
+from olit.features import galaxy_quests
+
 # ─── FILE PATHS ────────────────────────────────────────────────────
 _DATA_DIR   = "data"
 GALAXY_FILE = f"{_DATA_DIR}/galaxy_data.json"
@@ -373,6 +375,176 @@ _ACHIEVEMENTS = [
     ("Void Slayer",         lambda ud: ud["story_state"]["core_retrieved"]),
     ("Ancient Wisdom",      lambda ud: len(ud["story_state"]["hints_collected"]) >= 4),
 ]
+
+# ─── STORY RIDDLES ─────────────────────────────────────────────────
+
+# Wrong-answer counts, keyed by (uid, coords). In memory only: a restart
+# forgives failed attempts rather than permanently locking a player out.
+_riddle_attempts: dict = {}
+
+#: Wrong answers allowed before the riddle offers its hint.
+_RIDDLE_HINT_AFTER = 2
+
+
+class _RiddleModal(ui.Modal):
+    """Collects an answer to a story riddle and grades it."""
+
+    def __init__(self, uid: int, system: dict, riddle):
+        super().__init__(title="🧩 Precursor Puzzle")
+        self.uid = uid
+        self.system = system
+        self.riddle = riddle
+
+        self.answer_input = ui.TextInput(
+            label="Your answer",
+            style=discord.TextStyle.short,
+            placeholder="Type your solution",
+            required=True,
+            max_length=60,
+        )
+        self.add_item(self.answer_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        key = (self.uid, tuple(self.system.get("coords") or ()))
+
+        if not galaxy_quests.check_answer(self.riddle, self.answer_input.value):
+            tries = _riddle_attempts.get(key, 0) + 1
+            _riddle_attempts[key] = tries
+
+            emb = discord.Embed(
+                title="❌ Incorrect",
+                description=(
+                    f"`{self.answer_input.value}` is not the answer.\n\n"
+                    f"{self.riddle.prompt}"
+                ),
+                color=0xff5555,
+            )
+            emb.add_field(name="Attempts", value=str(tries), inline=True)
+            if tries >= _RIDDLE_HINT_AFTER and self.riddle.hint:
+                emb.add_field(name="💡 Hint", value=self.riddle.hint, inline=False)
+            emb.set_footer(text="Press 🧩 Solve Puzzle to try again.")
+            return await interaction.response.send_message(embed=emb, ephemeral=True)
+
+        # Correct.
+        ud   = _get_user(self.uid)
+        ss   = ud["story_state"]
+        hint = self.system.get("hint_reward", "")
+
+        if hint in ss["hints_collected"]:
+            return await interaction.response.send_message(
+                "✅ Already solved.", ephemeral=True)
+
+        ss["puzzles_solved"] += 1
+        ss["hints_collected"].append(hint)
+        tries = _riddle_attempts.pop(key, 0)
+
+        # Fewer wrong answers pay better.
+        points = max(40, 100 - 20 * tries)
+        if _add_score:
+            _add_score(self.uid, points)
+        _save_user(self.uid)
+
+        emb = discord.Embed(
+            title="🧩 Puzzle Solved!",
+            description=(
+                f"**{self.riddle.answer}** was correct.\n\n"
+                f"**Hint acquired:**\n> _{hint}_"
+            ),
+            color=0x00ff88,
+        )
+        emb.add_field(name="Progress",
+                      value=f"{len(ss['hints_collected'])}/4 hints", inline=True)
+        emb.add_field(name="Reward", value=f"+{points} points", inline=True)
+        emb.add_field(name="Wrong answers", value=str(tries), inline=True)
+        if len(ss["hints_collected"]) >= 4:
+            emb.add_field(
+                name="🎯 FINAL MISSION UNLOCKED",
+                value=f"Navigate to `{_CORE_COORDS}` and face the Void Sentinel!",
+                inline=False)
+        await interaction.response.send_message(embed=emb)
+
+
+# ─── DAILY QUESTS ──────────────────────────────────────────────────
+
+class _QuestView(ui.View):
+    """Quest board with a claim button."""
+
+    def __init__(self, uid: int):
+        super().__init__(timeout=180)
+        self.uid = uid
+        self.message = None
+
+    def embed(self) -> discord.Embed:
+        ud = _get_user(self.uid)
+        quests = galaxy_quests.refresh_quests(ud, self.uid)
+        _save_user(self.uid)
+
+        emb = discord.Embed(
+            title="📋 Daily Contracts",
+            description="A fresh set of objectives every day (UTC).",
+            color=0x1a1a2e,
+        )
+
+        claimable = 0
+        for quest in quests:
+            done, target = galaxy_quests.quest_progress(ud, quest)
+            bar = galaxy_quests.progress_bar(done, target)
+            if quest.get("claimed"):
+                status = "✅ Claimed"
+            elif done >= target:
+                status = "🎁 **Ready to claim**"
+                claimable += 1
+            else:
+                status = f"{done}/{target}"
+
+            reward = f"+{quest['reward_points']} pts"
+            if quest.get("reward_credits"):
+                reward = f"+{quest['reward_credits']:,} cr · " + reward
+
+            emb.add_field(
+                name=f"{quest['emoji']} {quest['title']}",
+                value=f"`{bar}` {status}\n{reward}",
+                inline=False,
+            )
+
+        self.claim.disabled = claimable == 0
+        self.claim.label = (f"Claim {claimable} reward{'s' if claimable != 1 else ''}"
+                            if claimable else "Nothing to claim")
+        emb.set_footer(text="Contracts reset daily · progress counts from when issued")
+        return emb
+
+    @ui.button(label="Claim", style=discord.ButtonStyle.success, emoji="🎁")
+    async def claim(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.uid:
+            return await interaction.response.send_message(
+                "❌ This contract board isn't yours.", ephemeral=True)
+
+        ud = _get_user(self.uid)
+        result = galaxy_quests.claim_rewards(ud, self.uid)
+        if not result["quests"]:
+            return await interaction.response.send_message(
+                "Nothing is ready to claim yet.", ephemeral=True)
+
+        if result["points"] and _add_score:
+            _add_score(self.uid, result["points"])
+        _save_user(self.uid)
+
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+        await interaction.followup.send(
+            f"🎁 Claimed **{result['quests']}** contract(s): "
+            f"**+{result['credits']:,}** credits, **+{result['points']}** points.",
+            ephemeral=True,
+        )
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
 
 # ─── RESET ─────────────────────────────────────────────────────────
 
@@ -945,25 +1117,29 @@ class _ExploreView(ui.View):
 
     @ui.button(label="🧩 Solve Puzzle", style=discord.ButtonStyle.primary, row=1)
     async def solve_puzzle(self, interaction: discord.Interaction, button: ui.Button):
+        """Present the system's riddle.
+
+        This button used to hand over the hint the instant it was pressed. The
+        system's `puzzle_type` -- cipher, math, sequence or logic -- was stored
+        but never read, so there was no puzzle to solve. It now opens the real
+        challenge, and the hint is only awarded for a correct answer.
+        """
         if interaction.user.id != self.uid:
             return await interaction.response.send_message("❌ Not yours!", ephemeral=True)
+
         ud   = _get_user(self.uid)
         ss   = ud["story_state"]
         hint = self.system.get("hint_reward", "")
         if hint in ss["hints_collected"]:
-            return await interaction.response.send_message("❌ Already solved.", ephemeral=True)
-        ss["puzzles_solved"] += 1
-        ss["hints_collected"].append(hint)
-        if _add_score: _add_score(self.uid, 100)
-        _save_user(self.uid)
-        emb = discord.Embed(title="🧩 Puzzle Solved!",
-                            description=f"**Hint acquired:**\n> _{hint}_", color=0x00ff88)
-        emb.add_field(name="Progress", value=f"{len(ss['hints_collected'])}/4 hints", inline=True)
-        emb.add_field(name="Reward",   value="+100 points", inline=True)
-        if len(ss["hints_collected"]) >= 4:
-            emb.add_field(name="🎯 FINAL MISSION UNLOCKED",
-                          value="Navigate to `(-78, 42)` and fight the Void Sentinel!", inline=False)
-        await interaction.response.edit_message(embed=emb, view=None)
+            return await interaction.response.send_message(
+                "✅ You have already solved this one.", ephemeral=True)
+
+        coords = self.system.get("coords")
+        riddle = galaxy_quests.make_riddle(
+            self.system.get("puzzle_type", "logic"), self.uid, coords)
+
+        await interaction.response.send_modal(
+            _RiddleModal(self.uid, self.system, riddle))
 
     @ui.button(label="⚔️ Fight Boss", style=discord.ButtonStyle.danger, row=1)
     async def fight_boss(self, interaction: discord.Interaction, button: ui.Button):
@@ -1499,6 +1675,13 @@ def _register_commands(bot: commands.Bot):
                 await member.send(embed=dm)
             except discord.Forbidden:
                 await ctx.send(f"⚠️ Couldn't DM {member.mention}")
+
+    @bot.hybrid_command(name="gquests", aliases=["gcontracts", "gdaily"],
+                        description="View and claim your daily galaxy contracts")
+    async def cmd_quests(ctx: commands.Context):
+        """Daily objectives generated from your own save data."""
+        view = _QuestView(ctx.author.id)
+        view.message = await ctx.send(embed=view.embed(), view=view)
 
     @bot.hybrid_command(name="galaxyreset", aliases=["greset"],
                         description="Reset your galaxy progress back to a fresh start")

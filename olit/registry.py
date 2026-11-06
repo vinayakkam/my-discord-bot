@@ -99,6 +99,8 @@ GALAXY = Category(
         Cmd("gstats", "Your ship, rank, credits and resources"),
         Cmd("shipyard", "Buy and upgrade ship modules"),
         Cmd("story", "Follow the main story and puzzle chain"),
+        Cmd("gquests", "View and claim your daily galaxy contracts",
+            aliases=("gcontracts", "gdaily")),
         Cmd("teleport", "Warp to specific coordinates (needs a warp core)",
             usage="<x> <y>"),
         Cmd("gleaderboard", "Top galaxy explorers"),
