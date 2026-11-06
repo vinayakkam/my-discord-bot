@@ -1,3 +1,21 @@
+import sys
+
+# Force UTF-8 on the console streams before anything prints.
+#
+# This module and its dependencies log emoji in almost every status message. On
+# Windows, sys.stdout defaults to the legacy cp1252 codepage whenever output is
+# not a UTF-8 terminal -- redirected to a file, piped, captured by Docker or a
+# service manager -- and the first emoji raises UnicodeEncodeError, killing the
+# bot during startup. errors="replace" means a stream that still cannot encode
+# a character degrades to "?" instead of crashing.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        # Not a reconfigurable text stream (already wrapped, or redirected to
+        # something unusual). Nothing to do.
+        pass
+
 from keep_alive import keep_alive, get_guild_commands, get_automod_words, get_allowed_users_list
 import discord
 from discord import ui, ButtonStyle, Interaction, Embed
