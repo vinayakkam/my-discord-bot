@@ -88,3 +88,46 @@ def test_channels_endpoint_reports_503_without_bot(api_client):
     resp = client.get("/api/channels/123", headers=_auth(keep_alive))
     assert resp.status_code == 503
     assert "not connected" in resp.get_json()["error"].lower()
+
+
+def test_channel_id_zero_clears_the_setting(api_client):
+    """The dashboard's Remove button posts channel_id "0" to unset it."""
+    client, keep_alive = api_client
+    client.post(
+        "/api/welcome_channel",
+        json={"guild_id": "321", "channel_id": "654"},
+        headers=_auth(keep_alive),
+    )
+    assert keep_alive.welcome_channels[321] == 654
+
+    resp = client.post(
+        "/api/welcome_channel",
+        json={"guild_id": "321", "channel_id": "0"},
+        headers=_auth(keep_alive),
+    )
+    assert resp.status_code == 200, resp.data
+    body = resp.get_json()
+    assert body["success"] is True
+    assert body["channel_id"] is None
+    assert 321 not in keep_alive.welcome_channels
+    assert keep_alive.get_welcome_channel_id(321) is None
+
+
+def test_clear_survives_reload(api_client):
+    client, keep_alive = api_client
+    client.post("/api/welcome_channel", json={"guild_id": "4", "channel_id": "5"},
+                headers=_auth(keep_alive))
+    client.post("/api/welcome_channel", json={"guild_id": "4", "channel_id": "0"},
+                headers=_auth(keep_alive))
+    keep_alive.load_all_data()
+    assert keep_alive.get_welcome_channel_id(4) is None
+
+
+def test_config_endpoint_exposes_welcome_channel(api_client):
+    """The dashboard reads config.welcome_channel to render current state."""
+    client, keep_alive = api_client
+    client.post("/api/welcome_channel", json={"guild_id": "88", "channel_id": "99"},
+                headers=_auth(keep_alive))
+    resp = client.get("/api/config/88", headers=_auth(keep_alive))
+    assert resp.status_code == 200, resp.data
+    assert resp.get_json()["config"]["welcome_channel"] == 99

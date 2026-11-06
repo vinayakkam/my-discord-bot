@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request, render_template_string
 from flask_cors import CORS
 from threading import Thread
+from functools import wraps
 import asyncio
 from concurrent.futures import TimeoutError as FuturesTimeout
 import json
@@ -18,7 +19,17 @@ load_dotenv()
 app = Flask(__name__)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+# The dashboard frontend lives in a separate repo on a different origin, so it
+# calls these endpoints cross-origin with an X-API-Key header. That is a
+# non-simple header, so the browser sends a preflight first -- X-API-Key has to
+# be named in Access-Control-Allow-Headers or the real request never goes out.
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    supports_credentials=True,
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
+    methods=["GET", "POST", "OPTIONS"],
+)
 
 # ── Config file paths ────────────────────────────────────────────────────────
 CONFIG_DIR = "config"
@@ -457,15 +468,21 @@ def log_req(endpoint, method, data):
 
 # ── Auth decorator ────────────────────────────────────────────────────────────
 def require_api_key(f):
+    """Reject requests that do not carry the shared X-API-Key secret.
+
+    CORS preflights are never seen here: the routes declare explicit methods,
+    so Flask answers OPTIONS from the routing layer without invoking the view.
+    """
+    @wraps(f)
     def wrapper(*args, **kwargs):
         key = request.headers.get('X-API-Key')
         if not key:
             return jsonify({'success': False, 'error': 'Missing API key'}), 401
-        if key != API_KEY:
+        # Constant-time compare so a wrong key cannot be recovered by timing.
+        if not hmac.compare_digest(key, API_KEY or ''):
             return jsonify({'success': False, 'error': 'Invalid API key'}), 403
         return f(*args, **kwargs)
 
-    wrapper.__name__ = f.__name__
     return wrapper
 
 
@@ -779,6 +796,35 @@ def get_allowed_users(guild_id):
 
 
 # ── Welcome channel ───────────────────────────────────────────────────────────
+@app.route('/api/guilds', methods=['GET'])
+@require_api_key
+def get_guilds():
+    """List every guild the bot is in, for the dashboard's server dropdown.
+
+    Reads the bot's local guild cache, so it needs the gateway thread.
+    """
+    try:
+        async def _fetch():
+            return [
+                {
+                    'id': str(g.id),
+                    'name': g.name,
+                    'member_count': g.member_count,
+                    'icon': str(g.icon.url) if g.icon else None,
+                }
+                for g in bot_instance.guilds
+            ]
+
+        ok, result = run_on_bot_loop(_fetch)
+        if not ok:
+            return jsonify({'success': False, 'error': result}), 503
+
+        result.sort(key=lambda g: g['name'].lower())
+        return jsonify({'success': True, 'guilds': result, 'count': len(result)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/channels/<guild_id>', methods=['GET'])
 @require_api_key
 def get_channels(guild_id):
@@ -849,9 +895,20 @@ def set_welcome_channel():
             return jsonify({'success': False,
                             'error': 'guild_id and channel_id must be numeric IDs'}), 400
 
-        if not guild_id or not channel_id:
-            return jsonify({'success': False,
-                            'error': 'guild_id and channel_id are required'}), 400
+        if not guild_id:
+            return jsonify({'success': False, 'error': 'guild_id is required'}), 400
+
+        # The dashboard's "Remove" button posts channel_id "0" to clear the
+        # setting, so 0 is a valid value meaning "delete", not a bad request.
+        if channel_id == 0:
+            welcome_channels.pop(guild_id, None)
+            save_welcome_channels()
+            commit_to_github('config/welcome_channels.json',
+                             {str(k): str(v) for k, v in welcome_channels.items()},
+                             f'👋 Welcome channel cleared for {guild_id}')
+            log_req('/api/welcome_channel', 'POST', data)
+            return jsonify({'success': True, 'message': 'Welcome channel cleared',
+                            'channel_id': None})
 
         # Keys are ints in memory and stringified on save; see save_welcome_channels().
         welcome_channels[guild_id] = channel_id

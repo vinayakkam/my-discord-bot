@@ -48,6 +48,11 @@ from keep_alive import (
     set_bot_instance
 )
 
+# Hand the bot to the Flask API thread. Without this, every dashboard endpoint
+# that needs the gateway (listing a guild's channels for the welcome-channel
+# picker) answers 503 because keep_alive.bot_instance stays None.
+set_bot_instance(bot)
+
 
 
 
