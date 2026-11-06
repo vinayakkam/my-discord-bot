@@ -2976,9 +2976,45 @@ COMMAND_NAME = "merrychristmas"
 # track active games per channel to avoid overlapping games
 active_games = {}  # channel_id -> True while a game is running
 
+# Rate limiting for the automatic Grinch event. Without these, on_message fired
+# the game on *every* non-command message between 1 and 25 December, so a
+# channel got a fresh game the instant the previous one ended.
+GRINCH_COOLDOWN_SECONDS = 30 * 60  # at most one auto-event per channel per 30 min
+GRINCH_TRIGGER_CHANCE = 0.02       # and only ~1 message in 50 rolls it at all
+
+# channel_id -> monotonic timestamp of the last auto-triggered game
+_grinch_last_run: Dict[int, float] = {}
+
+
 def is_christmas_active() -> bool:
     now = now_in_ist()
     return (now.month == ACTIVE_MONTH) and (ACTIVE_START_DAY <= now.day <= ACTIVE_END_DAY)
+
+
+def should_auto_trigger_grinch(channel_id: int) -> bool:
+    """Whether an ordinary message should spawn the Grinch event.
+
+    Requires the event window to be open, the channel's cooldown to have
+    elapsed, and a random roll to succeed, so the event stays a surprise
+    instead of flooding the channel. Records the attempt when it returns True.
+    """
+    if not is_christmas_active():
+        return False
+
+    # A game already running in this channel short-circuits the roll.
+    if active_games.get(channel_id):
+        return False
+
+    now = time.monotonic()
+    last = _grinch_last_run.get(channel_id)
+    if last is not None and (now - last) < GRINCH_COOLDOWN_SECONDS:
+        return False
+
+    if random.random() >= GRINCH_TRIGGER_CHANCE:
+        return False
+
+    _grinch_last_run[channel_id] = now
+    return True
 
 # ---------- Embeds ----------
 def make_game_embed(animation_line: str = ""):
@@ -6655,7 +6691,9 @@ async def on_message(message: discord.Message):
         if (
                 not message.content.startswith(BOT_PREFIX)
                 and message.guild is not None
-                and is_christmas_active()
+                # Cooldown + random roll, so this is an occasional surprise
+                # rather than a game on every single message.
+                and should_auto_trigger_grinch(message.channel.id)
         ):
             try:
                 me = message.guild.me or await message.guild.fetch_member(bot.user.id)
