@@ -408,23 +408,53 @@ def save_api_logs():
 
 # ── GitHub sync ───────────────────────────────────────────────────────────────
 def commit_to_github(file_path, content, message):
+    """Write a single file to the repo through the GitHub Contents API.
+
+    This talks to the remote directly and never touches the local checkout, so
+    it cannot publish unrelated local commits the way `git push` would.
+
+    `content` may be a dict (serialised as JSON), str or bytes. Returns a
+    (ok, detail) pair; callers that do not care may ignore it. Never raises.
+    """
     if not GITHUB_TOKEN:
-        return
+        return False, 'GITHUB_TOKEN is not set'
     try:
         if isinstance(content, dict):
             content = json.dumps(content, indent=2)
+        if isinstance(content, str):
+            content = content.encode('utf-8')
+
         url = f'https://api.github.com/repos/{GITHUB_REPO}/contents/{file_path}'
         headers = {'Authorization': f'Bearer {GITHUB_TOKEN}', 'User-Agent': 'OLIT-Bot-API'}
+
+        # The API needs the current blob SHA to replace an existing file.
         sha = None
-        r = requests.get(url, headers=headers)
+        r = requests.get(url, headers=headers, timeout=20)
         if r.status_code == 200:
             sha = r.json().get('sha')
-        payload = {'message': message, 'content': base64.b64encode(content.encode()).decode(), 'branch': GITHUB_BRANCH}
+
+        payload = {
+            'message': message,
+            'content': base64.b64encode(content).decode(),
+            'branch': GITHUB_BRANCH,
+        }
         if sha:
             payload['sha'] = sha
-        requests.put(url, headers=headers, json=payload)
+
+        put = requests.put(url, headers=headers, json=payload, timeout=30)
+        if put.status_code in (200, 201):
+            return True, f'{file_path} committed'
+
+        detail = ''
+        try:
+            detail = put.json().get('message', '')
+        except Exception:
+            detail = put.text[:120]
+        print(f"⚠️  GitHub sync failed for {file_path}: {put.status_code} {detail}")
+        return False, f'HTTP {put.status_code}: {detail}'
     except Exception as e:
         print(f"⚠️  GitHub sync error: {e}")
+        return False, str(e)
 
 
 # ── Auto-Deploy & Webhook Security Helper ─────────────────────────────────────

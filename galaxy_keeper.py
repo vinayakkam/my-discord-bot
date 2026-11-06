@@ -1,8 +1,8 @@
 import discord
 from discord import ui
 from discord.ext import commands, tasks
-import json, os, random, asyncio, subprocess
-from datetime import datetime, timedelta
+import json, os, random, asyncio, hashlib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -11,6 +11,9 @@ _DATA_DIR   = "data"
 GALAXY_FILE = f"{_DATA_DIR}/galaxy_data.json"
 WORLD_FILE  = f"{_DATA_DIR}/world_data.json"
 SCORES_FILE = f"{_DATA_DIR}/galaxy_scores.json"
+
+# Credits charged per unit of fuel, used by both the Refuel and Base buttons.
+_REFUEL_COST_PER_UNIT = 2
 
 GITHUB_REPO_DIR = "."      # Change to absolute path if your repo root differs
 GITHUB_BRANCH   = "main"   # or "master"
@@ -669,13 +672,35 @@ class _NavView(ui.View):
 
     @ui.button(label="🏠 Base", style=discord.ButtonStyle.success, row=1)
     async def home(self, interaction: discord.Interaction, button: ui.Button):
+        """Return to the home station, topping up fuel if it can be paid for.
+
+        This used to set fuel straight to max for free, which made the Refuel
+        button, credits and the whole fuel economy pointless -- there was never
+        a reason to do anything but press Base. Returning home is still free;
+        the refill is charged at the standard rate, and is simply skipped if
+        the commander cannot afford it.
+        """
         if interaction.user.id != self.uid:
             return await interaction.response.send_message("❌ Not your ship!", ephemeral=True)
         ud = _get_user(self.uid)
         ud["position"] = [0, 0]
-        ud["fuel"]     = ud["max_fuel"]
+
+        needed = ud["max_fuel"] - ud["fuel"]
+        cost   = needed * _REFUEL_COST_PER_UNIT
+        if needed and ud["credits"] >= cost:
+            ud["credits"] -= cost
+            ud["fuel"]     = ud["max_fuel"]
+            note = f"🏠 Docked at base. Refuelled for **{cost}** credits."
+        elif needed:
+            note = (f"🏠 Docked at base, but a full refuel costs **{cost}** "
+                    f"credits and you have **{ud['credits']}**. "
+                    "Explore for credits, or refuel partially.")
+        else:
+            note = "🏠 Docked at base. Tanks already full."
+
         _save_user(self.uid)
         await interaction.response.edit_message(embed=_map_embed(self.uid), view=self)
+        await interaction.followup.send(note, ephemeral=True)
 
     @ui.button(label="➡", style=discord.ButtonStyle.primary,   row=1)
     async def ee(self, i, b): await self._move(i,  1,  0)
@@ -689,18 +714,46 @@ class _NavView(ui.View):
 
     @ui.button(label="⛽ Refuel", style=discord.ButtonStyle.danger, row=2)
     async def refuel(self, interaction: discord.Interaction, button: ui.Button):
+        """Buy fuel, as much as the commander can afford.
+
+        Two bugs here before: the map never refreshed, because after an initial
+        send_message() the follow-up edit_original_response() edits that
+        ephemeral reply rather than the map message (and it was set to delete
+        after 5s, so the map embed vanished). And refuelling with full tanks
+        charged 0 credits and reported success.
+        """
         if interaction.user.id != self.uid:
             return await interaction.response.send_message("❌ Not your ship!", ephemeral=True)
         ud     = _get_user(self.uid)
         needed = ud["max_fuel"] - ud["fuel"]
-        cost   = needed * 2
-        if ud["credits"] < cost:
-            return await interaction.response.send_message(f"❌ Need {cost} credits, have {ud['credits']}.", ephemeral=True)
+
+        if needed <= 0:
+            return await interaction.response.send_message(
+                "⛽ Your tanks are already full.", ephemeral=True)
+
+        full_cost = needed * _REFUEL_COST_PER_UNIT
+        if ud["credits"] >= full_cost:
+            units, cost = needed, full_cost
+        else:
+            # Partial refuel rather than a flat refusal.
+            units = ud["credits"] // _REFUEL_COST_PER_UNIT
+            cost  = units * _REFUEL_COST_PER_UNIT
+            if units <= 0:
+                return await interaction.response.send_message(
+                    f"❌ A full refuel costs {full_cost} credits and you have "
+                    f"{ud['credits']}. Explore to earn more.", ephemeral=True)
+
         ud["credits"] -= cost
-        ud["fuel"]     = ud["max_fuel"]
+        ud["fuel"]     = min(ud["max_fuel"], ud["fuel"] + units)
         _save_user(self.uid)
-        await interaction.response.send_message(f"⛽ Refuelled! Cost: {cost} credits.", ephemeral=True, delete_after=5)
-        await interaction.edit_original_response(embed=_map_embed(self.uid), view=self)
+
+        # Edit the map first, then confirm, so the fuel gauge actually updates.
+        await interaction.response.edit_message(embed=_map_embed(self.uid), view=self)
+        await interaction.followup.send(
+            f"⛽ Added **{units}** fuel for **{cost}** credits "
+            f"({ud['fuel']}/{ud['max_fuel']}).",
+            ephemeral=True,
+        )
 
     @ui.button(label="📊 Stats", style=discord.ButtonStyle.success, row=2)
     async def stats(self, interaction: discord.Interaction, button: ui.Button):
@@ -872,6 +925,11 @@ def _boss_embed(uid: int):
     emb.add_field(name="Turn",           value=str(ud["boss_turns"]+1),               inline=True)
     emb.set_footer(text="Choose your attack!")
     return emb, _BossView(uid)
+    async def on_timeout(self):
+        """Grey out the controls so an abandoned panel does not look live."""
+        for item in self.children:
+            item.disabled = True
+
 
 class _BossView(ui.View):
     def __init__(self, uid: int):
@@ -995,6 +1053,11 @@ class _BossView(ui.View):
             emb.add_field(name="😤 Taunt", value=_SENTINEL["low_hp_msg"], inline=False)
         emb.add_field(name="Visual", value=f"```\n{phase['art']}\n```", inline=False)
         return emb, _BossView(uid)
+    async def on_timeout(self):
+        """Grey out the controls so an abandoned panel does not look live."""
+        for item in self.children:
+            item.disabled = True
+
 
 # ─── SHIPYARD VIEW ─────────────────────────────────────────────────
 
@@ -1044,9 +1107,15 @@ class _ShipyardView(ui.View):
             ud["max_fuel"] += 20
             ud["fuel"] = min(ud["fuel"]+20, ud["max_fuel"])
         _save_user(self.uid)
-        await interaction.response.send_message(
-            f"✅ **{key.replace('_',' ').title()}** upgraded to Lv {ud['upgrades'][key]}!", ephemeral=True)
-        await interaction.edit_original_response(embed=self._embed(), view=self)
+        # Refresh the shipyard panel first, then confirm. The old order called
+        # send_message() and then edit_original_response(), which edits that
+        # ephemeral reply rather than the panel -- so the credit balance and
+        # upgrade levels on screen never updated after a purchase.
+        await interaction.response.edit_message(embed=self._embed(), view=self)
+        await interaction.followup.send(
+            f"✅ **{key.replace('_',' ').title()}** upgraded to "
+            f"Lv {ud['upgrades'][key]}! (-{cost:,} cr)",
+            ephemeral=True)
 
     @ui.button(label="➡", style=discord.ButtonStyle.secondary)
     async def nxt(self, i, b):
@@ -1054,37 +1123,112 @@ class _ShipyardView(ui.View):
         self.page = (self.page+1) % len(self.keys)
         await i.response.edit_message(embed=self._embed(), view=self)
 
+    async def on_timeout(self):
+        """Grey out the controls so an abandoned panel does not look live."""
+        for item in self.children:
+            item.disabled = True
+
 # ─── GITHUB AUTO-BACKUP ────────────────────────────────────────────
 
-def _git_push(message: str) -> str:
+# Records the content hash of each save file at its last successful backup, so
+# an unchanged file is not committed again.
+_BACKUP_STATE_FILE = f"{_DATA_DIR}/backup_state.json"
+
+#: Files included in a galaxy backup.
+_BACKUP_TARGETS = (GALAXY_FILE, WORLD_FILE, SCORES_FILE)
+
+
+def _file_digest(path: Path) -> str:
+    """sha256 of a file's bytes, used to detect real changes."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _backup_saves(label: str, force: bool = False) -> str:
+    """Commit changed galaxy save files to GitHub.
+
+    Only files whose contents differ from the last successful backup are sent,
+    so an idle day costs no commits at all. Pass force=True to upload
+    regardless, which is what !forcebackup does.
+
+    This replaces a routine that shelled out to
+    `git add data/ && git commit --allow-empty && git push`, which was wrong
+    three times over: `data/` is gitignored so nothing was ever staged;
+    `--allow-empty` therefore produced an empty commit every day; and it pushed
+    unattended, which could carry along unrelated local commits.
+
+    Uses keep_alive.commit_to_github, the same GitHub Contents API path the
+    dashboard already uses for config files. The API writes each file straight
+    to the remote branch, so it cannot publish local commits.
+    """
+    # Imported lazily so galaxy_keeper has no import-time dependency on the
+    # Flask module.
     try:
-        repo = str(Path(GITHUB_REPO_DIR).resolve())
-        outputs = []
-        for cmd in [
-            f'cd "{repo}" && git add data/',
-            f'cd "{repo}" && git commit -m "{message}" --allow-empty',
-            f'cd "{repo}" && git push origin {GITHUB_BRANCH}',
-        ]:
-            r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            outputs.append(r.stdout.strip() or r.stderr.strip())
-        return "\n".join(outputs)
+        from keep_alive import commit_to_github
     except Exception as e:
-        return f"Git error: {e}"
+        return f"Backup unavailable (keep_alive import failed): {e}"
+
+    _save_all()
+    state = _load_json(_BACKUP_STATE_FILE)
+
+    results = []
+    committed = skipped = failed = 0
+
+    for path in _BACKUP_TARGETS:
+        source = Path(path)
+        name = source.name
+
+        if not source.exists():
+            results.append(f"  {name}: no file yet")
+            continue
+
+        try:
+            digest = _file_digest(source)
+        except OSError as e:
+            results.append(f"  {name}: unreadable ({e})")
+            failed += 1
+            continue
+
+        if not force and state.get(path) == digest:
+            skipped += 1
+            results.append(f"  {name}: unchanged, skipped")
+            continue
+
+        ok, detail = commit_to_github(
+            path, source.read_bytes(), f"{label} - {name}")
+        if ok:
+            committed += 1
+            # Only record the digest once the upload actually succeeded, so a
+            # failed backup is retried next time rather than marked done.
+            state[path] = digest
+            results.append(f"  {name}: committed ({source.stat().st_size:,} bytes)")
+        else:
+            failed += 1
+            results.append(f"  {name}: FAILED - {detail}")
+
+    if committed:
+        _save_json(_BACKUP_STATE_FILE, state)
+
+    if not committed and not failed:
+        summary = "no changes since last backup, nothing committed"
+    else:
+        summary = f"{committed} committed, {skipped} unchanged, {failed} failed"
+
+    return f"{label}\n{summary}\n" + "\n".join(results)
 
 @tasks.loop(hours=24)
 async def daily_galaxy_backup():
-    """Auto-commit galaxy data to GitHub every 24 hours.
-    Start from on_ready:  daily_galaxy_backup.start()
-    """
-    _save_all()
-    ts     = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    result = _git_push(f"🤖 Galaxy auto-backup [{ts}]")
-    print(f"[GALAXY BACKUP] {ts}\n{result}")
+    """Commit the galaxy save files to GitHub every 24 hours.
 
+    Started from setup_hook via daily_galaxy_backup.start().
+    """
+    ts     = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    result = _backup_saves(f"🤖 Galaxy auto-backup [{ts}]")
+    print(f"[GALAXY BACKUP] {result}")
 @daily_galaxy_backup.before_loop
 async def _before_backup():
     if _bot: await _bot.wait_until_ready()
-    now = datetime.utcnow()
+    # datetime.utcnow() is deprecated in 3.12+; use an aware UTC time.
+    now = datetime.now(timezone.utc)
     nxt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     await asyncio.sleep((nxt - now).total_seconds())
 
@@ -1249,7 +1393,6 @@ def _register_commands(bot: commands.Bot):
         ud["position"] = list(dest)
         ud["fuel"]     = ud["max_fuel"]
         _save_user(target_uid)
-        who = member.mention if member else "You"
 
         emb = discord.Embed(title="✨ Teleportation Complete", color=0x00ff41,
                             timestamp=ctx.message.created_at)
@@ -1285,7 +1428,7 @@ def _register_commands(bot: commands.Bot):
     @commands.is_owner()
     async def cmd_forcebackup(ctx: commands.Context):
         _save_all()
-        result = _git_push("Manual backup via !forcebackup")
+        result = _backup_saves("Manual backup via !forcebackup", force=True)
         await ctx.send(f"```\n{result}\n```")
 
     @bot.hybrid_command(name="galaxyhelp", aliases=["ghelp"], description="Display Galaxy Keeper help manual")
