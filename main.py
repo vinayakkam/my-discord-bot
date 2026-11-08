@@ -21,7 +21,7 @@ from olit import config
 import discord
 from discord import ui, ButtonStyle, Interaction, Embed
 import galaxy_keeper
-from galaxy_keeper import setup_galaxy, daily_galaxy_backup
+from galaxy_keeper import setup_galaxy
 from booster_catch import setup_booster_catch
 from discord.ext import commands,tasks
 import shutil
@@ -6563,9 +6563,6 @@ async def setup_hook():
     """
     synced = await bot.tree.sync()
     print(f"🔃 Synced {len(synced)} slash commands")
-
-    if not daily_galaxy_backup.is_running():
-        daily_galaxy_backup.start()
 
 
 @bot.event

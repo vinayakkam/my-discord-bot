@@ -1,7 +1,7 @@
 import discord
 from discord import ui
 from discord.ext import commands, tasks
-import json, os, random, asyncio, hashlib
+import json, os, random, asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -1387,110 +1387,6 @@ class _ShipyardView(ui.View):
         for item in self.children:
             item.disabled = True
 
-# ─── GITHUB AUTO-BACKUP ────────────────────────────────────────────
-
-# Records the content hash of each save file at its last successful backup, so
-# an unchanged file is not committed again.
-_BACKUP_STATE_FILE = f"{_DATA_DIR}/backup_state.json"
-
-#: Files included in a galaxy backup.
-_BACKUP_TARGETS = (GALAXY_FILE, WORLD_FILE, SCORES_FILE)
-
-
-def _file_digest(path: Path) -> str:
-    """sha256 of a file's bytes, used to detect real changes."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _backup_saves(label: str, force: bool = False) -> str:
-    """Commit changed galaxy save files to GitHub.
-
-    Only files whose contents differ from the last successful backup are sent,
-    so an idle day costs no commits at all. Pass force=True to upload
-    regardless, which is what !forcebackup does.
-
-    This replaces a routine that shelled out to
-    `git add data/ && git commit --allow-empty && git push`, which was wrong
-    three times over: `data/` is gitignored so nothing was ever staged;
-    `--allow-empty` therefore produced an empty commit every day; and it pushed
-    unattended, which could carry along unrelated local commits.
-
-    Uses keep_alive.commit_to_github, the same GitHub Contents API path the
-    dashboard already uses for config files. The API writes each file straight
-    to the remote branch, so it cannot publish local commits.
-    """
-    # Imported lazily so galaxy_keeper has no import-time dependency on the
-    # Flask module.
-    try:
-        from keep_alive import commit_to_github
-    except Exception as e:
-        return f"Backup unavailable (keep_alive import failed): {e}"
-
-    _save_all()
-    state = _load_json(_BACKUP_STATE_FILE)
-
-    results = []
-    committed = skipped = failed = 0
-
-    for path in _BACKUP_TARGETS:
-        source = Path(path)
-        name = source.name
-
-        if not source.exists():
-            results.append(f"  {name}: no file yet")
-            continue
-
-        try:
-            digest = _file_digest(source)
-        except OSError as e:
-            results.append(f"  {name}: unreadable ({e})")
-            failed += 1
-            continue
-
-        if not force and state.get(path) == digest:
-            skipped += 1
-            results.append(f"  {name}: unchanged, skipped")
-            continue
-
-        ok, detail = commit_to_github(
-            path, source.read_bytes(), f"{label} - {name}")
-        if ok:
-            committed += 1
-            # Only record the digest once the upload actually succeeded, so a
-            # failed backup is retried next time rather than marked done.
-            state[path] = digest
-            results.append(f"  {name}: committed ({source.stat().st_size:,} bytes)")
-        else:
-            failed += 1
-            results.append(f"  {name}: FAILED - {detail}")
-
-    if committed:
-        _save_json(_BACKUP_STATE_FILE, state)
-
-    if not committed and not failed:
-        summary = "no changes since last backup, nothing committed"
-    else:
-        summary = f"{committed} committed, {skipped} unchanged, {failed} failed"
-
-    return f"{label}\n{summary}\n" + "\n".join(results)
-
-@tasks.loop(hours=24)
-async def daily_galaxy_backup():
-    """Commit the galaxy save files to GitHub every 24 hours.
-
-    Started from setup_hook via daily_galaxy_backup.start().
-    """
-    ts     = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    result = _backup_saves(f"🤖 Galaxy auto-backup [{ts}]")
-    print(f"[GALAXY BACKUP] {result}")
-@daily_galaxy_backup.before_loop
-async def _before_backup():
-    if _bot: await _bot.wait_until_ready()
-    # datetime.utcnow() is deprecated in 3.12+; use an aware UTC time.
-    now = datetime.now(timezone.utc)
-    nxt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    await asyncio.sleep((nxt - now).total_seconds())
-
 # ─── COMMAND REGISTRATION ──────────────────────────────────────────
 
 def _register_commands(bot: commands.Bot):
@@ -1770,13 +1666,6 @@ def _register_commands(bot: commands.Bot):
         total   = len(_galaxy)
         systems = sum(len(d.get("discovered",[])) for d in _galaxy.values())
         await ctx.send(f"🌌 Galaxy: **{total}** players · **{systems}** systems · **{len(_world)}** sectors")
-
-    @bot.hybrid_command(name="forcebackup", description="Force Git backup of galaxy database (Owner Only)")
-    @commands.is_owner()
-    async def cmd_forcebackup(ctx: commands.Context):
-        _save_all()
-        result = _backup_saves("Manual backup via !forcebackup", force=True)
-        await ctx.send(f"```\n{result}\n```")
 
     @bot.hybrid_command(name="galaxyhelp", aliases=["ghelp"], description="Display Galaxy Keeper help manual")
     async def cmd_ghelp(ctx: commands.Context):

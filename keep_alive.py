@@ -748,18 +748,20 @@ def verify_signature(payload_body, secret, signature_header):
     return hmac.compare_digest(expected_signature, signature_header)
 
 
-# config/ and data/ are tracked in git but rewritten while the bot runs: the
-# dashboard commits config/ and the galaxy backup commits data/ through the
-# GitHub Contents API, so the remote is the source of truth for both. On the
-# host that means the checkout always has local modifications to tracked files,
-# and a plain `git pull` refuses to merge them:
+# config/ is tracked in git but rewritten while the bot runs: the dashboard
+# commits it through the GitHub Contents API, so the remote is the source of
+# truth for it. That left the host's checkout permanently modified, and a plain
+# `git pull` refuses to merge over local changes:
 #
 #     error: Your local changes to the following files would be overwritten by
 #     merge: data/galaxy_data.json ... Aborting
 #
-# A deploy target has no local work worth keeping, so a deploy resets to the
-# remote branch instead of merging into it. Stale .pyc files that an older
-# commit of this repo used to track are cleared the same way.
+# `data/` was tracked for the same reason and is not any more -- the galaxy
+# saves are runtime state that belongs on the host, like persistent/ -- but
+# config/ still is, so the problem stands. A deploy target has no local work
+# worth keeping, so a deploy resets to the remote branch instead of merging
+# into it. Stale .pyc files that an older commit of this repo used to track are
+# cleared the same way.
 RUNTIME_STATE_DIRS = ("config", "data")
 PRE_DEPLOY_DIR = os.path.join("persistent", "pre_deploy")
 LAST_DEPLOY_FILE = os.path.join("persistent", "last_deploy.json")
@@ -810,10 +812,13 @@ def _prune_pre_deploy_snapshots():
 def _snapshot_runtime_state():
     """Copy the runtime JSON aside before a deploy resets the checkout.
 
-    The reset discards local edits to config/ and data/. Both are mirrored to
-    GitHub as they change, so the remote copy is normally identical or newer --
-    but a write made after the last successful mirror would be lost, so keep a
-    local copy under persistent/ (which git ignores) first.
+    The reset discards local edits to tracked files. config/ is mirrored to
+    GitHub as it changes, so the remote copy is normally identical or newer --
+    but a write made after the last mirror would be lost. data/ is untracked
+    and nothing mirrors it at all, so a copy here is its only safety net if a
+    deploy ever does touch it.
+
+    _restore_runtime_state() puts back anything the reset removed.
 
     Returns (snapshot_dir, files_copied); snapshot_dir is None on failure.
     """
@@ -835,6 +840,45 @@ def _snapshot_runtime_state():
         print(f"⚠️  Could not snapshot runtime state before deploy: {e}")
         return None, copied
     return target, copied
+
+
+def _restore_runtime_state(snapshot):
+    """Put back runtime files that the reset removed from the worktree.
+
+    Resetting onto a commit that no longer tracks a path deletes that path from
+    the worktree. `data/` was tracked once, so the first deploy after it was
+    untracked would have wiped the host's live galaxy saves -- the files are
+    meant to live on the host like `persistent/` does, untracked and
+    untouched.
+
+    Only paths git now ignores are restored, so a tracked config file that was
+    deliberately deleted upstream stays deleted. Files that survived the reset
+    are never overwritten.
+    """
+    if not snapshot or not os.path.isdir(snapshot):
+        return
+
+    restored = 0
+    for root, _dirs, files in os.walk(snapshot):
+        for name in files:
+            saved = os.path.join(root, name)
+            # Path relative to the snapshot is the path in the checkout.
+            live = os.path.relpath(saved, snapshot)
+            if os.path.exists(live):
+                continue
+            # `git check-ignore` exits 0 only for an ignored path.
+            ignored, _out = _run_git("check-ignore", "-q", live, timeout=15)
+            if not ignored:
+                continue
+            try:
+                os.makedirs(os.path.dirname(live) or '.', exist_ok=True)
+                shutil.copy2(saved, live)
+                restored += 1
+            except OSError as e:
+                print(f"⚠️  Could not restore {live}: {e}")
+
+    if restored:
+        print(f"♻️  Restored {restored} untracked runtime file(s) the reset removed")
 
 
 def _clean_pycache():
@@ -918,6 +962,7 @@ def deploy_and_restart():
         return
     print(f"✅ {out}")
 
+    _restore_runtime_state(snapshot)
     _clean_pycache()
 
     if os.path.exists("requirements.txt"):

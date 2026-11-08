@@ -1,7 +1,15 @@
-"""Tests for the galaxy save backup.
+"""Tests for galaxy save handling and the reset commands.
 
-The behaviour being protected: the backup commits through the GitHub Contents
-API (never `git push`), and only uploads files whose contents actually changed.
+There is deliberately no backup feature here any more. The saves were once
+mirrored off-host because Render's filesystem was ephemeral and a redeploy
+wiped them. The current host keeps its disk, and mirroring them into git is
+what left the checkout permanently modified so every `git pull` deploy aborted
+with "your local changes would be overwritten by merge".
+
+`data/` is untracked now, like `persistent/`: the saves live on the host and
+nothing copies them anywhere. Config files are a separate matter -- the
+dashboard still commits `config/` through the GitHub Contents API, and that is
+tested in tests/test_api_auth.py and tests/test_api_welcome.py.
 """
 
 import sys
@@ -12,11 +20,13 @@ import pytest
 
 @pytest.fixture
 def galaxy(tmp_path, monkeypatch):
-    """galaxy_keeper pointed at a temp data dir, with the API call recorded."""
-    calls = []
+    """galaxy_keeper pointed at a temp data dir."""
+    # A stub keep_alive, so importing the Flask module cannot reach the real
+    # one, and so any call to commit_to_github from here is observable.
+    uploads = []
 
     def fake_commit(path, content, message):
-        calls.append({"path": path, "content": content, "message": message})
+        uploads.append(path)
         return True, f"{path} committed"
 
     fake_keep_alive = types.ModuleType("keep_alive")
@@ -29,94 +39,29 @@ def galaxy(tmp_path, monkeypatch):
     monkeypatch.setattr(g, "GALAXY_FILE", str(tmp_path / "galaxy_data.json"))
     monkeypatch.setattr(g, "WORLD_FILE", str(tmp_path / "world_data.json"))
     monkeypatch.setattr(g, "SCORES_FILE", str(tmp_path / "galaxy_scores.json"))
-    monkeypatch.setattr(g, "_BACKUP_STATE_FILE", str(tmp_path / "backup_state.json"))
-    monkeypatch.setattr(g, "_BACKUP_TARGETS", (
-        str(tmp_path / "galaxy_data.json"),
-        str(tmp_path / "world_data.json"),
-        str(tmp_path / "galaxy_scores.json"),
-    ))
     monkeypatch.setattr(g, "_galaxy", {"1": {"credits": 150}})
     monkeypatch.setattr(g, "_world", {})
 
-    return g, calls
+    g._uploads = uploads
+    return g, uploads
 
 
-def test_first_backup_uploads_the_save_files(galaxy):
-    g, calls = galaxy
-    result = g._backup_saves("first")
-    assert "committed" in result
-    assert calls, "nothing was sent to the API"
-    names = {c["path"].rsplit("\\", 1)[-1].rsplit("/", 1)[-1] for c in calls}
-    assert "galaxy_data.json" in names
+# ── The backup feature must stay gone ────────────────────────────────────────
+def test_no_backup_machinery_remains():
+    """Re-adding this is what put data/ back in git and broke deploys."""
+    import galaxy_keeper as g
+
+    for attr in ("_backup_saves", "daily_galaxy_backup", "_BACKUP_TARGETS",
+                 "_BACKUP_STATE_FILE", "_BACKUP_DIR", "_git_push"):
+        assert not hasattr(g, attr), f"the galaxy backup is back: {attr}"
 
 
-def test_unchanged_files_are_not_recommitted(galaxy):
-    """An idle day must cost zero commits."""
-    g, calls = galaxy
-    g._backup_saves("first")
-    calls.clear()
-
-    result = g._backup_saves("second")
-    assert calls == [], "re-committed files that had not changed"
-    assert "no changes" in result
-
-
-def test_changed_file_is_recommitted(galaxy):
-    g, calls = galaxy
-    g._backup_saves("first")
-    calls.clear()
-
-    g._galaxy["1"]["credits"] = 99999
-    g._backup_saves("third")
-
-    assert len(calls) == 1, "expected exactly the changed file"
-    assert "galaxy_data.json" in calls[0]["path"]
-
-
-def test_force_ignores_the_change_check(galaxy):
-    """!forcebackup must upload regardless, for manual recovery."""
-    g, calls = galaxy
-    g._backup_saves("first")
-    before = len(calls)
-    calls.clear()
-
-    g._backup_saves("forced", force=True)
-    assert len(calls) == before, "force=True should re-upload everything"
-
-
-def test_failed_upload_is_retried_next_run(galaxy, monkeypatch):
-    """A digest must only be recorded after a successful upload."""
-    g, calls = galaxy
-
-    import keep_alive
-
-    def failing(path, content, message):
-        calls.append({"path": path})
-        return False, "HTTP 403: forbidden"
-
-    monkeypatch.setattr(keep_alive, "commit_to_github", failing)
-    result = g._backup_saves("attempt-1")
-    assert "FAILED" in result
-    attempted = len(calls)
-    calls.clear()
-
-    # Still failing, so it must try again rather than consider itself done.
-    g._backup_saves("attempt-2")
-    assert len(calls) == attempted, "a failed file was marked as backed up"
-
-
-def test_backup_never_shells_out_to_git():
-    """Regression: the old backup ran `git push` on a 24h timer.
-
-    Checked against the parsed module rather than its text, so prose in
-    comments and docstrings explaining the old behaviour cannot trip it.
-    """
+def test_galaxy_does_not_upload_saves_or_shell_out():
+    """Checked against the parsed module, so prose about the old behaviour is fine."""
     import ast
     import inspect
 
     import galaxy_keeper as g
-
-    assert not hasattr(g, "_git_push"), "the git-push backup is back"
 
     tree = ast.parse(inspect.getsource(g))
 
@@ -128,19 +73,43 @@ def test_backup_never_shells_out_to_git():
             imported.add(node.module.split(".")[0])
     assert "subprocess" not in imported, "galaxy_keeper imports subprocess again"
 
-    calls = [
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and getattr(
-            getattr(n.func, "value", None), "id", None) == "subprocess"
-    ]
-    assert not calls, "a subprocess call is back in galaxy_keeper"
+    bad = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        # subprocess.<anything>(...)
+        if getattr(getattr(node.func, "value", None), "id", None) == "subprocess":
+            bad.append("subprocess call")
+        # commit_to_github(...) or <mod>.commit_to_github(...)
+        if (getattr(node.func, "id", None) == "commit_to_github"
+                or getattr(node.func, "attr", None) == "commit_to_github"):
+            bad.append("commit_to_github call")
+    assert not bad, f"the off-host save backup is back: {sorted(set(bad))}"
 
 
-def test_missing_files_are_reported_not_fatal(galaxy):
-    g, calls = galaxy
-    result = g._backup_saves("missing")
-    # galaxy_scores.json is never written by this fixture.
-    assert "no file yet" in result
+def test_saving_does_not_upload_anything(galaxy):
+    g, uploads = galaxy
+    g._save_all()
+    assert uploads == [], "saving a galaxy file sent it to the GitHub API"
+
+
+def test_forcebackup_command_is_gone():
+    """The command is removed, so it must not be left in the help catalog."""
+    from olit import registry
+
+    assert "forcebackup" not in registry.catalogued_names(include_hidden=True)
+
+
+# ── Saves still round-trip on disk ───────────────────────────────────────────
+def test_saves_round_trip_to_disk(galaxy):
+    """The host's disk is the only copy now, so writing must actually work."""
+    g, _ = galaxy
+    g._galaxy["42"] = g._default_user(42)
+    g._galaxy["42"]["credits"] = 4242
+    g._save_all()
+
+    reloaded = g._load_json(g.GALAXY_FILE)
+    assert reloaded["42"]["credits"] == 4242
 
 
 # ── Reset ─────────────────────────────────────────────────────────────────────
