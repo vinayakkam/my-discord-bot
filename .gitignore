@@ -23,3 +23,4 @@ CLAUDE.md
 
 # Test artifacts
 .pytest_cache/
+/data/

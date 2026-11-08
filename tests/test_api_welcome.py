@@ -77,7 +77,7 @@ def test_get_welcome_channel_reads_back(api_client):
         json={"guild_id": "999", "channel_id": "111"},
         headers=_auth(keep_alive),
     )
-    resp = client.get("/api/welcome_channel/999")
+    resp = client.get("/api/welcome_channel/999", headers=_auth(keep_alive))
     assert resp.get_json()["channel_id"] == "111"
 
 

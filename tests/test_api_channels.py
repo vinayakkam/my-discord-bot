@@ -101,25 +101,32 @@ def test_guilds_503_without_bot(api_client):
     assert resp.status_code == 503
 
 
-def test_api_key_required(wired):
+def test_guild_endpoints_require_authorization(wired):
+    """No credentials, or a bad operator key, means no answer.
+
+    A wrong key is not treated as a distinct "forbidden" case any more: it
+    simply is not a credential, so the request falls through to the Discord
+    check and is told to sign in.
+    """
     client, keep_alive = wired
     assert client.get("/api/channels/123").status_code == 401
     assert client.get(
         "/api/channels/123", headers={"X-API-Key": "wrong"}
-    ).status_code == 403
+    ).status_code == 401
 
 
-def test_cors_preflight_allows_api_key_header(wired):
-    """A cross-origin dropdown must get X-API-Key past the preflight."""
+def test_cors_preflight_allows_auth_headers(wired):
+    """The dashboard's cross-origin calls must get their auth header past the preflight."""
     client, _ = wired
     resp = client.options(
         "/api/channels/123",
         headers={
-            "Origin": "https://dashboard.example.com",
+            "Origin": "https://olittechnologies.co.in",
             "Access-Control-Request-Method": "GET",
-            "Access-Control-Request-Headers": "X-API-Key",
+            "Access-Control-Request-Headers": "X-API-Key, Authorization",
         },
     )
     assert resp.status_code in (200, 204)
     allowed = resp.headers.get("Access-Control-Allow-Headers", "").lower()
     assert "x-api-key" in allowed
+    assert "authorization" in allowed
