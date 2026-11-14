@@ -310,55 +310,10 @@ async def test_welcome(ctx):
 # ERROR HANDLER
 # ============================================
 
-@bot.event
-async def on_command_error(ctx, error):
-    """The bot's single command error handler.
+# The single on_command_error handler lives in olit/errors.py.
+from olit import errors
 
-    There must be exactly one @bot.event for a given event name: a second
-    definition silently replaces the first rather than chaining. main.py used to
-    define this twice, so the earlier handler's ChannelNotFound branch never
-    ran.
-    """
-    if isinstance(error, commands.CommandNotFound):
-        # Unknown "!word" may be a custom dashboard command, already handled in
-        # on_message. Staying quiet avoids yelling at ordinary chatter.
-        return
-
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command!")
-    elif isinstance(error, commands.BotMissingPermissions):
-        missing = ", ".join(error.missing_permissions)
-        await ctx.send(f"❌ I'm missing the required permissions: {missing}")
-    elif isinstance(error, commands.ChannelNotFound):
-        await ctx.send("❌ Channel not found! Please mention a valid channel.")
-    elif isinstance(error, commands.MemberNotFound):
-        await ctx.send("❌ I couldn't find that member in this server.")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(
-            f"❌ Missing argument `{error.param.name}`.\n"
-            f"Usage: `{ctx.prefix}{ctx.command.qualified_name} "
-            f"{ctx.command.signature}`"
-        )
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send(
-            f"❌ Bad argument: {error}\n"
-            f"Usage: `{ctx.prefix}{ctx.command.qualified_name} "
-            f"{ctx.command.signature}`"
-        )
-    elif isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(
-            f"⏳ That command is on cooldown. Try again in "
-            f"{error.retry_after:.1f}s."
-        )
-    elif isinstance(error, commands.NoPrivateMessage):
-        await ctx.send("❌ That command only works inside a server.")
-    else:
-        # Unexpected: log the full traceback for debugging rather than only the
-        # message, but keep the user-facing text short.
-        print(f"[COMMAND ERROR] {ctx.command} raised {type(error).__name__}: {error}")
-        traceback.print_exception(type(error), error, error.__traceback__)
-        await ctx.send("❌ Something went wrong running that command.")
-
+errors.setup(bot)
 
 
 # Per-guild custom emoji reaction triggers. Defined once in olit/config.py so
@@ -623,33 +578,6 @@ async def ping(interaction: discord.Interaction):
 
     # Edit original response to show embed
     await interaction.edit_original_response(content=None, embed=embed)
-
-'''@bot.tree.command(name="ping", description="Check the bot's latency", guild=GUILD)
-async def ping(interaction: discord.Interaction):
-    start = time.perf_counter()
-
-    # Send initial response
-    await interaction.response.send_message("🏓 Pong...", ephemeral=True)
-
-    end = time.perf_counter()
-    response_time = (end - start) * 1000  # ms
-    ws_latency = bot.latency * 1000       # WebSocket latency (ms)
-    micro_latency = (end - start) * 1000  # Processing latency (same as response_time here)
-
-    # Create embed
-    embed = discord.Embed(
-        title="pong! 🏓",
-        color=discord.Color.red()
-    )
-
-    embed.add_field(name="⏳ Time", value=f"{int(response_time)} ms", inline=False)
-    embed.add_field(name="✨ Micro", value=f"{int(micro_latency)} ms", inline=False)
-    embed.add_field(name="📡 WS", value=f"{int(ws_latency)} ms", inline=False)
-
-    embed.set_footer(text=f"{interaction.user} • {time.strftime('%I:%M %p')}")
-
-    # Edit original response to show embed
-    await interaction.edit_original_response(content=None, embed=embed)'''
 
 # Game scores live in olit/storage.py, which owns loading, saving and key
 # normalisation. main.py used to define `scores` and `add_score` twice -- an

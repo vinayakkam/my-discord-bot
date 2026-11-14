@@ -253,3 +253,11 @@ def test_dice_has_no_upper_size_limit(live_bot):
     import main
 
     assert not hasattr(main, "DICE_MAX_SIDES")
+
+
+def test_command_error_handler_comes_from_olit_errors(live_bot):
+    """on_command_error is registered by olit/errors.py, not defined in main."""
+    import main
+
+    handler = main.bot.on_command_error
+    assert handler.__module__ == "olit.errors"
