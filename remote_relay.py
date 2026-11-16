@@ -25,9 +25,10 @@ One registration is one *pairing channel* with two mailboxes: ``pc`` (messages
 waiting for the computer) and ``phone`` (messages waiting for the phone). Each
 side proves which end of the channel it is with its own secret:
 
-    POST /remote/register   -> {id, secret, peer_secret}
+    POST /remote/register   -> {id, secret, peer_secret}   (optionally claiming known ones)
     POST /remote/send       {id, secret, body}        -> {ok, n}
-    GET  /remote/poll       ?id=&secret=&since=       -> {ok, messages, last}
+    GET  /remote/poll       ?id=&secret=&since=       -> {ok, messages, last, peerSeen}
+    GET  /remote/presence   ?id=&secret=               -> {ok, peerSeen}
     POST /remote/unregister {id, secret}              -> {ok}
 
 ``secret`` identifies the sender's role: the computer keeps ``secret``, the phone
@@ -35,6 +36,14 @@ gets ``peer_secret`` in the QR code. A side always *sends into the other side's
 mailbox* and *polls its own*, so one secret can never drain the queue it writes
 to. ``since`` is the last sequence number the caller has already seen; polled
 messages are deleted, so it only matters when a reply races a retry.
+
+Everything here is in memory, so a restart forgets every channel -- and a channel
+nobody polls for an hour is dropped on purpose. That used to mean a phone had to
+be paired again after the computer was off overnight. So ``register`` also takes
+an id and its two secrets: a paired phone and computer both derive those from the
+pairing key only they share, and either side can put the channel back exactly as
+it was. Claiming an id that already exists with the same secrets is a no-op; with
+different ones it is refused, so a channel can never be taken from its owners.
 """
 
 from __future__ import annotations
@@ -69,7 +78,12 @@ CALLS_WINDOW = 60                 # ... per minute per channel (3 s polling = 20
 #     "secret": str, "peer_secret": str, "created": float, "seen": float,
 #     "boxes": {"pc": [(n, bytes, stamp)], "phone": [...]},
 #     "next": {"pc": int, "phone": int},
+#     "polled": {"pc": float|None, "phone": float|None},
 # }
+#
+# "polled" is how each side knows the other is there: the computer polls every few seconds while
+# remote control is on, so a recent poll means GitPilot is running. It is a timestamp, never an
+# address or anything identifying.
 # All of it is rebuilt from scratch after a restart; the devices re-pair nothing,
 # they just see one failed call. _lock guards every mutation; the critical
 # sections are a few dict operations long.
@@ -149,6 +163,12 @@ def _other(role: str) -> str:
     return "phone" if role == "pc" else "pc"
 
 
+def _peer_seen(channel: dict, role: str, now: float):
+    """Seconds since the other side last looked for messages, or None if it never has."""
+    when = channel.get("polled", {}).get(_other(role))
+    return None if when is None else round(now - when, 1)
+
+
 def _body() -> dict:
     data = request.get_json(silent=True)
     return data if isinstance(data, dict) else {}
@@ -160,35 +180,78 @@ def _fail(status: int, error: str):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+def _valid_token(value, name):
+    """A client-chosen id or secret: printable, unguessable, and not enormous."""
+    if not isinstance(value, str):
+        return f"{name} must be text"
+    if not 16 <= len(value) <= 64:
+        return f"{name} must be 16 to 64 characters"
+    if not all(c.isalnum() or c in "-_" for c in value):
+        return f"{name} may only contain letters, digits, - and _"
+    return None
+
+
 @bp.route("/remote/register", methods=["POST"])
 def register():
-    """Open a pairing channel. The computer calls this; the phone never does."""
+    """
+    Open a pairing channel, or put a known one back.
+
+    With no body the relay invents the id and both secrets: that is a first pairing, where the
+    computer has nothing to go on yet. With ``{id, secret, peerSecret}`` it claims exactly those,
+    which is how a paired pair rebuilds its channel after this process restarted or the channel
+    went idle -- both sides derive the same three values from their pairing key.
+    """
     if not _enabled():
         return _fail(503, "disabled")
     ip = _client_ip()
+    data = _body()
+    claimed = any(k in data for k in ("id", "secret", "peerSecret"))
+
+    if claimed:
+        cid = data.get("id")
+        secret = data.get("secret")
+        peer = data.get("peerSecret")
+        for value, name in ((cid, "id"), (secret, "secret"), (peer, "peerSecret")):
+            problem = _valid_token(value, name)
+            if problem:
+                return _fail(400, problem)
+        if secret == peer:
+            return _fail(400, "the two secrets must differ")
+
     with _lock:
         now = _now()
         _prune(now)
         if not _rate_ok(f"reg:{ip}", REGISTER_PER_IP, REGISTER_WINDOW):
             return _fail(429, "too many registrations")
+
+        if claimed:
+            existing = _channels.get(cid)
+            if existing is not None:
+                # Already there. Only the pair that owns it may say so.
+                if not (
+                    secrets.compare_digest(secret, existing["secret"])
+                    and secrets.compare_digest(peer, existing["peer_secret"])
+                ):
+                    return _fail(403, "that channel belongs to someone else")
+                existing["seen"] = now
+                return jsonify({"ok": True, "id": cid, "secret": secret, "peerSecret": peer, "restored": False})
+        else:
+            cid = secrets.token_urlsafe(12)
+            secret = secrets.token_urlsafe(24)
+            peer = secrets.token_urlsafe(24)
+
         if len(_channels) >= MAX_CHANNELS:
             return _fail(503, "relay full")
-        cid = secrets.token_urlsafe(12)
         _channels[cid] = {
-            "secret": secrets.token_urlsafe(24),
-            "peer_secret": secrets.token_urlsafe(24),
+            "secret": secret,
+            "peer_secret": peer,
             "created": now,
             "seen": now,
             "boxes": {box: [] for box in MAILBOXES},
             "next": {box: 1 for box in MAILBOXES},
+            "polled": {box: None for box in MAILBOXES},
         }
-        channel = _channels[cid]
-        return jsonify({
-            "ok": True,
-            "id": cid,
-            "secret": channel["secret"],
-            "peerSecret": channel["peer_secret"],
-        })
+        return jsonify({"ok": True, "id": cid, "secret": secret, "peerSecret": peer, "restored": claimed})
 
 
 @bp.route("/remote/send", methods=["POST"])
@@ -279,6 +342,7 @@ def poll():
             return _fail(403, "wrong secret")
 
         channel["seen"] = now
+        channel.setdefault("polled", {})[role] = now
         messages = []
         last = since
         for n, raw, _stamp in channel["boxes"][role]:
@@ -287,7 +351,45 @@ def poll():
                 messages.append({"n": n, "body": raw.decode("utf-8", "replace")})
                 last = max(last, n)
         channel["boxes"][role] = []
-        return jsonify({"ok": True, "messages": messages, "last": last})
+        return jsonify({
+            "ok": True,
+            "messages": messages,
+            "last": last,
+            "peerSeen": _peer_seen(channel, role, now),
+        })
+
+
+@bp.route("/remote/presence", methods=["GET"])
+def presence():
+    """
+    How long ago the other side looked for messages.
+
+    The phone asks this to show whether the computer is on: GitPilot polls every few seconds while
+    remote control is on, so a recent poll means it is running and reachable. It is far cheaper
+    than sending a command just to find out, which matters on a small host -- nothing is queued,
+    nothing is read, nothing is written but one timestamp.
+    """
+    if not _enabled():
+        return _fail(503, "disabled")
+    cid = request.args.get("id", "")
+    secret = request.args.get("secret", "")
+    if not cid or not secret:
+        return _fail(400, "id and secret are required")
+
+    with _lock:
+        now = _now()
+        channel = _channels.get(cid)
+        if channel is None:
+            return _fail(404, "unknown id")
+        if not _rate_ok(f"ch:{cid}", CALLS_PER_CHANNEL, CALLS_WINDOW):
+            return _fail(429, "too many calls")
+        role = _role(channel, secret)
+        if role is None:
+            return _fail(403, "wrong secret")
+        # Asking counts as being here, so the other side sees this one too.
+        channel.setdefault("polled", {})[role] = now
+        channel["seen"] = now
+        return jsonify({"ok": True, "peerSeen": _peer_seen(channel, role, now)})
 
 
 @bp.route("/remote/unregister", methods=["POST"])
