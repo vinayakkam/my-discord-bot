@@ -147,6 +147,99 @@ def test_unregister_drops_the_channel(relay):
     assert remote_relay._queued_bytes == 0
 
 
+# ── Claiming a known channel (pairing that survives a restart) ────────────────
+
+def claim(client, cid="chan-abcdefghijklmno", secret="pc-secret-abcdefghij", peer="phone-secret-abcdef"):
+    return client.post("/remote/register", json={"id": cid, "secret": secret, "peerSecret": peer})
+
+
+def test_a_pair_can_put_its_own_channel_back(relay):
+    """The whole point: the relay forgets everything on restart, the pairing must not."""
+    res = claim(relay)
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["id"] == "chan-abcdefghijklmno"
+    assert body["restored"] is True
+
+    # It works straight away, with the secrets both sides derived for themselves.
+    send(relay, "chan-abcdefghijklmno", "phone-secret-abcdef", "command")
+    got = poll(relay, "chan-abcdefghijklmno", "pc-secret-abcdefghij").get_json()
+    assert [m["body"] for m in got["messages"]] == ["command"]
+
+
+def test_claiming_the_same_channel_twice_is_harmless(relay):
+    claim(relay)
+    send(relay, "chan-abcdefghijklmno", "phone-secret-abcdef", "waiting")
+
+    # Both sides may claim at once after a restart; the second must not wipe the first.
+    assert claim(relay).status_code == 200
+    got = poll(relay, "chan-abcdefghijklmno", "pc-secret-abcdefghij").get_json()
+    assert len(got["messages"]) == 1
+
+
+def test_a_channel_cannot_be_taken_from_its_owners(relay):
+    claim(relay)
+
+    stolen = claim(relay, secret="attacker-secretxxxxx", peer="attacker-peerxxxxxxx")
+
+    assert stolen.status_code == 403
+    # And the real pair still works.
+    assert send(relay, "chan-abcdefghijklmno", "phone-secret-abcdef").status_code == 200
+
+
+def test_claimed_values_have_to_look_like_secrets(relay):
+    assert claim(relay, cid="short").status_code == 400
+    assert claim(relay, secret="short").status_code == 400
+    assert claim(relay, cid="has spaces and !!").status_code == 400
+    assert claim(relay, cid="x" * 65).status_code == 400
+    # Reusing one value for both roles would let either side drain its own queue.
+    assert claim(relay, secret="same-secret-aaaaaaaa", peer="same-secret-aaaaaaaa").status_code == 400
+
+
+def test_registering_without_a_body_still_invents_everything(relay):
+    cid, secret, peer = register(relay)
+
+    assert cid and secret != peer
+    assert relay.post("/remote/register").get_json()["restored"] is False
+
+
+# ── Presence (is the computer on?) ───────────────────────────────────────────
+
+def test_presence_says_when_the_other_side_last_looked(relay):
+    cid, secret, peer = register(relay)
+
+    # Nobody has polled yet.
+    assert relay.get(f"/remote/presence?id={cid}&secret={peer}").get_json()["peerSeen"] is None
+
+    poll(relay, cid, secret)  # the computer checks for commands
+
+    seen = relay.get(f"/remote/presence?id={cid}&secret={peer}").get_json()["peerSeen"]
+    assert seen is not None and seen < 5
+
+
+def test_polling_reports_the_other_side_too(relay):
+    cid, secret, peer = register(relay)
+    relay.get(f"/remote/presence?id={cid}&secret={peer}")  # the phone is open
+
+    assert poll(relay, cid, secret).get_json()["peerSeen"] is not None
+
+
+def test_presence_needs_the_right_secret_and_channel(relay):
+    cid, _secret, _peer = register(relay)
+
+    assert relay.get(f"/remote/presence?id={cid}&secret=wrong").status_code == 403
+    assert relay.get("/remote/presence?id=nosuch&secret=x").status_code == 404
+    assert relay.get("/remote/presence").status_code == 400
+
+
+def test_presence_is_rate_limited_like_everything_else(relay, monkeypatch):
+    cid, secret, _peer = register(relay)
+    monkeypatch.setattr(remote_relay, "CALLS_PER_CHANNEL", 1)
+
+    assert relay.get(f"/remote/presence?id={cid}&secret={secret}").status_code == 200
+    assert relay.get(f"/remote/presence?id={cid}&secret={secret}").status_code == 429
+
+
 # ── Host protection ──────────────────────────────────────────────────────────
 
 def test_oversized_body_is_refused(relay):
@@ -241,6 +334,7 @@ def test_kill_switch_turns_every_endpoint_off(relay, monkeypatch):
     monkeypatch.setenv("REMOTE_RELAY_ENABLED", "0")
 
     assert relay.post("/remote/register").status_code == 503
+    assert relay.get(f"/remote/presence?id={cid}&secret={secret}").status_code == 503
     assert send(relay, cid, peer).status_code == 503
     assert poll(relay, cid, secret).status_code == 503
     assert relay.post("/remote/unregister", json={"id": cid, "secret": secret}).status_code == 503
