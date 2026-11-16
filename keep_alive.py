@@ -48,6 +48,14 @@ CORS(
     methods=["GET", "POST", "OPTIONS"],
 )
 
+# ── GitPilot remote control ─────────────────────────────────────────
+# A blind router between a paired phone and a PC running GitPilot: it only moves
+# sealed blobs it cannot read. Self-contained in remote_relay.py, in memory, with
+# hard byte caps; REMOTE_RELAY_ENABLED=0 turns it off without touching the bot.
+from remote_relay import bp as remote_relay_bp  # noqa: E402
+
+app.register_blueprint(remote_relay_bp)
+
 # ── Config file paths ────────────────────────────────────────────────────────
 CONFIG_DIR = "config"
 GUILD_COMMANDS_FILE = os.path.join(CONFIG_DIR, "guild_commands.json")
