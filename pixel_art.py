@@ -1,7 +1,9 @@
 import discord
 from discord.ext import commands
-from PIL import Image, ImageEnhance, ImageFilter
 import io
+
+# Pillow is imported inside the two functions that use it, not here. It costs
+# several MB of RSS and is only needed when someone actually runs !pixelart.
 
 
 def setup_pixel_art(bot: commands.Bot):
@@ -30,7 +32,9 @@ PALETTES = {
 }
 
 
-def _apply_custom_palette(img: Image.Image, palette_colors: list) -> Image.Image:
+def _apply_custom_palette(img: "Image.Image", palette_colors: list) -> "Image.Image":
+    from PIL import Image
+
     pal_img = Image.new("P", (1, 1))
     flat_palette = []
     for color in palette_colors:
@@ -50,6 +54,8 @@ def convert_to_pixel_art(
         outline: bool = True,
         style: str = "default"
 ) -> io.BytesIO:
+    from PIL import Image, ImageEnhance, ImageFilter
+
     img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
 
     # Enhance contrast & vibrancy
