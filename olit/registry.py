@@ -101,6 +101,8 @@ GALAXY = Category(
         Cmd("story", "Follow the main story and puzzle chain"),
         Cmd("gcore", "See or claim your Ancient Core power (after the Sentinel)",
             aliases=("core",)),
+        Cmd("gbase", "Upgrade your Core-powered base and collect its output",
+            aliases=("outpost",)),
         Cmd("gquests", "View and claim your daily galaxy contracts",
             aliases=("gcontracts", "gdaily")),
         Cmd("teleport", "Warp to specific coordinates (needs a warp core)",

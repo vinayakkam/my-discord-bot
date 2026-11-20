@@ -409,6 +409,8 @@ def _default_user(uid: int) -> dict:
         "boss_id": None,
         # Power bound from the Ancient Core after the Sentinel falls (see _CORE_POWERS).
         "core_power": None,
+        # Core-powered home base (see _BASE_MODULES); last_collect is a UTC timestamp.
+        "base": {"reactor": 0, "refinery": 0, "hangar": 0, "last_collect": None},
     }
 
 def _get_user(uid: int) -> dict:
@@ -425,9 +427,11 @@ def _get_user(uid: int) -> dict:
     for k, v in _default_user(uid).items():
         if k not in d:
             d[k] = v
-    # story_state is nested, so newer keys inside it need their own back-fill.
+    # story_state and base are nested, so newer keys inside them need their own back-fill.
     for k, v in _default_user(uid)["story_state"].items():
         d["story_state"].setdefault(k, v)
+    for k, v in _default_user(uid)["base"].items():
+        d["base"].setdefault(k, v)
     return d
 
 # ─── CORE POWERS ───────────────────────────────────────────────────
@@ -462,6 +466,89 @@ def _bind_core_power(ud: dict, key: str) -> bool:
         ud["max_fuel"] += _AEGIS_HULL_BONUS
         ud["fuel"] = min(ud["max_fuel"], ud["fuel"] + _AEGIS_HULL_BONUS)
     return True
+
+
+# ─── CORE-POWERED BASE ─────────────────────────────────────────────
+# Once a commander holds the Ancient Core, home base can be built up. Modules
+# cost credits plus a resource (both scale with the level being bought) and
+# produce while the commander is away, up to _BASE_CAP_HOURS between collects.
+
+_BASE_MODULES = {
+    "reactor":  {"name": "Core Reactor", "emoji": "⚡", "max": 5, "credits": 2000,
+                 "resource": ("energy", 20),   "desc": "+40 credits per hour per level"},
+    "refinery": {"name": "Refinery",     "emoji": "🏭", "max": 3, "credits": 3000,
+                 "resource": ("metals", 40),   "desc": "+1 crystal and +2 metals per hour per level"},
+    "hangar":   {"name": "Hangar",       "emoji": "🛸", "max": 3, "credits": 2500,
+                 "resource": ("crystals", 15), "desc": "+25 max hull per level"},
+}
+_BASE_CAP_HOURS = 24
+_HANGAR_HULL = 25
+
+
+def _now_ts() -> float:
+    return datetime.now(timezone.utc).timestamp()
+
+
+def _base_cost(key: str, level: int):
+    """(credits, resource, amount) to buy `level` of a module."""
+    m = _BASE_MODULES[key]
+    res, amount = m["resource"]
+    return m["credits"] * level, res, amount * level
+
+
+def _base_rates(base: dict) -> dict:
+    """Production per hour."""
+    return {"credits": 40 * base["reactor"],
+            "crystals": base["refinery"], "metals": 2 * base["refinery"]}
+
+
+def _base_pending(ud: dict, now: float = None) -> dict:
+    """What has been produced since the last collect, capped at the storage limit."""
+    base = ud["base"]
+    if not base.get("last_collect"):
+        return {"credits": 0, "crystals": 0, "metals": 0}
+    now = _now_ts() if now is None else now
+    hours = max(0.0, min(_BASE_CAP_HOURS, (now - base["last_collect"]) / 3600))
+    return {k: int(v * hours) for k, v in _base_rates(base).items()}
+
+
+def _base_collect(ud: dict, now: float = None) -> dict:
+    """Move pending production into the hold and restart the clock."""
+    now = _now_ts() if now is None else now
+    got = _base_pending(ud, now)
+    ud["credits"] += got["credits"]
+    ud["total_credits_earned"] = ud.get("total_credits_earned", 0) + got["credits"]
+    for res in ("crystals", "metals"):
+        ud["resources"][res] = ud["resources"].get(res, 0) + got[res]
+    if ud["base"].get("last_collect"):
+        ud["base"]["last_collect"] = now
+    return got
+
+
+def _base_upgrade(ud: dict, key: str, now: float = None):
+    """Buy the next level of a module. Returns (ok, message)."""
+    if not ud["story_state"].get("core_retrieved"):
+        return False, "🔒 The base needs the Ancient Core to run."
+    m = _BASE_MODULES[key]
+    lv = ud["base"][key]
+    if lv >= m["max"]:
+        return False, f"{m['emoji']} {m['name']} is already at max level."
+    credits, res, amount = _base_cost(key, lv + 1)
+    have = ud["resources"].get(res, 0)
+    if ud["credits"] < credits or have < amount:
+        return False, (f"Need **{credits:,}** credits and **{amount}** {res.replace('_', ' ')} "
+                       f"(you have {ud['credits']:,} and {have}).")
+    # Bank what the old rates produced before the new level changes them.
+    _base_collect(ud, now)
+    ud["credits"] -= credits
+    ud["resources"][res] = have - amount
+    ud["base"][key] = lv + 1
+    if not ud["base"].get("last_collect"):
+        ud["base"]["last_collect"] = _now_ts() if now is None else now
+    if key == "hangar":
+        ud["max_fuel"] += _HANGAR_HULL
+        ud["fuel"] = min(ud["max_fuel"], ud["fuel"] + _HANGAR_HULL)
+    return True, f"{m['emoji']} **{m['name']}** upgraded to level {lv + 1}!"
 
 
 # ─── ACHIEVEMENTS ──────────────────────────────────────────────────
@@ -1538,6 +1625,136 @@ class _CoreClaimView(ui.View):
             item.disabled = True
 
 
+# ── Core-powered base ──
+_BASE_BOX = 10
+_BASE_SLOTS = {"reactor": (0, 0), "core": (0, 14), "refinery": (0, 28), "hangar": (5, 14)}
+_BASE_LABELS = {"reactor": "REACTOR", "core": "CORE", "refinery": "REFINERY", "hangar": "HANGAR"}
+_BASE_COLOURS = {"reactor": ansi.YELLOW_B, "refinery": ansi.CYAN_B, "hangar": ansi.GREEN_B}
+
+
+def _base_box(canvas, row, col, label, colour, pips=None, inner=None):
+    w = _BASE_BOX
+    canvas.text(row, col, "╭" + "─" * (w - 2) + "╮", colour)
+    canvas.text(row + 3, col, "╰" + "─" * (w - 2) + "╯", colour)
+    for r in (row + 1, row + 2):
+        canvas.put(r, col, "│", colour)
+        canvas.put(r, col + w - 1, "│", colour)
+    canvas.text(row + 1, col + 1 + (w - 2 - len(label)) // 2, label, ansi.WHITE_B)
+    if pips:
+        level, top = pips
+        for i in range(top):
+            canvas.put(row + 2, col + 1 + i, "■" if i < level else "□",
+                       colour if i < level else ansi.GRAY)
+    if inner:
+        canvas.text(row + 2, col + 1 + (w - 2 - len(inner[0])) // 2, inner[0], inner[1])
+
+
+def _base_art(ud: dict, now: float = None) -> str:
+    """The base: Core in the middle, modules around it, lit lines to built ones."""
+    base = ud["base"]
+    canvas = ansi.Canvas(_PANEL_W, 12)
+    for key in ("reactor", "refinery", "hangar"):
+        row, col = _BASE_SLOTS[key]
+        built = base[key] > 0
+        _base_box(canvas, row, col, _BASE_LABELS[key],
+                  _BASE_COLOURS[key] if built else ansi.GRAY,
+                  pips=(base[key], _BASE_MODULES[key]["max"]))
+    row, col = _BASE_SLOTS["core"]
+    _base_box(canvas, row, col, "CORE", ansi.YELLOW_B, inner=("▒▓█▓▒", ansi.YELLOW_B))
+    # Power lines: lit in the module's colour once it is built.
+    for key, cols in (("reactor", range(10, 14)), ("refinery", range(24, 28))):
+        lit = base[key] > 0
+        for c in cols:
+            canvas.put(2, c, "═" if lit else "─", _BASE_COLOURS[key] if lit else ansi.GRAY)
+    lit = base["hangar"] > 0
+    canvas.put(4, 19, "║" if lit else "│", _BASE_COLOURS["hangar"] if lit else ansi.GRAY)
+
+    pending = _base_pending(ud, now)
+    rates = _base_rates(base)
+    canvas.text(10, 0, "READY", ansi.WHITE_B)
+    canvas.text(10, 6, f"+{pending['credits']:,} CR", ansi.YELLOW_B)
+    canvas.text(10, 20, f"+{pending['crystals']} CRY", ansi.CYAN_B)
+    canvas.text(10, 29, f"+{pending['metals']} MET", ansi.WHITE)
+    canvas.text(11, 0, "RATE", ansi.GRAY)
+    canvas.text(11, 6, f"{rates['credits']}/h", ansi.YELLOW)
+    canvas.text(11, 20, f"{rates['crystals']}/h", ansi.CYAN)
+    canvas.text(11, 29, f"{rates['metals']}/h", ansi.WHITE)
+    return canvas.render()
+
+
+def _base_embed(uid: int, note: str = None) -> discord.Embed:
+    ud = _get_user(uid)
+    emb = discord.Embed(
+        title="🏗️ Core-Powered Base",
+        description=(f"Credits **{ud['credits']:,}** · Energy **{ud['resources'].get('energy', 0)}** · "
+                     f"Metals **{ud['resources'].get('metals', 0)}** · "
+                     f"Crystals **{ud['resources'].get('crystals', 0)}**\n"
+                     + ansi.block(_base_art(ud))),
+        color=0xffaa00,
+    )
+    for key, m in _BASE_MODULES.items():
+        lv = ud["base"][key]
+        if lv >= m["max"]:
+            cost = "**MAX**"
+        else:
+            credits, res, amount = _base_cost(key, lv + 1)
+            cost = f"{credits:,} cr + {amount} {res.replace('_', ' ')}"
+        emb.add_field(name=f"{m['emoji']} {m['name']} — Lv {lv}/{m['max']}",
+                      value=f"{m['desc']}\nNext: {cost}", inline=False)
+    if note:
+        emb.add_field(name="📣", value=note, inline=False)
+    emb.set_footer(text=f"Production stores up to {_BASE_CAP_HOURS} h — collect it before it caps.")
+    return emb
+
+
+class _BaseView(ui.View):
+    """Upgrade buttons for each module plus Collect."""
+
+    def __init__(self, uid: int):
+        super().__init__(timeout=300)
+        self.uid = uid
+        for key, m in _BASE_MODULES.items():
+            button = ui.Button(label=m["name"], emoji=m["emoji"], style=discord.ButtonStyle.primary, row=0)
+            button.callback = self._upgrade_callback(key)
+            self.add_item(button)
+        collect = ui.Button(label="Collect", emoji="📦", style=discord.ButtonStyle.success, row=1)
+        collect.callback = self.collect
+        self.add_item(collect)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.uid:
+            await interaction.response.send_message("❌ Not your base!", ephemeral=True)
+            return False
+        return True
+
+    def _upgrade_callback(self, key: str):
+        async def upgrade(interaction: discord.Interaction):
+            await self.upgrade(interaction, key)
+        return upgrade
+
+    async def upgrade(self, interaction: discord.Interaction, key: str):
+        ud = _get_user(self.uid)
+        ok, message = _base_upgrade(ud, key)
+        if ok:
+            _save_user(self.uid)
+        await interaction.response.edit_message(embed=_base_embed(self.uid, message), view=self)
+
+    async def collect(self, interaction: discord.Interaction):
+        ud = _get_user(self.uid)
+        got = _base_collect(ud)
+        _save_user(self.uid)
+        if any(got.values()):
+            note = (f"📦 Collected **{got['credits']:,}** credits, **{got['crystals']}** crystals "
+                    f"and **{got['metals']}** metals.")
+        else:
+            note = "📦 Nothing to collect yet — production builds up over time."
+        await interaction.response.edit_message(embed=_base_embed(self.uid, note), view=self)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
 # ── Shipyard and commander profile ──
 _PANEL_W = 38
 
@@ -2467,7 +2684,20 @@ def _register_commands(bot: commands.Bot):
                 emb.add_field(name="🎯 Next Step",
                               value="Navigate to `(-78, 42)` → Scan → Fight Boss", inline=False)
             elif ss["core_retrieved"]:
-                emb.add_field(name="🏆", value="Storyline complete! The Core powers your base.", inline=False)
+                # Chapter 2 progress once the Sentinel has fallen.
+                lines = []
+                for ps in _ECHO_PUZZLES:
+                    got = ps["hint"] in ss["echo_hints"]
+                    lines.append(f"{'✅' if got else '❌'} {ps['puzzle_type'].title()} echo — `{ps['coords']}`"
+                                 + (f"\n> _{ps['hint']}_" if got else ""))
+                emb.add_field(name="📡 Chapter 2 — Echoes of the Core", value="\n".join(lines),
+                              inline=False)
+                if ss.get("warden_defeated"):
+                    emb.add_field(name="🏆", value="Both chapters complete! Power up your base with `!gbase`.",
+                                  inline=False)
+                elif len(ss["echo_hints"]) >= len(_ECHO_PUZZLES):
+                    emb.add_field(name="🎯 Next Step",
+                                  value=f"Navigate to `{_WARDEN_COORDS}` → Scan → Fight Boss", inline=False)
             ev = _pulse3_event(ud)
             if ev:
                 emb.add_field(name=ev["title"], value=ev["desc"], inline=False)
@@ -2568,6 +2798,19 @@ def _register_commands(bot: commands.Bot):
             return await ctx.send(embed=_core_claim_embed(ctx.author.id),
                                   view=_CoreClaimView(ctx.author.id))
         await ctx.send(embed=_core_bound_embed(ud))
+
+    @bot.hybrid_command(name="gbase", aliases=["outpost"],
+                        description="Upgrade your Core-powered base and collect its output")
+    async def cmd_base(ctx: commands.Context):
+        """Open the base panel, or explain how to unlock it."""
+        ud = _get_user(ctx.author.id)
+        if not ud["story_state"].get("core_retrieved"):
+            emb = discord.Embed(title="🔒 Base offline",
+                                description="Your base needs the Ancient Core to run. "
+                                            "Defeat the Void Sentinel at `(-78, 42)`.",
+                                color=0x555555)
+            return await ctx.send(embed=emb)
+        await ctx.send(embed=_base_embed(ctx.author.id), view=_BaseView(ctx.author.id))
 
     @bot.hybrid_command(name="gquests", aliases=["gcontracts", "gdaily"],
                         description="View and claim your daily galaxy contracts")
@@ -2678,5 +2921,11 @@ def _register_commands(bot: commands.Bot):
         emb.add_field(name="⚔️ Boss Fight",
                       value="1. Solve 4 puzzles at `(15,25)` `(-20,30)` `(35,-15)` `(-25,-40)`\n"
                             "2. Travel to `(-78, 42)`\n3. Scan → Fight Boss",
+                      inline=False)
+        emb.add_field(name="🔮 After the Sentinel",
+                      value="`!gcore` — Bind an Ancient Core power\n"
+                            "**Chapter 2:** solve the echoes at `(60,55)` `(-95,-20)` `(20,-90)`, "
+                            "then face the Echo Warden at `(-5, 110)`\n"
+                            "`!gbase` — Upgrade your Core-powered base",
                       inline=False)
         await ctx.send(embed=emb)
