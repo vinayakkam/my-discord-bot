@@ -353,6 +353,8 @@ def _default_user(uid: int) -> dict:
         "story_state": {"puzzles_solved":0,"hints_collected":[],"core_retrieved":False},
         "successful_explorations": 0, "danger_encounters": 0, "total_credits_earned": 150,
         "boss_hp": None, "boss_turns": 0,
+        # Power bound from the Ancient Core after the Sentinel falls (see _CORE_POWERS).
+        "core_power": None,
     }
 
 def _get_user(uid: int) -> dict:
@@ -370,6 +372,40 @@ def _get_user(uid: int) -> dict:
         if k not in d:
             d[k] = v
     return d
+
+# ─── CORE POWERS ───────────────────────────────────────────────────
+# After defeating the Void Sentinel a commander binds one permanent power from
+# the Ancient Core. Each is applied where its effect happens: jump cost in
+# _NavView._move, explore credits and hazard losses in _ExploreView.explore,
+# and the hull bonus once, when the power is bound.
+
+_CORE_POWERS = {
+    "warp":       {"name": "Warp Lattice",      "emoji": "🌀", "colour": ansi.CYAN_B,
+                   "desc": "Every jump costs half the fuel."},
+    "prospector": {"name": "Prospector Matrix", "emoji": "💰", "colour": ansi.YELLOW_B,
+                   "desc": "+50% credits from every exploration."},
+    "aegis":      {"name": "Aegis Shell",       "emoji": "🛡️", "colour": ansi.GREEN_B,
+                   "desc": "+60 max hull, and hazards cost half the fuel."},
+}
+_AEGIS_HULL_BONUS = 60
+
+
+def _has_power(ud: dict, key: str) -> bool:
+    return ud.get("core_power") == key
+
+
+def _bind_core_power(ud: dict, key: str) -> bool:
+    """Bind a power once. False if the core is not won or a power is already bound."""
+    if key not in _CORE_POWERS or ud.get("core_power"):
+        return False
+    if not ud.get("story_state", {}).get("core_retrieved"):
+        return False
+    ud["core_power"] = key
+    if key == "aegis":
+        ud["max_fuel"] += _AEGIS_HULL_BONUS
+        ud["fuel"] = min(ud["max_fuel"], ud["fuel"] + _AEGIS_HULL_BONUS)
+    return True
+
 
 # ─── ACHIEVEMENTS ──────────────────────────────────────────────────
 
@@ -1241,6 +1277,108 @@ def _phase_index(hp: int) -> int:
 _BOSS_FRAME_S = 0.7
 
 
+# ── Ancient Core extraction ──
+_CORE_ART = [
+    "    ╭─────────╮    ",
+    "  ╭─┤  ░▒▓▒░  ├─╮  ",
+    "  │ │  ▒▓█▓▒  │ │  ",
+    "  ╰─┤  ░▒▓▒░  ├─╯  ",
+    "    ╰─────────╯    ",
+]
+_CORE_FILL = {"█": ansi.WHITE_B, "▓": ansi.YELLOW_B, "▒": ansi.YELLOW, "░": ansi.RED}
+_EXTRACT_STEPS = (0.35, 0.7)
+_EXTRACT_FRAME_S = 0.6
+
+
+def _core_art(progress: float, power: str = None) -> str:
+    """The Ancient Core in its cradle, with a binding bar.
+
+    Energy lines run out from the core as the binding progresses; once a
+    power is chosen they take that power's colour.
+    """
+    colour = _CORE_POWERS[power]["colour"] if power else ansi.YELLOW
+    canvas = ansi.Canvas(_BOSS_W, 8)
+    left = (_BOSS_W - len(_CORE_ART[0])) // 2
+    for r, line in enumerate(_CORE_ART):
+        for c, ch in enumerate(line):
+            if ch != " ":
+                canvas.put(r, left + c, ch, _CORE_FILL.get(ch, ansi.WHITE))
+    reach = int(progress * left)
+    for i in range(reach):
+        canvas.put(2, left - 1 - i, "═", colour)
+        canvas.put(2, left + len(_CORE_ART[0]) + i, "═", colour)
+    canvas.text(6, 0, "BINDING" if progress < 1 else "BOUND", ansi.WHITE_B)
+    ansi.put_cells(canvas, 6, 9, ansi.gauge(progress, 1.0, 20, colour))
+    canvas.text(6, 30, f"{int(progress * 100):>3}%", ansi.WHITE)
+    if power:
+        p = _CORE_POWERS[power]
+        canvas.text(7, 0, p["name"].upper()[:_BOSS_W], colour)
+    return canvas.render()
+
+
+def _core_claim_embed(uid: int) -> discord.Embed:
+    """Pick-a-power panel shown after the Sentinel falls (and by !gcore)."""
+    emb = discord.Embed(
+        title="🔮 The Ancient Core awaits",
+        description=("The Core hums in your hold. Bind **one** of its powers to your ship — "
+                     "the choice is permanent.\n" + ansi.block(_core_art(0.0))),
+        color=0xffd700,
+    )
+    for p in _CORE_POWERS.values():
+        emb.add_field(name=f"{p['emoji']} {p['name']}", value=p["desc"], inline=True)
+    return emb
+
+
+def _core_bound_embed(ud: dict) -> discord.Embed:
+    p = _CORE_POWERS[ud["core_power"]]
+    return discord.Embed(
+        title=f"{p['emoji']} Core bound — {p['name']}",
+        description=f"{p['desc']}\n" + ansi.block(_core_art(1.0, ud["core_power"])),
+        color=0x00ff88,
+    )
+
+
+class _CoreClaimView(ui.View):
+    """Three buttons, one per Core power. Choosing plays the binding sequence."""
+
+    def __init__(self, uid: int):
+        super().__init__(timeout=600)
+        self.uid = uid
+        for key, p in _CORE_POWERS.items():
+            button = ui.Button(label=p["name"], emoji=p["emoji"], style=discord.ButtonStyle.primary)
+            button.callback = self._make_callback(key)
+            self.add_item(button)
+
+    def _make_callback(self, key: str):
+        async def choose(interaction: discord.Interaction):
+            await self.choose(interaction, key)
+        return choose
+
+    async def choose(self, interaction: discord.Interaction, key: str):
+        if interaction.user.id != self.uid:
+            return await interaction.response.send_message("❌ Not your Core!", ephemeral=True)
+        ud = _get_user(self.uid)
+        if not _bind_core_power(ud, key):
+            return await interaction.response.send_message(
+                "⚠️ The Core is already bound.", ephemeral=True)
+        _save_user(self.uid)
+        p = _CORE_POWERS[key]
+        # Binding sequence: the bar fills and the energy lines reach out.
+        frames = [discord.Embed(title=f"🔮 Binding {p['name']}…",
+                                description=ansi.block(_core_art(step, key)), color=0xffd700)
+                  for step in _EXTRACT_STEPS]
+        await interaction.response.edit_message(embed=frames[0], view=None)
+        for frame in frames[1:]:
+            await asyncio.sleep(_EXTRACT_FRAME_S)
+            await interaction.edit_original_response(embed=frame)
+        await asyncio.sleep(_EXTRACT_FRAME_S)
+        await interaction.edit_original_response(embed=_core_bound_embed(ud), view=None)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
 # ── Shipyard and commander profile ──
 _PANEL_W = 38
 
@@ -1405,6 +1543,12 @@ def _stats_embed(uid: int, user) -> discord.Embed:
     emb.add_field(name="📖 Story",
                   value=f"Puzzles: {ss['puzzles_solved']}/4 | Core: {'✅' if ss['core_retrieved'] else '❌'}",
                   inline=False)
+    if ud.get("core_power"):
+        p = _CORE_POWERS[ud["core_power"]]
+        emb.add_field(name="🔮 Core Power", value=f"{p['emoji']} **{p['name']}** — {p['desc']}",
+                      inline=False)
+    elif ss["core_retrieved"]:
+        emb.add_field(name="🔮 Core Power", value="Unclaimed — use `!gcore` to bind one.", inline=False)
     return emb
 
 # ─── NAV VIEW ──────────────────────────────────────────────────────
@@ -1420,6 +1564,8 @@ class _NavView(ui.View):
         ud   = _get_user(self.uid)
         eff  = ud["upgrades"]["fuel_efficiency"]
         cost = max(2, 8 - eff)
+        if _has_power(ud, "warp"):
+            cost = max(1, cost // 2)
         if ud["fuel"] < cost:
             return await interaction.response.send_message(f"❌ Need {cost} fuel, have {ud['fuel']}.", ephemeral=True)
         ud["position"][0] += dx
@@ -1614,6 +1760,8 @@ class _ExploreView(ui.View):
             shield = ud["upgrades"]["shield_matrix"]
             if random.random() > (0.5 + shield*0.15):
                 fuel_loss = random.randint(8, 20)
+                if _has_power(ud, "aegis"):
+                    fuel_loss //= 2
                 ud["fuel"] = max(0, ud["fuel"] - fuel_loss)
                 ud["danger_encounters"] += 1
                 _save_user(self.uid)
@@ -1627,6 +1775,8 @@ class _ExploreView(ui.View):
                 return await interaction.edit_original_response(embed=emb, view=None)
 
         pts, credits, resources, discoveries = _calc_rewards(self.system, ud)
+        if _has_power(ud, "prospector"):
+            credits = credits * 3 // 2
         ud["discovered"].add(coord)
         ud["successful_explorations"] += 1
         ud["credits"] += credits
@@ -1834,6 +1984,14 @@ class _BossView(ui.View):
                           inline=False)
             emb.add_field(name="🏅 Achievements",
                           value="⭐ Void Slayer  ⭐ Core Retriever  ⭐ Ancient Wisdom", inline=False)
+            if not ud.get("core_power"):
+                # The victory screen doubles as the Core claim panel.
+                emb.add_field(name="🔮 Claim the Core",
+                              value="Bind one permanent power to your ship:\n" + "\n".join(
+                                  f"{p['emoji']} **{p['name']}** — {p['desc']}"
+                                  for p in _CORE_POWERS.values()),
+                              inline=False)
+                return emb, _CoreClaimView(uid)
             return emb, None
 
         # Boss attacks
@@ -2145,6 +2303,21 @@ def _register_commands(bot: commands.Bot):
                 await member.send(embed=dm)
             except discord.Forbidden:
                 await ctx.send(f"⚠️ Couldn't DM {member.mention}")
+
+    @bot.hybrid_command(name="gcore", aliases=["core"],
+                        description="See or claim your Ancient Core power")
+    async def cmd_core(ctx: commands.Context):
+        """Show the bound Core power, or the claim panel if one is still owed."""
+        ud = _get_user(ctx.author.id)
+        if not ud["story_state"].get("core_retrieved"):
+            emb = discord.Embed(title="🔒 The Ancient Core is sealed",
+                                description="Defeat the Void Sentinel at `(-78, 42)` to claim it.",
+                                color=0x880000)
+            return await ctx.send(embed=emb)
+        if not ud.get("core_power"):
+            return await ctx.send(embed=_core_claim_embed(ctx.author.id),
+                                  view=_CoreClaimView(ctx.author.id))
+        await ctx.send(embed=_core_bound_embed(ud))
 
     @bot.hybrid_command(name="gquests", aliases=["gcontracts", "gdaily"],
                         description="View and claim your daily galaxy contracts")
