@@ -751,9 +751,16 @@ _PLAYER_ATTACKS = [
 ]
 
 def _boss_phase(hp: int) -> dict:
+    """The Sentinel phase for this much HP.
+
+    Phases are listed from full health (threshold 1.0) down to the final form
+    (0.30); the current one is the last whose threshold the HP ratio is at or
+    below. This used to walk the list in reverse, so the full-health phase
+    always overwrote the rest and phases 2 and 3 were never reached.
+    """
     ratio = hp / _SENTINEL["hp_max"]
     result = _SENTINEL["phases"][0]
-    for ph in reversed(_SENTINEL["phases"]):
+    for ph in _SENTINEL["phases"]:
         if ratio <= ph["threshold"]:
             result = ph
     return result
