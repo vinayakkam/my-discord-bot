@@ -151,8 +151,18 @@ def test_sentinel_alert_is_gone_once_it_is_defeated():
     ud = _fighter()
     ud["successful_explorations"] = 40
     ud["story_state"]["core_retrieved"] = True
-    assert gk._pulse3_event(ud) is None
+    # The Sentinel alert is gone; Chapter 2's echo signal takes its place.
+    assert gk._pulse3_event(ud) is gk._ECHO_ALERT
     assert not ALERT_TITLES & {f.name for f in gk._map_embed(UID).fields}
+
+
+def test_no_alert_at_all_once_the_warden_is_silenced():
+    ud = _fighter()
+    ud["story_state"]["core_retrieved"] = True
+    ud["story_state"]["warden_defeated"] = True
+    assert gk._pulse3_event(ud) is None
+    titles = {f.name for f in gk._map_embed(UID).fields}
+    assert not (ALERT_TITLES | {gk._ECHO_ALERT["title"]}) & titles
 
 
 # ── Boss registry ─────────────────────────────────────────────────────────────

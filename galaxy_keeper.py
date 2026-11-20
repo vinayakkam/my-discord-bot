@@ -153,6 +153,11 @@ def generate_system(x: int, y: int) -> dict:
             return _make_puzzle_system(x, y, ps)
     if (x, y) == _CORE_COORDS:
         return _make_core_system(x, y)
+    for ps in _ECHO_PUZZLES:
+        if (x, y) == ps["coords"]:
+            return _make_echo_system(x, y, ps)
+    if (x, y) == _WARDEN_COORDS:
+        return _make_warden_system(x, y)
 
     # Look the biome up before seeding: the first lookup for a sector reseeds
     # the RNG itself, which used to happen halfway through and give a system
@@ -238,6 +243,34 @@ def _make_core_system(x, y):
         "danger":"Lethal","trade_val":0,"is_story":True,"is_core":True,
     }
 
+def _make_echo_system(x, y, ps):
+    """A Chapter 2 puzzle system: an echo of the Core's song."""
+    return {
+        "coords":(x,y),"star":"Pulsar","star_emoji":"📡","star_mult":2.5,
+        "biome":"Echo Rift","biome_desc":"The Core's song still rings between these stars.","biome_color":0x0a3a5a,
+        "planets":[{"name":"Echo Relay","type":"Ancient Ruins","emoji":"📡","base_pts":400,
+                    "size":"Large","moons":3,"atmosphere":"Resonant","temperature":-120,
+                    "gravity":1.4,"resources":"Energy"}],
+        "phenomena":[{"name":"Standing Wave","tier":"epic","pts":600},
+                     {"name":"Harmonic Lattice","tier":"rare","pts":350}],
+        "hazard":"Resonance Storm","asteroids":0,"nebula":True,
+        "danger":"Extreme","trade_val":0,"is_story":True,"chapter":2,
+        "puzzle_type":ps["puzzle_type"],"hint_reward":ps["hint"],"puzzle_coords":ps["coords"],
+    }
+
+def _make_warden_system(x, y):
+    """Chapter 2's boss system: the Echo Warden's black hole."""
+    return {
+        "coords":(x,y),"star":"Black Hole","star_emoji":"🕳️","star_mult":6.0,
+        "biome":"The Last Echo","biome_desc":"Sound should not travel here. It does.","biome_color":0x00334d,
+        "planets":[{"name":"Silent Spire","type":"Fortress World","emoji":"🗼","base_pts":1500,
+                    "size":"Colossal","moons":0,"atmosphere":"Vacuum","temperature":-270,
+                    "gravity":12.0,"resources":"Pure Energy"}],
+        "phenomena":[{"name":"The Core's Song","tier":"legendary","pts":3000}],
+        "hazard":"Warden's Chorus","asteroids":0,"nebula":True,
+        "danger":"Lethal","trade_val":0,"is_story":True,"chapter":2,"is_warden":True,
+    }
+
 # ─── PULSE-3 ACTIVE STORYLINE ──────────────────────────────────────
 
 _STORY_PUZZLES = [
@@ -247,6 +280,14 @@ _STORY_PUZZLES = [
     {"coords":(-25,-40),"puzzle_type":"logic",   "hint":"Coordinates locked: (-78, 42). The Void Sentinel awaits."},
 ]
 _CORE_COORDS = (-78, 42)
+
+# Chapter 2, "Echoes of the Core": unlocked by defeating the Void Sentinel.
+_ECHO_PUZZLES = [
+    {"coords":(60,  55),"puzzle_type":"cipher",  "hint":"The first echo: the song began before the stars did."},
+    {"coords":(-95,-20),"puzzle_type":"sequence","hint":"The second echo: every note returns, a little quieter."},
+    {"coords":(20, -90),"puzzle_type":"math",    "hint":"The third echo: the Warden listens at (-5, 110)."},
+]
+_WARDEN_COORDS = (-5, 110)
 
 _PULSE3_EVENTS = [
     {"title":"📡 Pulse-3 Signal Detected",
@@ -259,14 +300,24 @@ _PULSE3_EVENTS = [
      "desc":"The Void Sentinel has fully awakened. Only a commander with all four hints can challenge it at (-78, 42).", "trigger":30},
 ]
 
+_ECHO_ALERT = {
+    "title": "📡 Echoes of the Core",
+    "desc": "With the Sentinel gone, the Core's song echoes from three systems: "
+            "(60, 55), (-95, -20) and (20, -90). Something is listening.",
+}
+
+
 def _pulse3_event(ud: dict) -> dict | None:
     """The Pulse-3 alert this commander should see, or None once it is over.
 
     After the Void Sentinel is defeated the threat is gone, so no alert is
     shown -- it used to keep warning that the Sentinel had awakened.
     """
-    if ud.get("story_state", {}).get("core_retrieved"):
-        return None
+    ss = ud.get("story_state", {})
+    if ss.get("core_retrieved"):
+        if ss.get("warden_defeated"):
+            return None
+        return _ECHO_ALERT
     n  = ud.get("successful_explorations", 0)
     ev = _PULSE3_EVENTS[0]
     for e in _PULSE3_EVENTS:
@@ -350,7 +401,8 @@ def _default_user(uid: int) -> dict:
         "credits": 150, "discovered": set(), "rare_finds": [], "achievements": set(),
         "resources": {"crystals":0,"metals":0,"energy":0,"dark_matter":0},
         "upgrades": {k:0 for k in _SHIP_UPGRADES},
-        "story_state": {"puzzles_solved":0,"hints_collected":[],"core_retrieved":False},
+        "story_state": {"puzzles_solved":0,"hints_collected":[],"core_retrieved":False,
+                        "echo_hints":[],"warden_defeated":False},
         "successful_explorations": 0, "danger_encounters": 0, "total_credits_earned": 150,
         "boss_hp": None, "boss_turns": 0,
         # Which boss the fight in progress is against (see _BOSSES).
@@ -373,6 +425,9 @@ def _get_user(uid: int) -> dict:
     for k, v in _default_user(uid).items():
         if k not in d:
             d[k] = v
+    # story_state is nested, so newer keys inside it need their own back-fill.
+    for k, v in _default_user(uid)["story_state"].items():
+        d["story_state"].setdefault(k, v)
     return d
 
 # ─── CORE POWERS ───────────────────────────────────────────────────
@@ -436,6 +491,11 @@ _riddle_attempts: dict = {}
 _RIDDLE_HINT_AFTER = 2
 
 
+def _hint_list(ss: dict, system: dict) -> list:
+    """The story list a system's hint belongs to: Chapter 2 echoes or the original four."""
+    return ss["echo_hints"] if system.get("chapter") == 2 else ss["hints_collected"]
+
+
 class _RiddleModal(ui.Modal):
     """Collects an answer to a story riddle and grades it."""
 
@@ -483,13 +543,16 @@ class _RiddleModal(ui.Modal):
         ud   = _get_user(self.uid)
         ss   = ud["story_state"]
         hint = self.system.get("hint_reward", "")
+        echo = self.system.get("chapter") == 2
+        hints = _hint_list(ss, self.system)
 
-        if hint in ss["hints_collected"]:
+        if hint in hints:
             return await interaction.response.send_message(
                 "✅ Already solved.", ephemeral=True)
 
-        ss["puzzles_solved"] += 1
-        ss["hints_collected"].append(hint)
+        if not echo:
+            ss["puzzles_solved"] += 1
+        hints.append(hint)
         tries = _riddle_attempts.pop(key, 0)
 
         # Fewer wrong answers pay better.
@@ -506,14 +569,16 @@ class _RiddleModal(ui.Modal):
             ),
             color=0x00ff88,
         )
+        total = len(_ECHO_PUZZLES) if echo else len(_STORY_PUZZLES)
         emb.add_field(name="Progress",
-                      value=f"{len(ss['hints_collected'])}/4 hints", inline=True)
+                      value=f"{len(hints)}/{total} {'echoes' if echo else 'hints'}", inline=True)
         emb.add_field(name="Reward", value=f"+{points} points", inline=True)
         emb.add_field(name="Wrong answers", value=str(tries), inline=True)
-        if len(ss["hints_collected"]) >= 4:
+        if len(hints) >= total:
+            target, foe = (_WARDEN_COORDS, "the Echo Warden") if echo else (_CORE_COORDS, "the Void Sentinel")
             emb.add_field(
                 name="🎯 FINAL MISSION UNLOCKED",
-                value=f"Navigate to `{_CORE_COORDS}` and face the Void Sentinel!",
+                value=f"Navigate to `{target}` and face {foe}!",
                 inline=False)
         await interaction.response.send_message(embed=emb)
 
@@ -781,6 +846,47 @@ _SENTINEL = {
     "phase2_msg": "⚡ **PHASE 2 TRANSITION!** Ancient protocols activate — power tripled!",
     "phase3_msg": "💀 **FINAL FORM UNLOCKED!** The Core cracks open. Ancient energy floods in!",
     "low_hp_msg": "😤 At critical HP, the Sentinel begins consuming surrounding stars for energy!",
+}
+
+_WARDEN = {
+    "hp_max": 1600,
+    "phases": [
+        {
+            "threshold": 1.0, "name": "Listening Phase",
+            "desc": "The Warden turns its many ears toward your engines.",
+            "color": 0x0a3a5a,
+            "attacks": [
+                ("Resonant Pulse", 70, "Your hull rings like a struck bell!"),
+                ("Echo Lash",      55, "Your own last shot comes back at you!"),
+                ("Static Veil",    25, "Your sensors fill with whispering static!"),
+            ],
+        },
+        {
+            "threshold": 0.60, "name": "Chorus Phase — Wings Unfurled",
+            "desc": "Its wings spread and every echo in the sector answers.",
+            "color": 0x1a4a8a,
+            "attacks": [
+                ("Harmonic Spear", 100, "A single perfect note pierces your shields!"),
+                ("Feedback Loop",   85, "Your engines scream back at you!"),
+                ("Dissonance",     120, "Every system aboard vibrates out of tune!"),
+                ("Mirror Shot",     60, "It answers you with your own weapon!"),
+            ],
+        },
+        {
+            "threshold": 0.25, "name": "⚠️ CRESCENDO — The Last Echo",
+            "desc": "The Warden screams the Core's oldest song.",
+            "color": 0x00ffff,
+            "attacks": [
+                ("Shattering Note", 160, "The hull cracks along a perfect fifth!"),
+                ("Infinite Echo",   130, "The same blow lands again, and again!"),
+                ("Silence",         210, "Everything stops. Then it hits."),
+                ("Overtone",         95, "A note above hearing tears at the plating!"),
+            ],
+        },
+    ],
+    "phase2_msg": "🔊 **CHORUS!** The Warden's wings unfold — every echo joins in!",
+    "phase3_msg": "🌀 **CRESCENDO!** The last echo builds to a scream!",
+    "low_hp_msg": "📉 The Warden's song is faltering — finish it!",
 }
 
 _PLAYER_ATTACKS = [
@@ -1177,6 +1283,35 @@ _SENTINEL_SPRITES = [
      "   ▀▀╚═════╝▀▀   ",
      "  ╱╱╱  ║║║  ╲╲╲  "],
 ]
+_WARDEN_SPRITES = [
+    ["   ╱╲  ▲▲▲  ╱╲   ",
+     "  ╱  ╲█████╱  ╲  ",
+     " ◄═══█ ○ ○ █═══► ",
+     "     █ ═══ █     ",
+     "     ▀█▄▄▄█▀     ",
+     "      ║ ║ ║      ",
+     "     ╱  ║  ╲     "],
+    ["╱╲ ╱╲  ▲▲▲  ╱╲ ╱╲",
+     "╱ ╲╱ ╲█████╱ ╲╱ ╲",
+     "◄════█ ● ● █════►",
+     "     █ ═══ █     ",
+     "     ▀█▄▄▄█▀     ",
+     "    ║ ║ ║ ║ ║    ",
+     "   ╱  ╱ ║ ╲  ╲   "],
+    ["╳╲ ╱╲  ▲▲▲  ╱╲ ╱╳",
+     "╱ ╲╱ ╲█▀█▀█╱ ╲╱ ╲",
+     "◄════█ * * █════►",
+     "  ≈  █ ≈≈≈ █  ≈  ",
+     "     ▀█▄╳▄█▀     ",
+     "    ║ ║ ║ ║ ║    ",
+     "  ╱  ╱  ║  ╲  ╲  "],
+]
+_WARDEN_COLOURS = [
+    {"body": ansi.BLUE_B, "eye": ansi.CYAN_B, "frame": ansi.CYAN, "core": ansi.CYAN_B, "tendril": ansi.BLUE},
+    {"body": ansi.CYAN_B, "eye": ansi.WHITE_B, "frame": ansi.BLUE_B, "core": ansi.WHITE_B, "tendril": ansi.CYAN},
+    {"body": ansi.WHITE_B, "eye": ansi.RED_B, "frame": ansi.CYAN_B, "core": ansi.YELLOW_B, "tendril": ansi.PINK_B},
+]
+
 _SENTINEL_DEFEATED = [
     "    ░  ▒▓▒  ░    ",
     "  ░ ▒▓█████▓▒ ░  ",
@@ -1206,6 +1341,11 @@ _BOSSES = {
         "label": "SENTINEL", "title": "Void Sentinel", "short": "Sentinel",
         "subtitle": "Ancient Guardian of the Core",
     },
+    "warden": {
+        "data": _WARDEN, "sprites": _WARDEN_SPRITES, "colours": _WARDEN_COLOURS,
+        "label": "WARDEN", "title": "Echo Warden", "short": "Warden",
+        "subtitle": "Keeper of the Core's Song",
+    },
 }
 
 _FIRE_COLOURS = {"█": ansi.WHITE_B, "▓": ansi.YELLOW_B, "▒": ansi.RED_B, "░": ansi.RED, "*": ansi.YELLOW_B}
@@ -1220,7 +1360,7 @@ def _sentinel_colour(ch: str, row: int, palette: dict) -> str:
         return palette["body"]
     if ch == "╳":
         return ansi.YELLOW_B
-    if ch in "●*" and row < 6:
+    if ch in "●*○" and row < 6:
         return palette["eye"] if row == 2 else ansi.YELLOW_B
     if ch in "ΩΩ✶":
         return palette["core"]
@@ -1526,6 +1666,10 @@ def _scan_embed(system: dict, uid: int) -> discord.Embed:
         if system.get("is_core"):
             emb.add_field(name="💀 BOSS SYSTEM",
                           value="The Void Sentinel lurks here. Collect all 4 hints before engaging.", inline=False)
+        elif system.get("is_warden"):
+            emb.add_field(name="💀 BOSS SYSTEM — Chapter 2",
+                          value="The Echo Warden listens here. Collect all 3 echoes before engaging.",
+                          inline=False)
         else:
             emb.add_field(name="🧩 Puzzle System",
                           value=f"Type: **{system.get('puzzle_type','').upper()}**", inline=False)
@@ -1761,7 +1905,7 @@ class _ExploreView(ui.View):
         if not system.get("is_story"):
             self.remove_item(self.solve_puzzle)
             self.remove_item(self.fight_boss)
-        elif system.get("is_core"):
+        elif system.get("is_core") or system.get("is_warden"):
             self.remove_item(self.solve_puzzle)
         else:
             self.remove_item(self.fight_boss)
@@ -1849,7 +1993,11 @@ class _ExploreView(ui.View):
         ud   = _get_user(self.uid)
         ss   = ud["story_state"]
         hint = self.system.get("hint_reward", "")
-        if hint in ss["hints_collected"]:
+        if self.system.get("chapter") == 2 and not ss.get("core_retrieved"):
+            return await interaction.response.send_message(
+                "📡 The signal is too faint to read. Defeat the Void Sentinel first.",
+                ephemeral=True)
+        if hint in _hint_list(ss, self.system):
             return await interaction.response.send_message(
                 "✅ You have already solved this one.", ephemeral=True)
 
@@ -1866,6 +2014,8 @@ class _ExploreView(ui.View):
             return await interaction.response.send_message("❌ Not yours!", ephemeral=True)
         ud = _get_user(self.uid)
         ss = ud["story_state"]
+        if self.system.get("is_warden"):
+            return await self._fight_warden(interaction, ud)
         if ss.get("core_retrieved"):
             emb = discord.Embed(title="✅ Already Complete",
                                 description="You already defeated the Void Sentinel!", color=0x00ff00)
@@ -1882,6 +2032,36 @@ class _ExploreView(ui.View):
             return await interaction.response.send_message(embed=emb, ephemeral=True)
         ud["boss_id"]    = "sentinel"
         ud["boss_hp"]    = _SENTINEL["hp_max"]
+        ud["boss_turns"] = 0
+        _save_user(self.uid)
+        emb, view = _boss_embed(self.uid)
+        await interaction.response.edit_message(embed=emb, view=view)
+
+    async def _fight_warden(self, interaction: discord.Interaction, ud: dict):
+        """Chapter 2's boss: needs the Core and all three echoes."""
+        ss = ud["story_state"]
+        if ss.get("warden_defeated"):
+            emb = discord.Embed(title="✅ Already Complete",
+                                description="The Echo Warden is silent. You won.", color=0x00ff00)
+            return await interaction.response.send_message(embed=emb, ephemeral=True)
+        if not ss.get("core_retrieved"):
+            emb = discord.Embed(title="🔇 Nothing answers",
+                                description="Only a commander carrying the Ancient Core can be heard here. "
+                                            "Defeat the Void Sentinel first.",
+                                color=0x00334d)
+            return await interaction.response.send_message(embed=emb, ephemeral=True)
+        if len(ss["echo_hints"]) < len(_ECHO_PUZZLES):
+            missing = len(_ECHO_PUZZLES) - len(ss["echo_hints"])
+            emb = discord.Embed(title="⚔️ Echo Warden — Out of Phase",
+                                description=f"Collect **{missing} more echo(es)** first.",
+                                color=0x00334d)
+            for ps in _ECHO_PUZZLES:
+                solved = ps["hint"] in ss["echo_hints"]
+                emb.add_field(name=f"{'✅' if solved else '❌'} {ps['puzzle_type'].title()} Echo",
+                              value=f"Coords: `{ps['coords']}`", inline=True)
+            return await interaction.response.send_message(embed=emb, ephemeral=True)
+        ud["boss_id"]    = "warden"
+        ud["boss_hp"]    = _WARDEN["hp_max"]
         ud["boss_turns"] = 0
         _save_user(self.uid)
         emb, view = _boss_embed(self.uid)
@@ -1949,8 +2129,43 @@ def _sentinel_victory(uid: int, ud: dict):
     return emb, None
 
 
+def _warden_victory(uid: int, ud: dict):
+    """Echo Warden defeated: Chapter 2 complete."""
+    ud["boss_hp"]    = None
+    ud["boss_turns"] = 0
+    ud["boss_id"]    = None
+    ud["story_state"]["warden_defeated"] = True
+    ud["credits"] += 5000
+    ud["resources"]["crystals"]    = ud["resources"].get("crystals", 0)    + 250
+    ud["resources"]["energy"]      = ud["resources"].get("energy", 0)      + 400
+    ud["resources"]["dark_matter"] = ud["resources"].get("dark_matter", 0) + 60
+    ud["achievements"].add("Echo Breaker")
+    ud["achievements"].add("Warden's Bane")
+    _save_user(uid)
+    if _add_score: _add_score(uid, 2000)
+    gs = _load_json(SCORES_FILE)
+    gs[str(uid)] = gs.get(str(uid), 0) + 2000
+    _save_json(SCORES_FILE, gs)
+    emb = discord.Embed(
+        title="🏆 ECHO WARDEN SILENCED!",
+        description=(
+            "**THE LAST ECHO FADES.**\n\n"
+            "The Warden's song breaks apart into ordinary starlight. "
+            "For the first time in an age, this sector is quiet.\n"
+            f"{ansi.block(_boss_art(ud, 2, defeated=True))}"
+        ),
+        color=0x00ffff,
+    )
+    emb.add_field(name="🎁 Rewards",
+                  value="🏆 +2,000 pts  💰 +5,000 credits  💎 +250 crystals  ⚡ +400 energy  🌑 +60 dark matter",
+                  inline=False)
+    emb.add_field(name="🏅 Achievements", value="⭐ Echo Breaker  ⭐ Warden's Bane", inline=False)
+    emb.add_field(name="🏗️ Next", value="Power up your base with `!gbase`.", inline=False)
+    return emb, None
+
+
 # Victory handler per boss id.
-_VICTORIES = {"sentinel": _sentinel_victory}
+_VICTORIES = {"sentinel": _sentinel_victory, "warden": _warden_victory}
 
 
 class _BossView(ui.View):
