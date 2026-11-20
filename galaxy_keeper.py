@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
+from olit import ansi
 from olit.features import galaxy_quests
 
 # ─── FILE PATHS ────────────────────────────────────────────────────
@@ -765,6 +766,99 @@ def _boss_phase(hp: int) -> dict:
             result = ph
     return result
 
+# ─── ANSI ART ──────────────────────────────────────────────────────
+# Screens are drawn as ```ansi code blocks with olit/ansi.py. Only glyphs
+# that Discord's code font draws single-width are used, so grids line up;
+# the old emoji map drifted because emoji are two columns wide. Nothing here
+# calls `random`: generate_system() reseeds the global RNG, and art must not
+# change what the game rolls next.
+
+_MAP_SIZE = 11   # sectors across and down
+_MAP_CELL = 3    # characters per sector
+_MAP_W = _MAP_SIZE * _MAP_CELL + 2
+
+_SKY_GLYPHS = ("·", "·", "∙", "+", " ", " ", " ", "˚", "*")
+_SKY_COLOURS = (ansi.GRAY, ansi.GRAY, ansi.WHITE, ansi.BLUE, ansi.YELLOW, ansi.RED)
+
+
+def _cell_hash(x: int, y: int, salt: int = 0) -> int:
+    # Integer-only tuples hash the same in every process (str hashes do not).
+    return abs(hash((x, y, salt, 7919)))
+
+
+def _map_cell(ud: dict, x: int, y: int):
+    """(glyph, colour) for one sector of the map."""
+    if (x, y) in ud["discovered"]:
+        system = generate_system(x, y)
+        tiers = [p["tier"] for p in system.get("phenomena", [])]
+        if "legendary" in tiers:  return "✶", ansi.YELLOW_B
+        if "epic" in tiers:       return "@", ansi.PINK_B
+        if system.get("is_story"): return "Ω", ansi.YELLOW
+        return "■", ansi.GREEN_B
+    if (x, y) == (0, 0):
+        return "⌂", ansi.WHITE_B
+    h = _cell_hash(x, y)
+    return _SKY_GLYPHS[h % len(_SKY_GLYPHS)], _SKY_COLOURS[(h // 9) % len(_SKY_COLOURS)]
+
+
+def _map_frame(canvas: "ansi.Canvas", top: int) -> None:
+    """Border round the sector grid with compass letters."""
+    w, h = _MAP_W, _MAP_SIZE
+    canvas.text(top, 0, "╭" + "─" * (w - 2) + "╮", ansi.GRAY)
+    canvas.text(top + h + 1, 0, "╰" + "─" * (w - 2) + "╯", ansi.GRAY)
+    for r in range(1, h + 1):
+        canvas.put(top + r, 0, "│", ansi.GRAY)
+        canvas.put(top + r, w - 1, "│", ansi.GRAY)
+    mid_row, mid_col = top + h // 2 + 1, w // 2
+    canvas.put(top, mid_col, "N", ansi.CYAN_B)
+    canvas.put(top + h + 1, mid_col, "S", ansi.CYAN_B)
+    canvas.put(mid_row, 0, "W", ansi.CYAN_B)
+    canvas.put(mid_row, w - 1, "E", ansi.CYAN_B)
+
+
+def _put_ship(canvas: "ansi.Canvas", row: int, col: int, glyph: str = "▲") -> None:
+    canvas.text(row, col, "[", ansi.CYAN)
+    canvas.put(row, col + 1, glyph, ansi.CYAN_B)
+    canvas.put(row, col + 2, "]", ansi.CYAN)
+
+
+def _map_hud(canvas: "ansi.Canvas", row: int, ud: dict) -> None:
+    """Fuel gauge, credits and systems under the map."""
+    canvas.text(row, 0, "FUEL", ansi.WHITE_B)
+    ansi.put_cells(canvas, row, 5, ansi.gauge(ud["fuel"], ud["max_fuel"], 18))
+    canvas.text(row, 24, f"{ud['fuel']}/{ud['max_fuel']}", ansi.WHITE)
+    canvas.text(row + 1, 0, "CR", ansi.YELLOW_B)
+    canvas.text(row + 1, 3, f"{ud['credits']:,}", ansi.YELLOW)
+    systems = f"SYS {len(ud['discovered'])}"
+    canvas.text(row + 1, 14, systems[:3], ansi.GREEN_B)
+    canvas.text(row + 1, 18, systems[4:], ansi.GREEN)
+
+
+def _map_art(ud: dict) -> str:
+    """The sector map: an 11x11 grid centred on the ship, legend and HUD."""
+    pos = ud["position"]
+    half = _MAP_SIZE // 2
+    canvas = ansi.Canvas(_MAP_W, _MAP_SIZE + 5)
+    _map_frame(canvas, 0)
+    for r, y in enumerate(range(pos[1] + half, pos[1] - half - 1, -1)):
+        for c, x in enumerate(range(pos[0] - half, pos[0] + half + 1)):
+            col = 1 + c * _MAP_CELL
+            if [x, y] == list(pos):
+                _put_ship(canvas, r + 1, col)
+            else:
+                glyph, colour = _map_cell(ud, x, y)
+                canvas.put(r + 1, col + 1, glyph, colour)
+    legend = [("▲", ansi.CYAN_B, " you  "), ("■", ansi.GREEN_B, " explored  "),
+              ("Ω", ansi.YELLOW, " relic  "), ("⌂", ansi.WHITE_B, " base")]
+    col = 0
+    for glyph, colour, label in legend:
+        canvas.put(_MAP_SIZE + 2, col, glyph, colour)
+        canvas.text(_MAP_SIZE + 2, col + 1, label, ansi.GRAY)
+        col += 1 + len(label)
+    _map_hud(canvas, _MAP_SIZE + 3, ud)
+    return canvas.render()
+
+
 # ─── EMBEDS ────────────────────────────────────────────────────────
 
 def _map_embed(uid: int) -> discord.Embed:
@@ -773,39 +867,15 @@ def _map_embed(uid: int) -> discord.Embed:
     biome = get_sector_biome(pos[0]//50, pos[1]//50)
     rank  = _get_rank(ud["successful_explorations"])
 
+    # The sector grid, legend and the fuel / credits / systems readout are one
+    # coloured block; it lives in the description because field values are
+    # capped at 1024 characters and the colour codes would not fit there.
     emb = discord.Embed(
         title=f"🌌 Galaxy Map — {biome['name']}",
-        description=f"_{biome['desc']}_\n**{rank}** · Position `({pos[0]}, {pos[1]})`",
+        description=(f"_{biome['desc']}_\n**{rank}** · Position `({pos[0]}, {pos[1]})`\n"
+                     f"{ansi.block(_map_art(ud))}"),
         color=biome["color"],
     )
-
-    MAP_SIZE = 11; half = MAP_SIZE // 2
-    rows = []
-    for y in range(pos[1]+half, pos[1]-half-1, -1):
-        row = ""
-        for x in range(pos[0]-half, pos[0]+half+1):
-            coord = (x, y)
-            if coord == tuple(pos):
-                row += "🚀"
-            elif coord in ud["discovered"]:
-                sys = generate_system(x, y)
-                tiers = [p["tier"] for p in sys.get("phenomena",[])]
-                if "legendary" in tiers:  row += "🌟"
-                elif "epic" in tiers:     row += "🌀"
-                elif sys.get("is_story"): row += "🏛️"
-                else:                     row += "✅"
-            else:
-                row += ["⭐","✦","⋆","✧"][abs(hash((x,y)))%4]
-            row += " "
-        rows.append(row)
-
-    emb.add_field(name="📍 Sector View", value=f"```\n{chr(10).join(rows)}\n```", inline=False)
-
-    fuel_pct = ud["fuel"] / ud["max_fuel"]
-    fuel_bar = "█"*int(fuel_pct*10) + "░"*(10-int(fuel_pct*10))
-    emb.add_field(name="⛽ Fuel",    value=f"{ud['fuel']}/{ud['max_fuel']}\n`{fuel_bar}`", inline=True)
-    emb.add_field(name="💰 Credits", value=f"{ud['credits']:,}", inline=True)
-    emb.add_field(name="🗺️ Systems", value=f"{len(ud['discovered'])} explored", inline=True)
 
     res = ud["resources"]
     emb.add_field(name="📦 Cargo",
