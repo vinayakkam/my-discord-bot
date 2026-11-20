@@ -372,7 +372,6 @@ def test_no_bold_box_drawing_anywhere_in_the_galaxy_art():
     arts += [gk._system_art(s) for s in _systems()]
     arts += [gk._boss_art(ud, p, attack=0, hit_ship=True, shielded=True) for p in range(3)]
     arts.append(gk._boss_art(ud, 2, ship_lost=True, hit_ship=True))
-    bold_box = re.compile(r"\x1b\[1;\d+m[^\x1b]*?[\u2500-\u257f]")
     for art in arts:
         for line in art.split("\n"):
             # Walk each run of text under a bold code: no box glyph may be in it.
