@@ -1191,10 +1191,6 @@ def _boss_embed(uid: int):
     emb.add_field(name="Turn",           value=str(ud["boss_turns"]+1),               inline=True)
     emb.set_footer(text="Choose your attack!")
     return emb, _BossView(uid)
-    async def on_timeout(self):
-        """Grey out the controls so an abandoned panel does not look live."""
-        for item in self.children:
-            item.disabled = True
 
 
 class _BossView(ui.View):
