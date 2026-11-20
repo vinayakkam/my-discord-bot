@@ -897,6 +897,155 @@ def _warp_art(ud: dict, dx: int, dy: int) -> str:
     return canvas.render()
 
 
+# ── System diagram (scan / explore) ──
+_SYS_W = 38
+
+# Star sprites: (core glyph, core colour, corona colour, corona style).
+_STAR_ART = {
+    "Red Dwarf":        ("●", ansi.RED_B,    ansi.RED,      "small"),
+    "Yellow Star":      ("☼", ansi.YELLOW_B, ansi.YELLOW,   "full"),
+    "Blue Giant":       ("☼", ansi.BLUE_B,   ansi.CYAN,     "full"),
+    "White Dwarf":      ("•", ansi.WHITE_B,  ansi.GRAY,     "small"),
+    "Binary System":    ("●", ansi.YELLOW_B, ansi.YELLOW,   "binary"),
+    "Ancient Binary":   ("●", ansi.YELLOW_B, ansi.YELLOW_B, "binary"),
+    "Neutron Star":     ("*", ansi.CYAN_B,   ansi.CYAN,     "small"),
+    "Pulsar":           ("*", ansi.PINK_B,   ansi.PINK,     "beams"),
+    "Quasar":           ("✶", ansi.WHITE_B,  ansi.YELLOW_B, "full"),
+    "Black Hole":       ("○", ansi.WHITE,    ansi.YELLOW,   "disc"),
+    "Dying Supergiant": ("☼", ansi.RED_B,    ansi.RED_B,    "full"),
+}
+
+# Planet colour by type, plus a few types with a glyph of their own.
+_PLANET_COLOURS = {
+    "Rocky World": ansi.WHITE, "Gas Giant": ansi.YELLOW, "Ocean World": ansi.BLUE_B,
+    "Desert World": ansi.YELLOW, "Ice World": ansi.CYAN_B, "Volcanic World": ansi.RED_B,
+    "Crystal World": ansi.CYAN_B, "Toxic World": ansi.GREEN_B, "Rogue World": ansi.GRAY,
+    "Hollow World": ansi.YELLOW, "Ancient Ruins": ansi.YELLOW_B, "Fortress World": ansi.RED_B,
+}
+_PLANET_GLYPHS = {"Crystal World": "♦", "Hollow World": "○", "Ancient Ruins": "Ω",
+                  "Fortress World": "■", "Gas Giant": "O"}
+
+_DANGER_LEVELS = ["Safe", "Low Risk", "Moderate", "Dangerous", "Extreme", "Lethal"]
+_DANGER_COLOURS = [ansi.GREEN_B, ansi.GREEN, ansi.YELLOW_B, ansi.RED, ansi.RED_B, ansi.PINK_B]
+
+
+def _planet_glyph(planet: dict):
+    ptype = planet.get("type", "")
+    colour = _PLANET_COLOURS.get(ptype, ansi.WHITE)
+    if ptype in _PLANET_GLYPHS:
+        return _PLANET_GLYPHS[ptype], colour
+    size = planet.get("size", "Medium")
+    if size in ("Tiny", "Small"):
+        return "•", colour
+    if size in ("Massive", "Colossal"):
+        return "O", colour
+    return "●", colour
+
+
+def _draw_star(canvas: "ansi.Canvas", star: str) -> None:
+    """A 5x3 star sprite at the left of the diagram, centred on row 1."""
+    core, core_c, halo_c, style = _STAR_ART.get(star, ("☼", ansi.YELLOW_B, ansi.YELLOW, "full"))
+    if style == "full":
+        canvas.text(0, 1, "╲│╱", halo_c)
+        canvas.text(1, 0, "─ ", halo_c); canvas.put(1, 2, core, core_c); canvas.text(1, 3, " ─", halo_c)
+        canvas.text(2, 1, "╱│╲", halo_c)
+    elif style == "small":
+        canvas.text(1, 1, "─", halo_c); canvas.put(1, 2, core, core_c); canvas.text(1, 3, "─", halo_c)
+    elif style == "binary":
+        canvas.text(0, 1, "╲ ╱", halo_c)
+        canvas.put(1, 1, core, core_c); canvas.put(1, 3, "●", ansi.WHITE_B)
+        canvas.text(2, 1, "╱ ╲", halo_c)
+    elif style == "beams":
+        canvas.put(0, 2, "║", halo_c)
+        canvas.text(1, 0, "══", halo_c); canvas.put(1, 2, core, core_c); canvas.text(1, 3, "══", halo_c)
+        canvas.put(2, 2, "║", halo_c)
+    elif style == "disc":
+        canvas.text(1, 0, "≈(", halo_c); canvas.put(1, 2, core, core_c); canvas.text(1, 3, ")≈", halo_c)
+
+
+def _system_art(system: dict, reveal: float = 1.0, progress_label: str = "SCAN") -> str:
+    """Diagram of a star system: star, planets on their orbit, threat meter.
+
+    `reveal` (0..1) controls how much a scan has uncovered so far; below 1.0 a
+    progress bar is shown and unseen planets and the threat level are masked.
+    """
+    planets = system.get("planets", [])
+    canvas = ansi.Canvas(_SYS_W, 7)
+    _draw_star(canvas, system.get("star", ""))
+
+    # Orbit line with planets, moons above and letters below.
+    first, last = 7, _SYS_W - 2
+    canvas.text(1, first - 1, "─" * (last - first + 2), ansi.GRAY)
+    n = len(planets)
+    spacing = max(2, min(5, (last - first) // max(1, n)))
+    shown = n if reveal >= 1.0 else int(n * reveal)
+    for i, planet in enumerate(planets):
+        col = first + i * spacing
+        if col > last:
+            canvas.text(2, last - 1, f"+{n - i}", ansi.GRAY)
+            break
+        if i < shown:
+            glyph, colour = _planet_glyph(planet)
+            canvas.put(1, col, glyph, colour)
+            moons = planet.get("moons", 0)
+            if moons:
+                canvas.put(0, col, ":" if moons >= 4 else "·", ansi.WHITE if moons >= 4 else ansi.GRAY)
+            canvas.put(2, col, chr(65 + i) if i < 26 else "+", ansi.GRAY)
+        else:
+            canvas.put(1, col, "?", ansi.GRAY)
+
+    # Threat meter.
+    canvas.text(4, 0, "THREAT", ansi.WHITE_B)
+    if reveal >= 1.0:
+        level = _DANGER_LEVELS.index(system["danger"]) if system.get("danger") in _DANGER_LEVELS else 0
+        colour = _DANGER_COLOURS[level]
+        ansi.put_cells(canvas, 4, 7, ansi.gauge(level + 1, len(_DANGER_LEVELS), 18, colour))
+        canvas.text(4, 26, system.get("danger", "").upper()[:12], colour)
+    else:
+        canvas.text(4, 7, "?" * 18, ansi.GRAY)
+
+    # Extras: hazard, asteroid belts, nebula, trade.
+    if reveal >= 1.0:
+        col = 0
+        if system.get("hazard"):
+            label = f"!! {system['hazard'].upper()}"[:_SYS_W]
+            canvas.text(5, 0, label, ansi.RED_B)
+        else:
+            extras = []
+            if system.get("asteroids"):
+                extras.append((f"BELTS ∙∙∙ x{system['asteroids']}", ansi.WHITE))
+            if system.get("nebula"):
+                extras.append(("NEBULA ≈≈", ansi.PINK_B))
+            if system.get("trade_val"):
+                extras.append((f"TRADE {system['trade_val']}cr", ansi.YELLOW))
+            for label, colour in extras:
+                if col + len(label) > _SYS_W:
+                    break
+                canvas.text(5, col, label, colour)
+                col += len(label) + 2
+
+    # Progress bar while a scan or survey is running.
+    if reveal < 1.0:
+        canvas.text(6, 0, progress_label, ansi.CYAN_B)
+        ansi.put_cells(canvas, 6, 7, ansi.gauge(reveal, 1.0, 18, ansi.CYAN_B))
+        canvas.text(6, 26, f"{int(reveal * 100):>3}%", ansi.CYAN)
+    return canvas.render()
+
+
+# Scan reveal steps and how long each frame stays up.
+_SCAN_STEPS = (0.34, 0.67)
+_SCAN_FRAME_S = 0.5
+
+
+def _scan_progress_embed(system: dict, reveal: float) -> discord.Embed:
+    x, y = system["coords"]
+    return discord.Embed(
+        title=f"📡 Deep Scan in progress — `({x}, {y})`",
+        description=ansi.block(_system_art(system, reveal)),
+        color=system.get("biome_color", 0x1a1a2e),
+    )
+
+
 def _warp_embed(uid: int, dx: int, dy: int) -> discord.Embed:
     ud = _get_user(uid)
     biome = get_sector_biome(ud["position"][0] // 50, ud["position"][1] // 50)
@@ -934,13 +1083,13 @@ def _map_embed(uid: int) -> discord.Embed:
 
 def _scan_embed(system: dict, uid: int) -> discord.Embed:
     x, y = system["coords"]
+    # The diagram carries the threat meter, so there is no separate field.
     emb  = discord.Embed(
         title=f"{system['star_emoji']} Deep Scan — {system['star']}",
-        description=f"**Biome:** {system['biome']} · `({x}, {y})`\n_{system.get('biome_desc','')}_",
+        description=(f"**Biome:** {system['biome']} · `({x}, {y})`\n_{system.get('biome_desc','')}_\n"
+                     f"{ansi.block(_system_art(system))}"),
         color=system.get("biome_color", 0x1a1a2e),
     )
-    danger_dot = {"Safe":"🟢","Low Risk":"🟡","Moderate":"🟠","Dangerous":"🔴","Extreme":"🟣","Lethal":"⚫"}
-    emb.add_field(name="⚠️ Threat", value=f"{danger_dot.get(system['danger'],'⚪')} **{system['danger']}**", inline=True)
 
     if system.get("planets"):
         pl = "\n".join(f"{p['emoji']} **{p['name']}** — {p['size']}, {p['resources']}"
@@ -1043,11 +1192,16 @@ class _NavView(ui.View):
         ud  = _get_user(self.uid)
         pos = ud["position"]
         sys = generate_system(pos[0], pos[1])
+        # Sweep animation: the planets appear a few at a time, then the full
+        # scan with its explore buttons replaces the progress frames.
         await interaction.response.send_message(
-            embed=_scan_embed(sys, self.uid),
-            view=_ExploreView(self.uid, sys),
-            ephemeral=True,
-        )
+            embed=_scan_progress_embed(sys, _SCAN_STEPS[0]), ephemeral=True)
+        for reveal in _SCAN_STEPS[1:]:
+            await asyncio.sleep(_SCAN_FRAME_S)
+            await interaction.edit_original_response(embed=_scan_progress_embed(sys, reveal))
+        await asyncio.sleep(_SCAN_FRAME_S)
+        await interaction.edit_original_response(
+            embed=_scan_embed(sys, self.uid), view=_ExploreView(self.uid, sys))
 
     @ui.button(label="⬅", style=discord.ButtonStyle.primary,   row=1)
     async def ww(self, i, b): await self._move(i, -1,  0)
@@ -1543,7 +1697,13 @@ def _register_commands(bot: commands.Bot):
         ud  = _get_user(ctx.author.id)
         pos = ud["position"]
         sys = generate_system(pos[0], pos[1])
-        await ctx.send(embed=_scan_embed(sys, ctx.author.id),
+        # Same sweep animation as the 🔭 Scan button.
+        msg = await ctx.send(embed=_scan_progress_embed(sys, _SCAN_STEPS[0]))
+        for reveal in _SCAN_STEPS[1:]:
+            await asyncio.sleep(_SCAN_FRAME_S)
+            await msg.edit(embed=_scan_progress_embed(sys, reveal))
+        await asyncio.sleep(_SCAN_FRAME_S)
+        await msg.edit(embed=_scan_embed(sys, ctx.author.id),
                        view=_ExploreView(ctx.author.id, sys))
 
     @bot.hybrid_command(name="gstats", aliases=["gprofile","gme","galaxystats"], description="Show your galaxy commander profile")

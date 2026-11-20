@@ -193,3 +193,54 @@ def test_move_without_fuel_does_not_warp(no_wait):
     click(lambda: gk._NavView(UID), "nn", it)
     assert [how for how, _ in it.shown] == ["send"]
     assert gk._get_user(UID)["position"] == [0, 0]
+
+
+# ── Scan ──────────────────────────────────────────────────────────────────────
+
+def _systems():
+    """A spread of real generated systems plus the two story specials."""
+    found = [gk.generate_system(x, y) for x in range(-6, 7, 3) for y in range(-6, 7, 3)]
+    found.append(gk.generate_system(*gk._STORY_PUZZLES[0]["coords"]))
+    found.append(gk.generate_system(*gk._CORE_COORDS))
+    return found
+
+
+@pytest.mark.parametrize("reveal", [0.0, 0.34, 0.67, 1.0])
+def test_system_diagram_is_aligned_at_every_scan_step(reveal):
+    for system in _systems():
+        rows = assert_clean_grid(gk._system_art(system, reveal))
+        assert len(rows[0]) == gk._SYS_W
+
+
+def test_every_star_type_has_a_sprite():
+    names = {s[0] for s in gk._STAR_TYPES} | {"Ancient Binary", "Dying Supergiant"}
+    assert names <= set(gk._STAR_ART)
+
+
+def test_full_scan_shows_every_planet_and_the_threat():
+    system = max(_systems(), key=lambda s: len(s["planets"]))
+    rows = rows_of(gk._system_art(system))
+    orbit = rows[1][6:]          # skip the star sprite
+    glyphs = sum(orbit.count(g) for g in "•●O♦○Ω■")
+    assert glyphs == len(system["planets"])
+    assert system["danger"].upper()[:12] in rows[4]
+
+
+def test_partial_scan_masks_planets_and_threat():
+    system = max(_systems(), key=lambda s: len(s["planets"]))
+    rows = rows_of(gk._system_art(system, 0.34))
+    assert "?" in rows[1]
+    assert system["danger"].upper() not in rows[4]
+    assert "34%" in rows[6]
+
+
+def test_scan_button_sweeps_then_shows_the_scan(no_wait):
+    _player(position=[4, 4])
+    it = FakeInteraction()
+    click(lambda: gk._NavView(UID), "scan", it)
+    hows = [how for how, _ in it.shown]
+    assert hows == ["send"] + ["edit_original"] * len(gk._SCAN_STEPS)
+    assert all(e.title.startswith("📡 Deep Scan in progress") for _, e in it.shown[:-1])
+    assert "Deep Scan —" in it.shown[-1][1].title
+    for _, embed in it.shown:
+        assert_fits_discord(embed)
