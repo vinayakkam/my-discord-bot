@@ -5511,6 +5511,17 @@ from datetime import datetime, timedelta
 API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8080')
 API_KEY = os.getenv('API_KEY')  # Only needed for authenticated endpoints
 
+
+def _api_headers() -> Dict:
+    """Headers for the bot's own calls to the per-guild API routes.
+
+    Those routes sit behind require_guild_access, which accepts the operator
+    key. Without it every call answers 401 and the bot silently falls back to
+    an empty automod list, no exempt users and the local command file.
+    """
+    return {'X-API-Key': API_KEY} if API_KEY else {}
+
+
 # Cache for commands to avoid excessive API calls
 command_cache = {}
 cache_expiry = {}
@@ -5525,7 +5536,7 @@ def fetch_guild_commands(guild_id: str) -> Dict:
     """Fetch commands from API for a specific guild"""
     try:
         url = f"{API_BASE_URL}/api/commands/{guild_id}"
-        response = requests.get(url, timeout=3)
+        response = requests.get(url, headers=_api_headers(), timeout=3)
 
         if response.status_code == 200:
             data = response.json()
@@ -5580,7 +5591,7 @@ def fetch_automod_words(guild_id: str) -> list:
     """Fetch automod words from API"""
     try:
         url = f"{API_BASE_URL}/api/automod/{guild_id}"
-        response = requests.get(url, timeout=3)
+        response = requests.get(url, headers=_api_headers(), timeout=3)
 
         if response.status_code == 200:
             data = response.json()
@@ -5596,7 +5607,7 @@ def fetch_allowed_users(guild_id: str) -> list:
     """Fetch allowed users from API"""
     try:
         url = f"{API_BASE_URL}/api/allowed_users/{guild_id}"
-        response = requests.get(url, timeout=3)
+        response = requests.get(url, headers=_api_headers(), timeout=3)
 
         if response.status_code == 200:
             data = response.json()
