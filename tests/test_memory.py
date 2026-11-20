@@ -59,3 +59,33 @@ def test_pixel_art_palette_style_with_lazy_pillow():
 
     out = pixel_art.convert_to_pixel_art(src.getvalue(), resolution=16, style="gameboy")
     assert Image.open(out).format == "PNG"
+
+
+def test_api_log_is_capped_in_memory(api_client, monkeypatch):
+    """The request log used to grow by one entry per API call until restart."""
+    _client, keep_alive = api_client
+    monkeypatch.setattr(keep_alive, "save_api_logs", lambda: None)
+    keep_alive.api_logs[:] = [{"endpoint": f"/old/{i}"} for i in range(keep_alive.API_LOG_LIMIT)]
+
+    with keep_alive.app.test_request_context("/api/x"):
+        for i in range(25):
+            keep_alive.log_req(f"/new/{i}", "GET", {})
+
+    assert len(keep_alive.api_logs) == keep_alive.API_LOG_LIMIT
+    assert keep_alive.api_logs[-1]["endpoint"] == "/new/24"
+    assert keep_alive.api_logs[0]["endpoint"] == "/old/25"
+
+
+def test_api_log_still_saves_every_tenth_entry_when_full(api_client, monkeypatch):
+    """At the cap len() stops changing; saving must not fire on every call."""
+    _client, keep_alive = api_client
+    saves = []
+    monkeypatch.setattr(keep_alive, "save_api_logs", lambda: saves.append(1))
+    monkeypatch.setattr(keep_alive, "_api_logs_since_save", 0)
+    keep_alive.api_logs[:] = [{"endpoint": "/old"}] * keep_alive.API_LOG_LIMIT
+
+    with keep_alive.app.test_request_context("/api/x"):
+        for _ in range(30):
+            keep_alive.log_req("/new", "GET", {})
+
+    assert len(saves) == 3

@@ -75,6 +75,13 @@ allowed_users = {}
 welcome_channels = {}
 api_logs = []
 
+# How many request-log entries are kept, in memory and on disk. Without a cap
+# on the in-memory list it grew by one entry per API call until restart.
+API_LOG_LIMIT = 1000
+
+# Entries appended since the log was last written to disk; flushed every 10.
+_api_logs_since_save = 0
+
 # ── Env ──────────────────────────────────────────────────────────────────────
 API_KEY = os.getenv('API_KEY', 'Olittech447443456989260909-087')
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
@@ -658,7 +665,7 @@ def load_all_data():
     allowed_users = _load(ALLOWED_USERS_FILE, {})
     raw_wc = _load(WELCOME_CHANNELS_FILE, {})
     welcome_channels = {int(k): int(v) for k, v in raw_wc.items()}
-    api_logs = _load(API_LOGS_FILE, [])[-1000:]
+    api_logs = _load(API_LOGS_FILE, [])[-API_LOG_LIMIT:]
 
     print("✅ Loaded data for guilds and automod configurations.")
 
@@ -689,7 +696,7 @@ def save_welcome_channels(): _save(WELCOME_CHANNELS_FILE, {str(k): str(v) for k,
 def save_api_logs():
     try:
         with open(API_LOGS_FILE, 'w') as f:
-            json.dump(api_logs[-1000:], f, indent=2)
+            json.dump(api_logs[-API_LOG_LIMIT:], f, indent=2)
     except Exception as e:
         print(f"❌ Save logs error: {e}")
 
@@ -1010,7 +1017,16 @@ def log_req(endpoint, method, data):
         'data': str(data)[:300],
         'ip': request.remote_addr
     })
-    if len(api_logs) % 10 == 0:
+    # Drop the oldest entries in place so the list never exceeds the cap.
+    if len(api_logs) > API_LOG_LIMIT:
+        del api_logs[:-API_LOG_LIMIT]
+
+    # Count appends rather than using len(api_logs): once the list is capped
+    # its length stops changing, which would otherwise save on every request.
+    global _api_logs_since_save
+    _api_logs_since_save += 1
+    if _api_logs_since_save >= 10:
+        _api_logs_since_save = 0
         save_api_logs()
 
 
