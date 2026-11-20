@@ -154,6 +154,12 @@ def generate_system(x: int, y: int) -> dict:
     if (x, y) == _CORE_COORDS:
         return _make_core_system(x, y)
 
+    # Look the biome up before seeding: the first lookup for a sector reseeds
+    # the RNG itself, which used to happen halfway through and give a system
+    # different planets the first time its sector was seen than every later
+    # time. Fetched first, every call matches the later (cached) case.
+    biome = get_sector_biome(x // 50, y // 50)
+
     random.seed(hash((x, y)) & 0xFFFFFFFF)
 
     # Star
@@ -164,8 +170,6 @@ def generate_system(x: int, y: int) -> dict:
         if r <= c:
             star, star_mult, star_emoji = name, mult, emoji
             break
-
-    biome = get_sector_biome(x // 50, y // 50)
 
     n_planets = random.randint(1, 9)
     if "Giant" in star or "Binary" in star:
