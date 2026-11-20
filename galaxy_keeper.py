@@ -1226,6 +1226,77 @@ def _phase_index(hp: int) -> int:
 _BOSS_FRAME_S = 0.7
 
 
+# ── Shipyard and commander profile ──
+_PANEL_W = 38
+
+
+def _shipyard_art(ud: dict, selected: str) -> str:
+    """Every upgrade with its level pips and next cost; the open one marked."""
+    keys = list(_SHIP_UPGRADES)
+    canvas = ansi.Canvas(_PANEL_W, len(keys) + 2)
+    canvas.text(0, 0, "CREDITS", ansi.WHITE_B)
+    canvas.text(0, 8, f"{ud['credits']:,}", ansi.YELLOW_B)
+    for i, key in enumerate(keys):
+        row = i + 2
+        info, lv = _SHIP_UPGRADES[key], ud["upgrades"].get(key, 0)
+        chosen = key == selected
+        canvas.put(row, 0, "►" if chosen else " ", ansi.CYAN_B)
+        canvas.text(row, 2, key.replace("_", " ").upper()[:15], ansi.CYAN_B if chosen else ansi.WHITE)
+        for p in range(info["max"]):
+            canvas.put(row, 18 + p, "■" if p < lv else "□", ansi.GREEN_B if p < lv else ansi.GRAY)
+        if lv >= info["max"]:
+            canvas.text(row, _PANEL_W - 3, "MAX", ansi.GREEN_B)
+        else:
+            cost = f"{info['cost'] * (lv + 1):,}"
+            colour = ansi.YELLOW if ud["credits"] >= info["cost"] * (lv + 1) else ansi.RED
+            canvas.text(row, _PANEL_W - len(cost), cost, colour)
+    return canvas.render()
+
+
+def _profile_art(ud: dict) -> str:
+    """Fuel, rank progress, story progress and cargo for !gstats."""
+    canvas = ansi.Canvas(_PANEL_W, 5)
+    canvas.text(0, 0, "FUEL", ansi.WHITE_B)
+    ansi.put_cells(canvas, 0, 7, ansi.gauge(ud["fuel"], ud["max_fuel"], 18))
+    canvas.text(0, 26, f"{ud['fuel']}/{ud['max_fuel']}", ansi.WHITE)
+
+    done = ud["successful_explorations"]
+    floor, nxt = 0, None
+    for thresh, _name in _RANKS:
+        if done >= thresh:
+            floor = thresh
+        elif nxt is None:
+            nxt = thresh
+    canvas.text(1, 0, "RANK", ansi.WHITE_B)
+    if nxt is None:
+        ansi.put_cells(canvas, 1, 7, ansi.gauge(1, 1, 18, ansi.YELLOW_B))
+        canvas.text(1, 26, "MAX RANK", ansi.YELLOW_B)
+    else:
+        ansi.put_cells(canvas, 1, 7, ansi.gauge(done - floor, nxt - floor, 18, ansi.CYAN_B))
+        canvas.text(1, 26, f"{done}/{nxt}", ansi.CYAN)
+
+    ss = ud["story_state"]
+    canvas.text(2, 0, "STORY", ansi.WHITE_B)
+    found = len(ss.get("hints_collected", []))
+    for i in range(len(_STORY_PUZZLES)):
+        canvas.put(2, 7 + i * 2, "■" if i < found else "□", ansi.YELLOW_B if i < found else ansi.GRAY)
+    canvas.text(2, 16, "CORE", ansi.WHITE_B)
+    canvas.text(2, 21, "RETRIEVED" if ss.get("core_retrieved") else "SEALED",
+                ansi.GREEN_B if ss.get("core_retrieved") else ansi.RED)
+
+    # Cargo, wrapping onto the last row if large numbers make it too wide.
+    res = ud["resources"]
+    row, col = 3, 0
+    for label, key, colour in (("CRYSTAL", "crystals", ansi.CYAN_B), ("METAL", "metals", ansi.WHITE),
+                               ("ENERGY", "energy", ansi.YELLOW_B), ("DARK", "dark_matter", ansi.PINK_B)):
+        text = f"{label} {res.get(key, 0)}"
+        if col + len(text) > _PANEL_W:
+            row, col = row + 1, 0
+        canvas.text(row, col, text, colour)
+        col += len(text) + 2
+    return canvas.render()
+
+
 # ─── EMBEDS ────────────────────────────────────────────────────────
 
 def _map_embed(uid: int) -> discord.Embed:
@@ -1293,7 +1364,8 @@ def _stats_embed(uid: int, user) -> discord.Embed:
     ud  = _get_user(uid)
     emb = discord.Embed(
         title=f"🌌 Commander: {user.display_name}",
-        description=f"**Rank:** {_get_rank(ud['successful_explorations'])}",
+        description=(f"**Rank:** {_get_rank(ud['successful_explorations'])}\n"
+                     f"{ansi.block(_profile_art(ud))}"),
         color=0x9932cc,
     )
     emb.set_thumbnail(url=user.display_avatar.url)
@@ -1811,7 +1883,9 @@ class _ShipyardView(ui.View):
         lv   = ud["upgrades"][key]
         cost = inf["cost"]*(lv+1) if lv < inf["max"] else None
         emb  = discord.Embed(title="🛸 Deep Space Shipyard",
-                              description=f"Credits available: **{ud['credits']:,}**", color=0x4169e1)
+                              description=(f"Credits available: **{ud['credits']:,}**\n"
+                                           f"{ansi.block(_shipyard_art(ud, key))}"),
+                              color=0x4169e1)
         emb.add_field(name=key.replace("_"," ").title(),
                       value=f"_{inf['desc']}_\nLevel: **{lv}/{inf['max']}**", inline=False)
         emb.add_field(name="Next Cost", value=f"{cost:,} cr" if cost else "**MAXED OUT**", inline=True)

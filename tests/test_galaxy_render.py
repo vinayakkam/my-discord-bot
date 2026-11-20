@@ -302,3 +302,64 @@ def test_report_art_fits_big_numbers():
                                          "dark_matter": 9}, 13)
     rows = assert_clean_grid(art)
     assert len(rows[0]) == gk._SYS_W
+
+
+# ── Shipyard and profile ──────────────────────────────────────────────────────
+
+def test_shipyard_lists_every_upgrade_with_pips_and_costs():
+    ud = _player(credits=600)
+    ud["upgrades"]["fuel_tank"] = 5            # maxed
+    ud["upgrades"]["fuel_efficiency"] = 1
+    rows = assert_clean_grid(gk._shipyard_art(ud, "fuel_efficiency"))
+    body = rows[2:]
+    assert len(body) == len(gk._SHIP_UPGRADES)
+    assert body[0].startswith("  FUEL TANK") and body[0].endswith("MAX")
+    assert body[1].startswith("► FUEL EFFICIENCY")
+    assert "■□□□□" in body[1] and body[1].endswith("1,000")
+
+
+def test_shipyard_cost_colour_shows_what_you_can_afford():
+    ud = _player(credits=450)
+    art = gk._shipyard_art(ud, "fuel_tank")
+    lines = art.split("\n")
+    assert "\x1b[0;33m400" in lines[2]          # fuel tank 400: affordable, yellow
+    assert "\x1b[0;31m500" in lines[3]          # efficiency 500: too dear, red
+
+
+@pytest.mark.parametrize("done", [0, 9, 26, 999, 5000])
+def test_profile_panel_is_aligned_at_every_rank(done):
+    ud = _player(successful_explorations=done)
+    ud["resources"] = {"crystals": 12345, "metals": 67890, "energy": 1234, "dark_matter": 567}
+    rows = assert_clean_grid(gk._profile_art(ud))
+    assert rows[1].startswith("RANK")
+    if done >= gk._RANKS[-1][0]:
+        assert "MAX RANK" in rows[1]
+    assert "CRYSTAL 12345" in "\n".join(rows) and "DARK 567" in "\n".join(rows)
+
+
+def test_profile_story_pips_follow_hints():
+    ud = _player()
+    ud["story_state"]["hints_collected"] = [p["hint"] for p in gk._STORY_PUZZLES[:2]]
+    row = rows_of(gk._profile_art(ud))[2]
+    assert row[7:14] == "■ ■ □ □"[:7]
+    assert "SEALED" in row
+
+
+def test_shipyard_and_stats_embeds_fit_discord():
+    import asyncio
+
+    class _Avatar:
+        url = "https://cdn.discordapp.com/embed/avatars/0.png"
+
+    class _U:
+        display_name = "Tester"
+        display_avatar = _Avatar()
+
+    _player(credits=99999)
+
+    async def build():
+        return gk._ShipyardView(UID)._embed()   # views need a running loop
+
+    for emb in (asyncio.run(build()), gk._stats_embed(UID, _U())):
+        assert_clean_grid(BLOCK.findall(emb.description)[0])
+        assert_fits_discord(emb)
