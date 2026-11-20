@@ -136,3 +136,12 @@ def test_collect_button_reports_what_it_banked():
     gk._base_upgrade(ud, "reactor", gk._now_ts() - 2 * HOUR)
     it = _press(lambda v: v.collect)
     assert "Collected **80** credits" in it.shown[0][1].fields[-1].value
+
+
+def test_upgrade_message_says_what_it_banked():
+    ud = _owner()
+    gk._base_upgrade(ud, "reactor", T0)
+    ok, message = gk._base_upgrade(ud, "reactor", T0 + 2 * HOUR)
+    assert ok and "Collected the waiting output first: **80** credits" in message
+    ok, message = gk._base_upgrade(ud, "refinery", T0 + 2 * HOUR)
+    assert ok and "Collected" not in message        # nothing was waiting

@@ -539,7 +539,7 @@ def _base_upgrade(ud: dict, key: str, now: float = None):
         return False, (f"Need **{credits:,}** credits and **{amount}** {res.replace('_', ' ')} "
                        f"(you have {ud['credits']:,} and {have}).")
     # Bank what the old rates produced before the new level changes them.
-    _base_collect(ud, now)
+    banked = _base_collect(ud, now)
     ud["credits"] -= credits
     ud["resources"][res] = have - amount
     ud["base"][key] = lv + 1
@@ -548,7 +548,11 @@ def _base_upgrade(ud: dict, key: str, now: float = None):
     if key == "hangar":
         ud["max_fuel"] += _HANGAR_HULL
         ud["fuel"] = min(ud["max_fuel"], ud["fuel"] + _HANGAR_HULL)
-    return True, f"{m['emoji']} **{m['name']}** upgraded to level {lv + 1}!"
+    message = f"{m['emoji']} **{m['name']}** upgraded to level {lv + 1}!"
+    if any(banked.values()):
+        message += (f"\n📦 Collected the waiting output first: **{banked['credits']:,}** credits, "
+                    f"**{banked['crystals']}** crystals, **{banked['metals']}** metals.")
+    return True, message
 
 
 # ─── ACHIEVEMENTS ──────────────────────────────────────────────────
