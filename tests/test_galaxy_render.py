@@ -244,3 +244,61 @@ def test_scan_button_sweeps_then_shows_the_scan(no_wait):
     assert "Deep Scan —" in it.shown[-1][1].title
     for _, embed in it.shown:
         assert_fits_discord(embed)
+
+
+# ── Explore ───────────────────────────────────────────────────────────────────
+
+def _safe_system():
+    for x in range(1, 40):
+        s = gk.generate_system(x, 3)
+        if not s["hazard"] and not s["is_story"]:
+            return s
+    raise AssertionError("no hazard-free system found")
+
+
+def _hazard_system():
+    for x in range(1, 80):
+        s = gk.generate_system(x, 5)
+        if s["hazard"] and not s["is_story"]:
+            return s
+    raise AssertionError("no hazard system found")
+
+
+def test_explore_shows_probes_then_the_report(no_wait):
+    system = _safe_system()
+    _player(position=list(system["coords"]))
+    it = FakeInteraction()
+    click(lambda: gk._ExploreView(UID, system), "explore", it)
+    assert [how for how, _ in it.shown] == ["edit", "edit_original"]
+    probes, result = it.shown[0][1], it.shown[1][1]
+    assert probes.title.startswith("🛰️ Probes deployed")
+    assert result.title == "🎉 Exploration Complete!"
+    report = BLOCK.findall(result.description)[0]
+    rows = assert_clean_grid(report)
+    assert "COMPLETE" in rows[0] and "PTS" in rows[1]
+    assert tuple(system["coords"]) in gk._get_user(UID)["discovered"]
+    for _, embed in it.shown:
+        assert_fits_discord(embed)
+
+
+def test_hazard_shows_probes_then_the_alert(no_wait, monkeypatch):
+    system = _hazard_system()
+    _player(position=list(system["coords"]), fuel=80)
+    # First roll < 0.3 triggers the hazard check; the second must beat the shield.
+    rolls = iter([0.1, 0.99])
+    monkeypatch.setattr(gk.random, "random", lambda: next(rolls))
+    it = FakeInteraction()
+    click(lambda: gk._ExploreView(UID, system), "explore", it)
+    assert [how for how, _ in it.shown] == ["edit", "edit_original"]
+    alert = it.shown[1][1]
+    assert alert.title == "💥 Hazard!"
+    rows = assert_clean_grid(BLOCK.findall(alert.description)[0])
+    assert "ABORTED" in rows[1]
+    assert tuple(system["coords"]) not in gk._get_user(UID)["discovered"]
+
+
+def test_report_art_fits_big_numbers():
+    art = gk._report_art(123456, 61728, {"crystals": 99, "metals": 999, "energy": 99,
+                                         "dark_matter": 9}, 13)
+    rows = assert_clean_grid(art)
+    assert len(rows[0]) == gk._SYS_W

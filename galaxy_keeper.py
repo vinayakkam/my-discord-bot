@@ -1046,6 +1046,59 @@ def _scan_progress_embed(system: dict, reveal: float) -> discord.Embed:
     )
 
 
+# Survey animation: progress shown while probes work, and for how long.
+_SURVEY_STEP = 0.5
+_SURVEY_FRAME_S = 0.7
+
+
+def _survey_embed(system: dict) -> discord.Embed:
+    """Probes at work: the system diagram under a survey progress bar."""
+    x, y = system["coords"]
+    return discord.Embed(
+        title=f"🛰️ Probes deployed — `({x}, {y})`",
+        description=ansi.block(_system_art(system, _SURVEY_STEP, progress_label="SURVEY")),
+        color=0x00b3ff,
+    )
+
+
+def _report_art(pts: int, credits: int, resources: dict, worlds: int) -> str:
+    """Completed survey: full bar, then points, credits and resources."""
+    canvas = ansi.Canvas(_SYS_W, 3)
+    canvas.text(0, 0, "SURVEY", ansi.GREEN_B)
+    ansi.put_cells(canvas, 0, 7, ansi.gauge(1, 1, 18, ansi.GREEN_B))
+    canvas.text(0, 26, "COMPLETE", ansi.GREEN_B)
+    col = 0
+    for label, colour in ((f"+{pts:,} PTS", ansi.YELLOW_B), (f"+{credits:,} CR", ansi.YELLOW),
+                          (f"{worlds} WORLDS", ansi.CYAN_B)):
+        canvas.text(1, col, label, colour)
+        col += len(label) + 3
+    col = 0
+    names = {"crystals": ("CRYSTAL", ansi.CYAN_B), "metals": ("METAL", ansi.WHITE),
+             "energy": ("ENERGY", ansi.YELLOW_B), "dark_matter": ("DARK", ansi.PINK_B)}
+    for key, amount in resources.items():
+        if amount > 0 and key in names:
+            label, colour = names[key]
+            text = f"{label} +{amount}"
+            if col + len(text) > _SYS_W:
+                break
+            canvas.text(2, col, text, colour)
+            col += len(text) + 2
+    return canvas.render()
+
+
+def _hazard_art(hazard: str, fuel_loss: int, ud: dict) -> str:
+    """Probe lost: the hazard in red and what the hull and fuel took."""
+    canvas = ansi.Canvas(_SYS_W, 3)
+    canvas.text(0, 0, f"!! {hazard.upper()}"[:_SYS_W], ansi.RED_B)
+    canvas.text(1, 0, "SURVEY", ansi.RED)
+    ansi.put_cells(canvas, 1, 7, ansi.gauge(_SURVEY_STEP, 1.0, 18, ansi.RED_B))
+    canvas.text(1, 26, "ABORTED", ansi.RED_B)
+    canvas.text(2, 0, "FUEL", ansi.WHITE_B)
+    ansi.put_cells(canvas, 2, 7, ansi.gauge(ud["fuel"], ud["max_fuel"], 18))
+    canvas.text(2, 26, f"-{fuel_loss}", ansi.RED_B)
+    return canvas.render()
+
+
 def _warp_embed(uid: int, dx: int, dy: int) -> discord.Embed:
     ud = _get_user(uid)
     biome = get_sector_biome(ud["position"][0] // 50, ud["position"][1] // 50)
@@ -1357,9 +1410,13 @@ class _ExploreView(ui.View):
                 ud["danger_encounters"] += 1
                 _save_user(self.uid)
                 emb = discord.Embed(title="💥 Hazard!",
-                                    description=f"**{self.system['hazard']}** — lost {fuel_loss} fuel. Aborted.",
+                                    description=(f"**{self.system['hazard']}** — lost {fuel_loss} fuel. Aborted.\n"
+                                                 f"{ansi.block(_hazard_art(self.system['hazard'], fuel_loss, ud))}"),
                                     color=0xff0000)
-                return await interaction.response.edit_message(embed=emb, view=None)
+                # The probes get halfway before the hazard hits.
+                await interaction.response.edit_message(embed=_survey_embed(self.system), view=None)
+                await asyncio.sleep(_SURVEY_FRAME_S)
+                return await interaction.edit_original_response(embed=emb, view=None)
 
         pts, credits, resources, discoveries = _calc_rewards(self.system, ud)
         ud["discovered"].add(coord)
@@ -1379,7 +1436,8 @@ class _ExploreView(ui.View):
 
         emb = discord.Embed(
             title="🎉 Exploration Complete!",
-            description=f"**{self.system['star']}** at `{coord}` catalogued",
+            description=(f"**{self.system['star']}** at `{coord}` catalogued\n"
+                         f"{ansi.block(_report_art(pts, credits, resources, len(self.system['planets'])))}"),
             color=0x00ff41,
         )
         emb.add_field(name="📊 Results",
@@ -1394,7 +1452,10 @@ class _ExploreView(ui.View):
             emb.add_field(name="🏅 New Achievements",
                           value="\n".join(f"⭐ {a}" for a in new_ach), inline=False)
         emb.set_footer(text=f"Total: {len(ud['discovered'])} systems | Rank: {_get_rank(ud['successful_explorations'])}")
-        await interaction.response.edit_message(embed=emb, view=None)
+        # Rewards are already rolled and saved; show the probes at work first.
+        await interaction.response.edit_message(embed=_survey_embed(self.system), view=None)
+        await asyncio.sleep(_SURVEY_FRAME_S)
+        await interaction.edit_original_response(embed=emb, view=None)
 
     @ui.button(label="🧩 Solve Puzzle", style=discord.ButtonStyle.primary, row=1)
     async def solve_puzzle(self, interaction: discord.Interaction, button: ui.Button):
