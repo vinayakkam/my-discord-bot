@@ -27,12 +27,19 @@ GRID_H = 18
 TOWER_ROW = 18
 GROUND_ROW = 19
 
-# Rendered canvas: GRID_H rows of sky, the chopstick arm row, two rows of open
-# tower below the arms, then the ground. Physics never reads these.
-_ARM_ROW = GRID_H
-_GROUND_ROW = GRID_H + 3
-_CANVAS_H = GRID_H + 4
-_TOWER_TOP = 7  # first lattice row of the Mechzilla tower
+# Rendered canvas: sky rows, the chopstick arm row, four rows of open tower
+# below the arms, then the ground. Physics never reads these.
+_SKY_ROWS = 20
+_ARM_ROW = _SKY_ROWS
+_GROUND_ROW = _ARM_ROW + 5
+_CANVAS_H = _GROUND_ROW + 1
+_TOWER_TOP = 6  # first lattice row of the Mechzilla tower
+_BOOSTER_H = 7  # sprite rows, forward dome to engine bells
+
+# ANSI colours for the ```ansi code block (Discord's 8-colour palette).
+_GRAY, _RED, _GREEN, _YELLOW = "0;30", "0;31", "0;32", "0;33"
+_BLUE, _CYAN, _WHITE = "0;34", "0;36", "0;37"
+_RED_B, _GREEN_B, _YELLOW_B, _WHITE_B = "1;31", "1;32", "1;33", "1;37"
 
 WALL_L = 3  # left wall — booster bounces off this column
 WALL_R = 28  # right wall
@@ -45,6 +52,12 @@ FULL_FUEL_KG = 10.0
 ENGINE_THRUST = 20.0
 FUEL_FLOW = 0.9
 THRUST_PULSE_DURATION = 1.2
+
+# Automatic landing burn: the booster lights its engines by itself at this
+# altitude. Tuned by simulation: on its own it brings the booster into the
+# "good" band (~1.0 wu/s); a well-timed THRUST on top is needed for "perfect".
+AUTO_BURN_ALT_KM = 8.0
+AUTO_BURN_DURATION = 2.5
 
 WIND_BASE_ACCEL = 0.5
 WIND_OU_THETA = 1.5  # mean-reversion speed
@@ -85,13 +98,28 @@ _STAR_CHARS = ("·", "·", "˙", ".", "∙", "'")
 
 def _make_star_field(seed: int) -> list:
     rng = random.Random(seed)
-    field = [[""] * GRID_W for _ in range(GRID_H)]
-    for row in range(GRID_H):
-        density = 0.06 * (1.0 - row / GRID_H * 0.7)
+    field = [[""] * GRID_W for _ in range(_SKY_ROWS)]
+    for row in range(_SKY_ROWS):
+        density = 0.06 * (1.0 - row / _SKY_ROWS * 0.7)
         for col in range(1, GRID_W - 1):
             if rng.random() < density:
                 field[row][col] = rng.choice(_STAR_CHARS)
     return field
+
+
+def _ansi_line(cells: list) -> str:
+    """Join (char, colour) cells, emitting an ANSI code only when colour changes.
+
+    Spaces carry no visible colour, so they never trigger a code; that keeps
+    the field well inside Discord's 4096-character description limit.
+    """
+    parts, current = [], None
+    for ch, colour in cells:
+        if ch != " " and colour != current:
+            parts.append(f"\x1b[{colour or '0'}m")
+            current = colour
+        parts.append(ch)
+    return "".join(parts)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -195,6 +223,13 @@ class BoosterCatchGame:
         self.thrust_timer: float = 0.0
         self.engine_on: bool = False
         self.manual_burns: int = 0
+        self._burn_total: float = THRUST_PULSE_DURATION  # length of the current burn
+        self._auto_burn_done: bool = False
+        self._auto_burn_active: bool = False
+        self._burn_end_frame: int = -999
+        # Set when a burn starts so the game loop redraws at once and the
+        # ignition frame is not skipped between scheduled edits.
+        self.redraw_requested: bool = False
 
         # Animation
         self.anim_frame: int = 0
@@ -259,7 +294,20 @@ class BoosterCatchGame:
             self.wind_accel += dW
         self.wind_accel = max(-WIND_BASE_ACCEL, min(WIND_BASE_ACCEL, self.wind_accel))
 
-        # ── 2. Engine ────────────────────────────────────────────────
+        # ── 2. Automatic landing burn ────────────────────────────────
+        if not self._auto_burn_done and self.altitude <= AUTO_BURN_ALT_KM:
+            self._auto_burn_done = True
+            if self.fuel_kg > 0:
+                self.thrust_timer = max(self.thrust_timer, AUTO_BURN_DURATION)
+                self._burn_total = self.thrust_timer
+                self._auto_burn_active = True
+                self.redraw_requested = True
+                self.timeline.append(
+                    f"🔥 **AUTO LANDING BURN — ignition at {AUTO_BURN_ALT_KM:.0f} km**")
+            else:
+                self.timeline.append("⛽ **No fuel left for the landing burn**")
+
+        # ── 3. Engine ────────────────────────────────────────────────
         if self.thrust_timer > 0 and self.fuel_kg > 0:
             self.engine_on = True
             burn_dt = min(dt, self.thrust_timer)
@@ -269,10 +317,16 @@ class BoosterCatchGame:
                 self.thrust_timer = 0.0
                 self.timeline.append("⛽ **FUEL DEPLETED — Engine cut**")
         else:
+            if self.engine_on:
+                # Engine just cut off: start the smoke and close out the burn.
+                self._burn_end_frame = self.anim_frame
+                if self._auto_burn_active:
+                    self.timeline.append("✅ **Landing burn complete — THRUST to trim**")
+                self._auto_burn_active = False
             self.engine_on = False
             self.thrust_timer = max(0.0, self.thrust_timer)
 
-        # ── 3. Forces ────────────────────────────────────────────────
+        # ── 4. Forces ────────────────────────────────────────────────
         m = self.mass
         acc_y = (
                 GRAVITY
@@ -284,7 +338,7 @@ class BoosterCatchGame:
                 + self.wind_accel
         )
 
-        # ── 4. Euler integration ──────────────────────────────────────
+        # ── 5. Euler integration ──────────────────────────────────────
         self.vel_y += acc_y * dt
         self.vel_x += acc_x * dt
         self.vel_x = max(-6.0, min(6.0, self.vel_x))
@@ -294,7 +348,7 @@ class BoosterCatchGame:
         if self._last_vel_y < 3.0 <= self.vel_y:
             self._sonic_boom_frame = self.anim_frame
 
-        # ── 5. Wall boundaries ───────────────────────────────────────
+        # ── 6. Wall boundaries ───────────────────────────────────────
         if self.pos_x < WALL_L:
             self.pos_x = float(WALL_L)
             bounce_speed = abs(self.vel_x)
@@ -325,7 +379,7 @@ class BoosterCatchGame:
             self.wind_accel = -abs(self.wind_accel) * 0.4
             self._wind_suppress = WIND_SUPPRESS_DURATION
 
-        # ── 6. Altitude warnings ─────────────────────────────────────
+        # ── 7. Altitude warnings ─────────────────────────────────────
         alt = self.altitude
         if alt <= 12.0 and not (self.altitude_warned & 1):
             self.timeline.append("⚠️ **ALTITUDE 12 km — Begin approach checks**")
@@ -337,21 +391,22 @@ class BoosterCatchGame:
             self.timeline.append("🔴 **FINAL APPROACH — CATCH NOW**")
             self.altitude_warned |= 4
 
-        # ── 7. Landing burn advisory ─────────────────────────────────
+        # ── 8. Landing burn advisory ─────────────────────────────────
         if not self._advisory_shown and self.fuel_kg > 0 and alt < 10.0:
             pred = math.sqrt(max(0.0, self.vel_y ** 2 + 2 * GRAVITY * max(0.0, alt - 1.0)))
             if pred > ADVISORY_VY:
                 self.timeline.append(
-                    f"🔥 **BURN ADVISORY — Predicted impact {pred:.1f} wu/s — fire engines!**")
+                    f"🔥 **BURN ADVISORY — Predicted impact {pred:.1f} wu/s — "
+                    f"auto burn at {AUTO_BURN_ALT_KM:.0f} km, THRUST to trim**")
                 self._advisory_shown = True
 
-        # ── 8. Catch zone ────────────────────────────────────────────
+        # ── 9. Catch zone ────────────────────────────────────────────
         if self.pos_y >= CATCH_ZONE_Y and not self.catch_window_open:
             self.catch_window_open = True
             self.state = "catch_zone"
             self.timeline.append("🎯 **CATCH ZONE ACTIVE — Window open!**")
 
-        # ── 9. Crash ─────────────────────────────────────────────────
+        # ── 10. Crash ─────────────────────────────────────────────────
         if self.pos_y >= CRASH_Y:
             self.state = "over"
             self.success = False
@@ -372,6 +427,8 @@ class BoosterCatchGame:
         if self.fuel_kg <= 0 or self.thrust_timer > 0:
             return
         self.thrust_timer = THRUST_PULSE_DURATION
+        self._burn_total = THRUST_PULSE_DURATION
+        self.redraw_requested = True
         self.manual_burns += 1
         low = " ⚠️ Low fuel!" if self.fuel_pct < 20 else ""
         self.timeline.append(f"🔥 **Burn #{self.manual_burns} ignited**{low}")
@@ -421,187 +478,270 @@ class BoosterCatchGame:
         self.state = "over"
 
     # ── RENDERING ──────────────────────────────────────────────────
-    # The field is drawn inside a ``` code block, so every glyph here is
-    # single-width: box drawing, block elements and plain ASCII. Emoji render
-    # two columns wide in Discord and would shove the rest of their row
-    # sideways, which is what made the old frames jitter.
+    # The field is an ```ansi code block. Every glyph is single-width (box
+    # drawing, block elements, ASCII) so the grid lines up, and colour comes
+    # from ANSI escape codes, which Discord renders inside ansi code blocks.
 
     def _booster_top_row(self) -> int:
-        """Canvas row of the grid fins.
+        """Canvas row of the booster's top.
 
-        Maps pos_y 0..CRASH_Y onto rows 0.._ARM_ROW, so the engines (three
-        rows below the fins) reach the ground row exactly at physics impact.
+        Maps pos_y 0..CRASH_Y so the engine row (the sprite's last row) lands
+        on the ground row exactly when the physics says impact.
         """
-        return max(0, min(_ARM_ROW, int(round(self.pos_y * _ARM_ROW / CRASH_Y))))
+        span = _GROUND_ROW - (_BOOSTER_H - 1)
+        return max(0, min(span, int(round(self.pos_y * span / CRASH_Y))))
+
+    def _burn_progress(self) -> float:
+        """0.0 at ignition to 1.0 at cutoff, for the burn that is running."""
+        if self._burn_total <= 0:
+            return 1.0
+        return max(0.0, min(1.0, 1.0 - self.thrust_timer / self._burn_total))
 
     def _booster_sprite(self) -> list:
-        """The booster's four rows, top (grid fins) to bottom (engine skirt)."""
+        """(row text, colour) top to bottom; spaces are transparent."""
         # Grid fins alternate slowly so they read as actively steering.
-        fins = "╪█╪" if (self.anim_frame // 2) % 2 == 0 else "╫█╫"
+        fins = "╪███╪" if (self.anim_frame // 2) % 2 == 0 else "╫███╫"
         if self.engine_on:
-            engines = "▐▓▌"          # engines lit
+            engines = (" ▓▓▓ ", _YELLOW_B)   # engine bells lit
         elif self.vel_y > 3.0:
-            engines = "▝▒▘"          # skirt glowing from re-entry heating
+            engines = (" ▝▒▘ ", _RED)        # skirt glowing from re-entry heating
         else:
-            engines = "▝▀▘"
-        return [fins, "▐█▌", "▐█▌", engines]
+            engines = (" ▝▀▘ ", _GRAY)
+        return [
+            (" ▄█▄ ", _WHITE_B),   # forward dome / hot-staging ring
+            (fins, _WHITE_B),
+            (" ███ ", _WHITE_B),
+            (" ███ ", _WHITE),
+            (" ███ ", _WHITE),
+            (" ███ ", _WHITE),
+            engines,
+        ]
+
+    def _draw_plume(self, put, engine_row: int, bcol: int) -> None:
+        """Engine exhaust, animated through ignition, full thrust and shutdown."""
+        p = self._burn_progress()
+        pulse = self.anim_frame % 3
+        if p < 0.15:
+            # Ignition: a short white-hot flash with sparks spraying sideways.
+            length = 2
+            put(engine_row + 1, bcol, "█", _WHITE_B)
+            put(engine_row + 1, bcol - 1, "▒", _YELLOW_B)
+            put(engine_row + 1, bcol + 1, "▒", _YELLOW_B)
+            put(engine_row + 2, bcol, "▒", _YELLOW)
+            for side in (-1, 1):
+                put(engine_row + 1, bcol + 2 * side, "*", _YELLOW_B)
+                put(engine_row + 2, bcol + 3 * side, "'", _YELLOW)
+        elif p < 0.85:
+            # Full thrust: a long cone with shock diamonds that ripple down it.
+            length = 7 + pulse
+            shift = self.anim_frame % 3
+            for i in range(1, length + 1):
+                row = engine_row + i
+                d = i / length
+                if i <= 2:
+                    core, colour = "█", _WHITE_B if i == 1 else _YELLOW_B
+                elif (i + shift) % 3 == 0 and d < 0.75:
+                    core, colour = "◊", _WHITE_B
+                elif d < 0.6:
+                    core, colour = "▓", _YELLOW_B
+                elif d < 0.85:
+                    core, colour = "▒", _RED_B
+                else:
+                    core, colour = "░", _RED_B
+                put(row, bcol, core, colour)
+                if i >= 2 and d < 0.9:
+                    side = ("▓", _YELLOW) if d < 0.5 else ("▒", _RED_B)
+                    put(row, bcol - 1, *side)
+                    put(row, bcol + 1, *side)
+                if i >= 4 and 0.4 < d < 0.95:
+                    put(row, bcol - 2, "▒", _RED)
+                    put(row, bcol + 2, "▒", _RED)
+        else:
+            # Shutdown: the flame shrinks back up into the engine bells.
+            length = 3
+            put(engine_row + 1, bcol, "▓", _YELLOW_B)
+            put(engine_row + 1, bcol - 1, "▒", _RED_B)
+            put(engine_row + 1, bcol + 1, "▒", _RED_B)
+            put(engine_row + 2, bcol, "▒", _RED_B)
+            put(engine_row + 3, bcol, "░", _RED)
+        if engine_row + length >= _GROUND_ROW - 1:
+            # Exhaust hitting the pad kicks up a dust cloud.
+            spread = 3 + pulse + (2 if 0.15 <= p < 0.85 else 0)
+            for dx in range(-spread, spread + 1):
+                put(_GROUND_ROW - 1, bcol + dx, "▓" if abs(dx) <= 1 else "▒" if abs(dx) <= 3 else "░",
+                    _YELLOW_B if abs(dx) <= 1 else _YELLOW if abs(dx) <= 3 else _GRAY)
+
+    def _draw_smoke(self, put, engine_row: int, bcol: int) -> None:
+        """Smoke drifting up around the engines for a while after cutoff."""
+        age = self.anim_frame - self._burn_end_frame
+        if age < 0 or age >= 16:
+            return
+        rise = age // 4
+        puff = "░" if age < 8 else "·"
+        for side in (-3, -2, 2, 3):
+            put(engine_row - rise + (0 if abs(side) == 2 else 1), bcol + side, puff, _GRAY)
+        if age < 6:
+            put(engine_row + 1, bcol, "░", _GRAY)
 
     def make_field(self) -> str:
         f8 = self.anim_frame % 8
         frame = self.anim_frame % 16
-        canvas = [[" "] * GRID_W for _ in range(_CANVAS_H)]
+        chars = [[" "] * GRID_W for _ in range(_CANVAS_H)]
+        colours = [[None] * GRID_W for _ in range(_CANVAS_H)]
         soft = set(_STAR_CHARS) | {" ", "+"}  # cells effects may draw over
 
-        def put(row: int, col: int, ch: str, force: bool = False) -> None:
+        def put(row: int, col: int, ch: str, colour, force: bool = False) -> None:
             # Draw one cell, clipped to the canvas; effects never cover structure.
             if 0 <= row < _CANVAS_H and 0 <= col < GRID_W:
-                if force or canvas[row][col] in soft:
-                    canvas[row][col] = ch
+                if force or chars[row][col] in soft:
+                    chars[row][col] = ch
+                    colours[row][col] = colour
 
         bcol = max(WALL_L, min(WALL_R, int(self.pos_x)))
         top = self._booster_top_row()
         crashed = self.state == "over" and not self.success
         caught = self.state == "over" and self.success
         if caught:
-            top = _ARM_ROW - 1   # held by the arms: body sits in the arm row
-        engine_row = top + 3
+            top = _ARM_ROW - 2   # held by the arms just below the grid fins
+        engine_row = top + _BOOSTER_H - 1
+        flying = self.state != "over"
 
         # ── Sky: static stars plus a few that twinkle ──
-        for row in range(GRID_H):
+        for row in range(_SKY_ROWS):
             for col, ch in enumerate(self._star_field[row]):
                 if ch:
-                    canvas[row][col] = ch
+                    put(row, col, ch, _GRAY)
         for i, (r, c) in enumerate(self._twinkle_cells):
             phase = (self.anim_frame + i) % 3
             if phase != 2:
-                put(r, c, "+" if phase == 0 else "·")
+                put(r, c, "+" if phase == 0 else "·", _WHITE if phase == 0 else _GRAY)
 
         # ── Wind: edge indicator plus streaks drifting downwind ──
         ws = abs(self.wind_accel)
         downwind = 1 if self.wind_accel > 0 else -1
         if ws > WIND_BASE_ACCEL * 0.55:
             put(2, GRID_W - 3, ("»" if downwind > 0 else "«") if f8 < 4 else
-                               ("›" if downwind > 0 else "‹"), force=True)
+                ("›" if downwind > 0 else "‹"), _BLUE, force=True)
         elif ws > WIND_BASE_ACCEL * 0.20:
-            put(2, GRID_W - 3, "~" if downwind > 0 else "≈", force=True)
+            put(2, GRID_W - 3, "~" if downwind > 0 else "≈", _BLUE, force=True)
         if ws > WIND_BASE_ACCEL * 0.20:
             streak = "-" if ws < WIND_BASE_ACCEL * 0.55 else "="
-            for n, row in enumerate((4, 9, 13)):
+            for n, row in enumerate((4, 9, 13, 17)):
                 x = (n * 11 + self._wind_arrow_frame * 2 * downwind) % (WALL_R - WALL_L)
-                put(row, WALL_L + x, streak)
-                put(row, WALL_L + x + 1, streak)
+                put(row, WALL_L + x, streak, _BLUE)
+                put(row, WALL_L + x + 1, streak, _BLUE)
 
         # ── Mechzilla tower: lattice on the right, warning light on top ──
-        t_light = ("●" if frame < 8 else "○") if self.catch_window_open else \
-            ("●" if frame < 13 else "○") if self.pos_y > GRID_H * 0.6 else "●"
-        put(_TOWER_TOP - 1, GRID_W - 1, t_light, force=True)
+        light_on = (frame < 8) if self.catch_window_open else \
+            (frame < 13) if self.pos_y > GRID_H * 0.6 else True
+        put(_TOWER_TOP - 1, GRID_W - 1, "●" if light_on else "○",
+            _RED_B if light_on else _GRAY, force=True)
         for row in range(_TOWER_TOP, _GROUND_ROW):
-            canvas[row][GRID_W - 2] = "╲" if row % 2 == 0 else "╱"
-            canvas[row][GRID_W - 1] = "╱" if row % 2 == 0 else "╲"
+            put(row, GRID_W - 2, "╲" if row % 2 == 0 else "╱", _GRAY, force=True)
+            put(row, GRID_W - 1, "╱" if row % 2 == 0 else "╲", _GRAY, force=True)
 
         # ── Chopstick arms on their carriage ──
         al = max(0, int(self.arm_left))
         ar = min(GRID_W - 3, int(self.arm_right))
-        arms = canvas[_ARM_ROW]
+        arm_colour = _GREEN_B if self.catch_window_open else _CYAN
         for i in range(al, min(al + 4, GRID_W)):
-            arms[i] = ("╠" if self.catch_window_open else "╞") if i == al else \
-                ("═" if i == al + 1 else "╪" if i == al + 2 else "┤")
+            put(_ARM_ROW, i, ("╠" if self.catch_window_open else "╞") if i == al else
+                ("═" if i == al + 1 else "╪" if i == al + 2 else "┤"), arm_colour, force=True)
         for i in range(max(0, ar - 3), ar + 1):
-            arms[i] = ("╣" if self.catch_window_open else "╡") if i == ar else \
-                ("═" if i == ar - 1 else "╪" if i == ar - 2 else "├")
+            put(_ARM_ROW, i, ("╣" if self.catch_window_open else "╡") if i == ar else
+                ("═" if i == ar - 1 else "╪" if i == ar - 2 else "├"), arm_colour, force=True)
         for i in range(ar + 1, GRID_W - 2):
-            arms[i] = "─"                      # beam back to the tower
-        arms[GRID_W - 2] = "█"                 # carriage on the tower
+            put(_ARM_ROW, i, "─", _GRAY, force=True)       # beam back to the tower
+        put(_ARM_ROW, GRID_W - 2, "█", _WHITE, force=True)  # carriage on the tower
         if self.catch_window_open and not caught:
             # Catch guides between the arm tips, target blinking at center.
             for i in range(al + 4, ar - 3):
-                arms[i] = "┄"
+                put(_ARM_ROW, i, "┄", _GREEN, force=True)
             gc = int(self.arm_center)
-            if al + 4 <= gc < ar - 3:
-                arms[gc] = "┼" if f8 < 4 else "┄"
-        if abs(self.arm_center - self._last_arm_center) > 0.1:
+            if al + 4 <= gc < ar - 3 and f8 < 4:
+                put(_ARM_ROW, gc, "┼", _YELLOW_B, force=True)
+        if abs(self.arm_center - self._last_arm_center) > 0.1 and f8 < 2:
             # Sparks along the arms while the carriage is moving.
             for i in range(al, ar + 1):
-                if arms[i] in ("═", "─") and random.random() < 0.35:
-                    arms[i] = "*" if f8 < 2 else arms[i]
+                if chars[_ARM_ROW][i] in ("═", "─") and random.random() < 0.35:
+                    put(_ARM_ROW, i, "*", _YELLOW_B, force=True)
         self._last_arm_center = self.arm_center
 
-        # ── Ground ──
-        for col in range(GRID_W):
-            canvas[_GROUND_ROW][col] = "▓"
-        canvas[_GROUND_ROW][GRID_W - 2] = "█"
-        canvas[_GROUND_ROW][GRID_W - 1] = "█"
+        # ── Ground, with the tower's base on the right ──
+        for col in range(GRID_W - 2):
+            put(_GROUND_ROW, col, "▓", _GRAY, force=True)
+        put(_GROUND_ROW, GRID_W - 2, "█", _GRAY, force=True)
+        put(_GROUND_ROW, GRID_W - 1, "█", _GRAY, force=True)
 
-        # ── Re-entry heating: streaks trailing above a fast booster ──
-        if self.vel_y >= 2.0 and not self.engine_on and self.state != "over":
+        # ── Re-entry heating: plasma streaks trailing a fast booster ──
+        if self.vel_y >= 2.0 and not self.engine_on and flying:
             trail = min(6, int(self.vel_y * 1.2))
             for i in range(1, trail + 1):
-                put(top - i, bcol, "│" if i == 1 else "╎" if i <= 3 else "┆" if i <= 4 else "·")
+                ch, colour = ("│", _YELLOW_B) if i == 1 else ("╎", _YELLOW) if i <= 2 else \
+                    ("╎", _RED) if i <= 3 else ("┆", _RED) if i <= 4 else ("·", _GRAY)
+                put(top - i, bcol, ch, colour)
             if self.vel_y > 3.5:
-                for side in (-2, 2):
-                    put(top + random.randint(0, 2), bcol + side, random.choice(["'", "·", "~"]))
+                for side in (-3, 3):
+                    put(top + random.randint(1, 4), bcol + side,
+                        random.choice(["'", "·", "~"]), _RED)
 
         # ── Sonic boom: a shock ring expanding sideways ──
         age = self.anim_frame - self._sonic_boom_frame
-        if 0 <= age <= 5 and self.state != "over":
-            r = age + 2
-            for row in (top + 1, top + 2):
-                put(row, bcol - r, "(")
-                put(row, bcol + r, ")")
+        if 0 <= age <= 5 and flying:
+            r = age + 3
+            for row in range(top + 2, top + 5):
+                put(row, bcol - r, "(", _CYAN)
+                put(row, bcol + r, ")", _CYAN)
 
-        # ── Engine plume: widening cone with shock diamonds ──
-        if self.engine_on and self.state != "over":
-            length = 6 if f8 < 4 else 4    # pulses as the engines throttle
-            for i in range(1, length + 1):
-                row = engine_row + i
-                d = i / length
-                core = "█" if i == 1 else ("◊" if i % 2 == 0 else "▓") if d < 0.6 else \
-                    "▒" if d < 0.85 else "░"
-                put(row, bcol, core)
-                if i >= 2 and d < 0.9:
-                    put(row, bcol - 1, "▒" if d < 0.5 else "░")
-                    put(row, bcol + 1, "▒" if d < 0.5 else "░")
-                if i >= 3 and 0.5 < d < 0.9:
-                    put(row, bcol - 2, "░")
-                    put(row, bcol + 2, "░")
-            if engine_row + length >= _GROUND_ROW - 1:
-                # Exhaust hitting the pad kicks up a dust cloud.
-                for dx in range(-4, 5):
-                    put(_GROUND_ROW - 1, bcol + dx, "▒" if abs(dx) <= 1 else "░")
+        # ── Engines: animated plume while firing, smoke after cutoff ──
+        if self.engine_on and flying:
+            self._draw_plume(put, engine_row, bcol)
+        elif flying:
+            self._draw_smoke(put, engine_row, bcol)
 
         # ── Predicted touchdown column while the catch window is open ──
-        if self.catch_window_open and self.state != "over":
+        if self.catch_window_open and flying:
             pred_x = max(WALL_L, min(WALL_R, int(self.pos_x + self.vel_x * 0.5)))
             on_guides = 0 <= engine_row + 1 < _CANVAS_H and \
-                canvas[engine_row + 1][pred_x] in ("┄", "┼")
-            put(engine_row + 1, pred_x, "↓", force=on_guides)
+                chars[engine_row + 1][pred_x] in ("┄", "┼")
+            put(engine_row + 1, pred_x, "↓", _YELLOW_B, force=on_guides)
 
         # ── The booster itself, or what is left of it ──
         if crashed:
-            fireball = ["  ░░░  ", " ░▒▓▒░ ", "░▒▓█▓▒░", "▀▄▀▄▀▄▀"]
-            for dy, line in enumerate(fireball):
+            fireball = [
+                ("  ░░░  ", _GRAY),
+                (" ░▒▓▒░ ", None),
+                ("░▒▓█▓▒░", None),
+                ("▀▄▀▄▀▄▀", _GRAY),
+            ]
+            heat = {"█": _WHITE_B, "▓": _YELLOW_B, "▒": _RED_B, "░": _RED}
+            for dy, (line, colour) in enumerate(fireball):
                 for dx, ch in enumerate(line):
                     if ch != " ":
-                        put(_ARM_ROW + dy, bcol - 3 + dx, ch, force=True)
+                        put(_GROUND_ROW - 3 + dy, bcol - 3 + dx, ch,
+                            colour or heat[ch], force=True)
         else:
-            for dy, line in enumerate(self._booster_sprite()):
+            for dy, (line, colour) in enumerate(self._booster_sprite()):
                 for dx, ch in enumerate(line):
-                    put(top + dy, bcol - 1 + dx, ch, force=True)
+                    if ch != " ":
+                        put(top + dy, bcol - 2 + dx, ch,
+                            _WHITE if ch in "╪╫" else colour, force=True)
             if caught:
                 # Arms closed: fill the gap so both tips meet the booster body.
                 for i in range(al + 1, ar):
-                    if not (bcol - 1 <= i <= bcol + 1) and arms[i] in ("┄", "┼", " "):
-                        arms[i] = "═"
+                    if not (bcol - 1 <= i <= bcol + 1) and chars[_ARM_ROW][i] == " ":
+                        put(_ARM_ROW, i, "═", arm_colour, force=True)
 
-        # ── Altitude labels, one per mark, on the row the fins pass at that height ──
-        labels = {
-            int(round((CRASH_Y - km) * _ARM_ROW / CRASH_Y)): f"{km:>2}"
-            for km in (15, 10, 6, 3)
-        }
+        # ── Altitude labels, one per mark, on the row the booster top passes ──
+        span = _GROUND_ROW - (_BOOSTER_H - 1)
+        labels = {int(round((CRASH_Y - km) * span / CRASH_Y)): f"{km:>2}"
+                  for km in (15, 10, 6, 3)}
         lines = []
         for row in range(_CANVAS_H):
-            label = labels.get(row, "  ") if row < GRID_H else "  "
-            lines.append(label + "│" + "".join(canvas[row]))
+            label = labels.get(row, "  ") if row < _SKY_ROWS else "  "
+            cells = [(ch, _CYAN) for ch in label] + [("│", _GRAY)]
+            cells += list(zip(chars[row], colours[row]))
+            lines.append(_ansi_line(cells))
         return "\n".join(lines)
 
     # ── EMBED ──────────────────────────────────────────────────────
@@ -627,7 +767,8 @@ class BoosterCatchGame:
         if self.state == "catch_zone":
             phase_str = "🎯 **🚨 CATCH ZONE 🚨**"
         elif self.engine_on:
-            phase_str = f"🔥 **FIRING** — {self.thrust_timer:.1f}s"
+            burn = "AUTO LANDING BURN" if self._auto_burn_active else "FIRING"
+            phase_str = f"🔥 **{burn}** — {self.thrust_timer:.1f}s"
         else:
             phase_str = f"🛸 Descent — {self.altitude:.1f} km"
 
@@ -641,7 +782,7 @@ class BoosterCatchGame:
 
         emb = discord.Embed(
             title="🚀 Catch Booster 16 — Mechzilla",
-            description=f"```\n{self.make_field()}\n```",
+            description=f"```ansi\n{self.make_field()}\n```",
             color=color,
         )
         emb.add_field(
@@ -678,7 +819,7 @@ class BoosterCatchGame:
             "💡 Arms span ±5 cols — position them under the booster's predicted path",
             "🎯 V-Speed at catch determines quality — aim for < 0.8 wu/s for perfect",
             "🌬️ Wind oscillates naturally — watch the H telemetry, not just the indicator",
-            "📏 Altitude labels on the left show km remaining — plan burns at 10 km",
+            "📏 The landing burn fires itself at 8 km — trim with THRUST after it",
             "⚡ Burn penalty above 2 burns — precision > mashing",
             "🏓 Wall bounce reverses wind direction — use it to shed lateral drift",
         ]
@@ -721,7 +862,8 @@ def _register_commands(bot: commands.Bot):
                 status = "🚨 **CATCH WINDOW OPEN — EXECUTE NOW!** 🚨"
                 disp = DISP_FAST
             elif game.engine_on:
-                status = f"🔥 **ENGINE FIRING — {game.thrust_timer:.1f}s remaining**"
+                burn = "AUTO LANDING BURN" if game._auto_burn_active else "ENGINE FIRING"
+                status = f"🔥 **{burn} — {game.thrust_timer:.1f}s remaining**"
                 disp = DISP_FAST
             elif game.altitude <= 3.0:
                 status = "🔴 **FINAL APPROACH — Last chance!**"
@@ -736,11 +878,12 @@ def _register_commands(bot: commands.Bot):
                 status = "🚀 **Descent nominal — All systems active**"
                 disp = DISP_SLOW
 
-            if now - last_display >= disp:
+            if now - last_display >= disp or game.redraw_requested:
                 view.sync_buttons()
                 try:
                     await msg.edit(embed=game.make_embed(status), view=view)
                     last_display = now
+                    game.redraw_requested = False
                 except discord.errors.NotFound:
                     return
                 except discord.errors.HTTPException:
@@ -775,7 +918,7 @@ def _register_commands(bot: commands.Bot):
             final = discord.Embed(
                 title="🏆 MISSION SUCCESS — BOOSTER RECOVERED",
                 description=(f"**{ctx.author.display_name}** caught Booster 16 with Mechzilla!\n"
-                             f"```\n{game.make_field()}\n```"),
+                             f"```ansi\n{game.make_field()}\n```"),
                 color=0x00FF00,
             )
             final.add_field(
@@ -826,7 +969,7 @@ def _register_commands(bot: commands.Bot):
 
             final = discord.Embed(
                 title="💥 MISSION FAILED — BOOSTER LOST",
-                description=f"Post-mission analysis:\n```\n{game.make_field()}\n```",
+                description=f"Post-mission analysis:\n```ansi\n{game.make_field()}\n```",
                 color=0xFF0000,
             )
             final.add_field(
@@ -843,9 +986,9 @@ def _register_commands(bot: commands.Bot):
             recs = []
             if game.vel_y > 2.5:        recs.append("• Ignite engine earlier — descent speed too high")
             if game.fuel_pct > 40:      recs.append("• You had fuel to spare — use it")
-            if game.manual_burns == 0:  recs.append("• You never fired the engine!")
+            if game.manual_burns == 0:  recs.append("• Add a THRUST after the auto burn to trim speed")
             recs.append("• Wind now mean-reverts — trust it to change, don't panic-move arms")
-            recs.append("• Watch altitude labels on the left — plan burns at 10 km")
+            recs.append("• The landing burn fires itself at 8 km — trim after it ends")
             final.add_field(name="💡 Recommendations", value="\n".join(recs), inline=True)
             final.add_field(name="📺 Final Event",
                             value=game.timeline[-1] if game.timeline else "Telemetry lost",
@@ -884,6 +1027,8 @@ def _register_commands(bot: commands.Bot):
         emb.add_field(name="🎮 Controls", value=(
             "**← Arms / Arms →** — Move arms 4 cols per press\n"
             "**🔥 THRUST** — Fire engines for 1.2 s (burns real fuel)\n"
+            f"**Auto landing burn** — engines light by themselves at {AUTO_BURN_ALT_KM:.0f} km "
+            f"for {AUTO_BURN_DURATION} s; it does not count toward the burn penalty\n"
             "**🥢 CATCH!** — Grab booster when window opens"
         ), inline=False)
         emb.add_field(name="⚙️ Physics", value=(
@@ -903,7 +1048,7 @@ def _register_commands(bot: commands.Bot):
             f"❌ **Miss**      0 pts"
         ), inline=False)
         emb.add_field(name="💡 Tips", value=(
-            "• Watch altitude labels on the left — fire engines at 10 km\n"
+            "• Let the auto burn run, then add one short THRUST to trim for a perfect catch\n"
             "• Aim for V-speed < 1.5 wu/s before the catch zone\n"
             "• 1–2 precise burns > mashing (−8 pts per extra burn)\n"
             "• Wind now oscillates — wait it out instead of panic-moving arms\n"
