@@ -2,8 +2,8 @@ import discord
 from discord.ext import commands
 import io
 
-# Pillow is imported inside the two functions that use it, not here. It costs
-# several MB of RSS and is only needed when someone actually runs !pixelart.
+# Pillow is imported inside the two functions that use it, not here, so the
+# bot only loads it when someone actually runs !pixelart.
 
 
 def setup_pixel_art(bot: commands.Bot):
