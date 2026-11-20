@@ -255,7 +255,14 @@ _PULSE3_EVENTS = [
      "desc":"The Void Sentinel has fully awakened. Only a commander with all four hints can challenge it at (-78, 42).", "trigger":30},
 ]
 
-def _pulse3_event(ud: dict) -> dict:
+def _pulse3_event(ud: dict) -> dict | None:
+    """The Pulse-3 alert this commander should see, or None once it is over.
+
+    After the Void Sentinel is defeated the threat is gone, so no alert is
+    shown -- it used to keep warning that the Sentinel had awakened.
+    """
+    if ud.get("story_state", {}).get("core_retrieved"):
+        return None
     n  = ud.get("successful_explorations", 0)
     ev = _PULSE3_EVENTS[0]
     for e in _PULSE3_EVENTS:
@@ -1325,7 +1332,8 @@ def _map_embed(uid: int) -> discord.Embed:
                   inline=False)
 
     ev = _pulse3_event(ud)
-    emb.add_field(name=ev["title"], value=ev["desc"], inline=False)
+    if ev:
+        emb.add_field(name=ev["title"], value=ev["desc"], inline=False)
     emb.set_footer(text="Navigate with buttons • 🔭 Scan • 📊 Stats")
     return emb
 
@@ -2049,7 +2057,8 @@ def _register_commands(bot: commands.Bot):
             elif ss["core_retrieved"]:
                 emb.add_field(name="🏆", value="Storyline complete! The Core powers your base.", inline=False)
             ev = _pulse3_event(ud)
-            emb.add_field(name=ev["title"], value=ev["desc"], inline=False)
+            if ev:
+                emb.add_field(name=ev["title"], value=ev["desc"], inline=False)
         await ctx.send(embed=emb)
 
     @bot.hybrid_command(name="gleaderboard", aliases=["gtop","glb","grankings","galacticleaderboard"], description="View top galaxy explorers")

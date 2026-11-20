@@ -133,3 +133,23 @@ def test_opening_screen_has_the_scene():
     assert_clean_grid(BLOCK.findall(emb.description)[0])
     assert [f.name for f in emb.fields] == ["Turn"]
     assert_fits_discord(emb)
+
+
+# ── After the fight ───────────────────────────────────────────────────────────
+
+ALERT_TITLES = {e["title"] for e in gk._PULSE3_EVENTS}
+
+
+def test_sentinel_alert_shows_while_the_threat_is_live():
+    ud = _fighter()
+    ud["successful_explorations"] = 40
+    assert gk._pulse3_event(ud)["title"] == "🔴 SENTINEL RAGE — Galaxy-Wide Alert"
+    assert ALERT_TITLES & {f.name for f in gk._map_embed(UID).fields}
+
+
+def test_sentinel_alert_is_gone_once_it_is_defeated():
+    ud = _fighter()
+    ud["successful_explorations"] = 40
+    ud["story_state"]["core_retrieved"] = True
+    assert gk._pulse3_event(ud) is None
+    assert not ALERT_TITLES & {f.name for f in gk._map_embed(UID).fields}
