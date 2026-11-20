@@ -271,3 +271,24 @@ def test_manage_guild_permission_grants_access(api_client, monkeypatch):
     assert client.get(f"/api/config/{MANAGED}", headers=_discord("perm")).status_code == 200
     assert client.get(f"/api/config/{UNMANAGED}", headers=_discord("perm")).status_code == 403
     keep_alive._guild_access_cache.clear()
+
+
+def test_operator_routes_refuse_everyone_when_api_key_is_unset(api_client, monkeypatch):
+    """There is no built-in fallback key; unset means locked, not open."""
+    client, keep_alive = api_client
+    monkeypatch.setattr(keep_alive, "API_KEY", None)
+
+    assert client.get("/api/stats").status_code == 401
+    assert client.get("/api/stats", headers={"X-API-Key": ""}).status_code == 401
+    assert client.get("/api/stats", headers={"X-API-Key": "anything"}).status_code == 401
+
+
+def test_source_has_no_hardcoded_api_key_fallback():
+    """A default in os.getenv would be readable by anyone with the repo."""
+    import inspect
+    import re
+
+    import keep_alive
+
+    source = inspect.getsource(keep_alive)
+    assert not re.search(r"getenv\(\s*['\"]API_KEY['\"]\s*,", source)

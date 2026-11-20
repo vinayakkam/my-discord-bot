@@ -31,6 +31,9 @@ def api_client(tmp_path, monkeypatch):
     ]:
         monkeypatch.setattr(keep_alive, attr, str(tmp_path / name))
 
+    # Use a throwaway operator key so tests never depend on the real one in .env.
+    monkeypatch.setattr(keep_alive, "API_KEY", "test-operator-key")
+
     # Don't let tests push config to GitHub.
     monkeypatch.setattr(keep_alive, "commit_to_github", lambda *a, **k: None)
 

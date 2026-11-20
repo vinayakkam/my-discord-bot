@@ -83,7 +83,9 @@ API_LOG_LIMIT = 1000
 _api_logs_since_save = 0
 
 # ── Env ──────────────────────────────────────────────────────────────────────
-API_KEY = os.getenv('API_KEY', 'Olittech447443456989260909-087')
+# No fallback: a default written here would be readable by anyone with the
+# repo. When API_KEY is unset, require_admin_key refuses every request.
+API_KEY = os.getenv('API_KEY')
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 GITHUB_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET', '')  # Secret for HMAC verification
 GITHUB_REPO = os.getenv('GITHUB_REPO', 'vinayakkam/my-discord-bot')
