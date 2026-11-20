@@ -18,6 +18,18 @@ RED_B, GREEN_B, YELLOW_B = "1;31", "1;32", "1;33"
 BLUE_B, PINK_B, CYAN_B, WHITE_B = "1;34", "1;35", "1;36", "1;37"
 
 
+def plain_weight(ch: str, colour: Optional[str]) -> Optional[str]:
+    """Drop bold from box-drawing characters, keeping the colour.
+
+    Bold monospace fonts often lack box-drawing glyphs (Consolas Bold has no
+    ┃ ╳ ╱ ╲ ╭ ╮), so a bold one is drawn from a fallback font that may not
+    match the cell width and would knock the row out of line.
+    """
+    if colour and colour.startswith("1;") and 0x2500 <= ord(ch) <= 0x257F:
+        return "0;" + colour[2:]
+    return colour
+
+
 def ansi_line(cells: List[Tuple[str, Optional[str]]]) -> str:
     """Join (char, colour) cells, emitting an escape code only on a change.
 
@@ -55,7 +67,7 @@ class Canvas:
             if only_empty and self.chars[row][col] != " ":
                 return
             self.chars[row][col] = ch
-            self.colours[row][col] = colour
+            self.colours[row][col] = plain_weight(ch, colour)
 
     def text(self, row: int, col: int, s: str, colour: Optional[str] = None) -> None:
         """Write a string left to right; spaces in it are written too."""

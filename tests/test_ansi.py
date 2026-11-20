@@ -42,3 +42,12 @@ def test_gauge_fills_and_colours_by_level():
 
 def test_block_wraps_in_an_ansi_fence():
     assert ansi.block("x") == "```ansi\nx\n```"
+
+
+def test_box_drawing_is_never_bold():
+    """Bold fonts lack many box glyphs; a fallback would break the grid."""
+    c = ansi.Canvas(4, 1)
+    c.put(0, 0, "╳", ansi.YELLOW_B)
+    c.put(0, 1, "█", ansi.YELLOW_B)
+    c.put(0, 2, "A", ansi.RED_B)
+    assert c.colours[0] == [ansi.YELLOW, ansi.YELLOW_B, ansi.RED_B, None]
