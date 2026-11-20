@@ -55,7 +55,12 @@ intents.members=True
 intents.emojis=True
 intents.guilds=True
 
-bot=commands.Bot(command_prefix='!',intents=intents)
+# max_messages=None turns off discord.py's message cache (1000 Message objects
+# by default). Nothing here reads it: there are no on_message_edit/delete or
+# non-raw reaction listeners, wait_for only waits on 'message', and elections
+# fetch their message from the API. The member cache stays on; leaderboards and
+# the welcome footer read guild.members.
+bot=commands.Bot(command_prefix='!',intents=intents,max_messages=None)
 
 
 

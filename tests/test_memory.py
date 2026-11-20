@@ -89,3 +89,18 @@ def test_api_log_still_saves_every_tenth_entry_when_full(api_client, monkeypatch
             keep_alive.log_req("/new", "GET", {})
 
     assert len(saves) == 3
+
+
+def test_message_cache_is_off():
+    """No feature reads the message cache, so it should not hold 1000 messages."""
+    import main
+
+    assert main.bot._connection.max_messages is None
+
+
+def test_member_cache_stays_on():
+    """Leaderboards and the welcome footer read guild.members."""
+    import main
+
+    assert main.bot.intents.members
+    assert main.bot._connection.member_cache_flags.joined
