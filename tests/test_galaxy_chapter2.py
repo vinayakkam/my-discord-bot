@@ -153,6 +153,8 @@ def test_killing_the_warden_completes_chapter_two(no_wait):
     click(lambda: gk._BossView(UID), "a4", it)
     final = it.shown[-1][1]
     assert final.title == "🏆 ECHO WARDEN SILENCED!"
+    art = rows_of(BLOCK.findall(final.description)[0])
+    assert art[11].startswith("WARDEN"), "victory art must label the Warden's gauge"
     assert ud["story_state"]["warden_defeated"]
     assert {"Echo Breaker", "Warden's Bane"} <= ud["achievements"]
     assert ud["boss_id"] is None

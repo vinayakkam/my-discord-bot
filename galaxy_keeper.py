@@ -2354,7 +2354,6 @@ def _warden_victory(uid: int, ud: dict):
     """Echo Warden defeated: Chapter 2 complete."""
     ud["boss_hp"]    = None
     ud["boss_turns"] = 0
-    ud["boss_id"]    = None
     ud["story_state"]["warden_defeated"] = True
     ud["credits"] += 5000
     ud["resources"]["crystals"]    = ud["resources"].get("crystals", 0)    + 250
@@ -2382,6 +2381,9 @@ def _warden_victory(uid: int, ud: dict):
                   inline=False)
     emb.add_field(name="🏅 Achievements", value="⭐ Echo Breaker  ⭐ Warden's Bane", inline=False)
     emb.add_field(name="🏗️ Next", value="Power up your base with `!gbase`.", inline=False)
+    # Cleared only after drawing: the art reads boss_id for the gauge label.
+    ud["boss_id"] = None
+    _save_user(uid)
     return emb, None
 
 
