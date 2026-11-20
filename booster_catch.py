@@ -35,6 +35,10 @@ _GROUND_ROW = _ARM_ROW + 5
 _CANVAS_H = _GROUND_ROW + 1
 _TOWER_TOP = 6  # first lattice row of the Mechzilla tower
 _BOOSTER_H = 7  # sprite rows, forward dome to engine bells
+# The tower stands in three extra columns right of the playfield, so it never
+# overlaps the booster (which reaches col WALL_R + 2) or the arms.
+_TOWER_COL = GRID_W
+_CANVAS_W = GRID_W + 3
 
 # ANSI colours for the ```ansi code block (Discord's 8-colour palette).
 _GRAY, _RED, _GREEN, _YELLOW = "0;30", "0;31", "0;32", "0;33"
@@ -54,10 +58,13 @@ FUEL_FLOW = 0.9
 THRUST_PULSE_DURATION = 1.2
 
 # Automatic landing burn: the booster lights its engines by itself at this
-# altitude. Tuned by simulation: on its own it brings the booster into the
-# "good" band (~1.0 wu/s); a well-timed THRUST on top is needed for "perfect".
+# altitude and throttles toward a steady descent speed, so it slows down but
+# never climbs. On its own it lands in the "good" band; a well-timed THRUST
+# on top is still needed for "perfect".
 AUTO_BURN_ALT_KM = 8.0
 AUTO_BURN_DURATION = 2.5
+AUTO_BURN_TARGET_VY = 1.0      # descent speed the throttle aims for (wu/s)
+AUTO_BURN_RESPONSE_S = 0.6     # how quickly it closes the gap to that speed
 
 WIND_BASE_ACCEL = 0.5
 WIND_OU_THETA = 1.5  # mean-reversion speed
@@ -224,6 +231,7 @@ class BoosterCatchGame:
         self.engine_on: bool = False
         self.manual_burns: int = 0
         self._burn_total: float = THRUST_PULSE_DURATION  # length of the current burn
+        self.throttle: float = 1.0  # engine power 0..1; the auto burn varies it
         self._auto_burn_done: bool = False
         self._auto_burn_active: bool = False
         self._burn_end_frame: int = -999
@@ -310,9 +318,20 @@ class BoosterCatchGame:
         # ── 3. Engine ────────────────────────────────────────────────
         if self.thrust_timer > 0 and self.fuel_kg > 0:
             self.engine_on = True
+            m = self.mass
+            drag = DRAG_COEFF * self.vel_y * abs(self.vel_y) / m
+            if self._auto_burn_active:
+                # Throttle so the booster settles at the target descent speed.
+                wanted_acc = (AUTO_BURN_TARGET_VY - self.vel_y) / AUTO_BURN_RESPONSE_S
+            else:
+                # Manual THRUST is full power, but only until the booster
+                # would stop descending: it can hover, never climb.
+                wanted_acc = -self.vel_y / dt if dt > 0 else 0.0
+            needed = (GRAVITY - drag - wanted_acc) * m / ENGINE_THRUST
+            self.throttle = max(0.0, min(1.0, needed))
             burn_dt = min(dt, self.thrust_timer)
             self.thrust_timer = max(0.0, self.thrust_timer - burn_dt)
-            self.fuel_kg = max(0.0, self.fuel_kg - FUEL_FLOW * burn_dt)
+            self.fuel_kg = max(0.0, self.fuel_kg - FUEL_FLOW * self.throttle * burn_dt)
             if self.fuel_kg == 0.0:
                 self.thrust_timer = 0.0
                 self.timeline.append("⛽ **FUEL DEPLETED — Engine cut**")
@@ -331,7 +350,7 @@ class BoosterCatchGame:
         acc_y = (
                 GRAVITY
                 - DRAG_COEFF * self.vel_y * abs(self.vel_y) / m
-                + (-ENGINE_THRUST / m if self.engine_on else 0.0)
+                + (-ENGINE_THRUST * self.throttle / m if self.engine_on else 0.0)
         )
         acc_x = (
                 -DRAG_COEFF * self.vel_x * abs(self.vel_x) / m
@@ -532,8 +551,9 @@ class BoosterCatchGame:
                 put(engine_row + 1, bcol + 2 * side, "*", _YELLOW_B)
                 put(engine_row + 2, bcol + 3 * side, "'", _YELLOW)
         elif p < 0.85:
-            # Full thrust: a long cone with shock diamonds that ripple down it.
-            length = 7 + pulse
+            # Main burn: a cone with shock diamonds that ripple down it. Its
+            # length follows the throttle, so a throttled-back burn looks it.
+            length = 3 + round(4 * self.throttle) + pulse
             shift = self.anim_frame % 3
             for i in range(1, length + 1):
                 row = engine_row + i
@@ -586,13 +606,13 @@ class BoosterCatchGame:
     def make_field(self) -> str:
         f8 = self.anim_frame % 8
         frame = self.anim_frame % 16
-        chars = [[" "] * GRID_W for _ in range(_CANVAS_H)]
-        colours = [[None] * GRID_W for _ in range(_CANVAS_H)]
+        chars = [[" "] * _CANVAS_W for _ in range(_CANVAS_H)]
+        colours = [[None] * _CANVAS_W for _ in range(_CANVAS_H)]
         soft = set(_STAR_CHARS) | {" ", "+"}  # cells effects may draw over
 
         def put(row: int, col: int, ch: str, colour, force: bool = False) -> None:
             # Draw one cell, clipped to the canvas; effects never cover structure.
-            if 0 <= row < _CANVAS_H and 0 <= col < GRID_W:
+            if 0 <= row < _CANVAS_H and 0 <= col < _CANVAS_W:
                 if force or chars[row][col] in soft:
                     chars[row][col] = ch
                     colours[row][col] = colour
@@ -631,30 +651,50 @@ class BoosterCatchGame:
                 put(row, WALL_L + x, streak, _BLUE)
                 put(row, WALL_L + x + 1, streak, _BLUE)
 
-        # ── Mechzilla tower: lattice on the right, warning light on top ──
+        # ── Mechzilla tower: two rails with X-bracing, floors, cap and light ──
+        t = _TOWER_COL
         light_on = (frame < 8) if self.catch_window_open else \
             (frame < 13) if self.pos_y > GRID_H * 0.6 else True
-        put(_TOWER_TOP - 1, GRID_W - 1, "●" if light_on else "○",
+        put(_TOWER_TOP - 2, t + 1, "●" if light_on else "○",
             _RED_B if light_on else _GRAY, force=True)
+        for dx, ch in enumerate("▗▄▖"):
+            put(_TOWER_TOP - 1, t + dx, ch, _WHITE, force=True)
         for row in range(_TOWER_TOP, _GROUND_ROW):
-            put(row, GRID_W - 2, "╲" if row % 2 == 0 else "╱", _GRAY, force=True)
-            put(row, GRID_W - 1, "╱" if row % 2 == 0 else "╲", _GRAY, force=True)
+            if (row - _TOWER_TOP) % 4 == 3:
+                # A floor of the tower every fourth row.
+                for dx, ch in enumerate("╠═╣"):
+                    put(row, t + dx, ch, _WHITE, force=True)
+            else:
+                put(row, t, "║", _WHITE, force=True)
+                put(row, t + 1, "╲" if row % 2 == 0 else "╱", _GRAY, force=True)
+                put(row, t + 2, "║", _WHITE, force=True)
 
         # ── Chopstick arms on their carriage ──
+        # Each arm is a steel beam with a yellow catch pad on its inner tip and
+        # a truss along the top. The right arm runs back to the carriage; the
+        # thin line through the gap is the rear arm, seen behind the booster.
         al = max(0, int(self.arm_left))
-        ar = min(GRID_W - 3, int(self.arm_right))
-        arm_colour = _GREEN_B if self.catch_window_open else _CYAN
-        for i in range(al, min(al + 4, GRID_W)):
-            put(_ARM_ROW, i, ("╠" if self.catch_window_open else "╞") if i == al else
-                ("═" if i == al + 1 else "╪" if i == al + 2 else "┤"), arm_colour, force=True)
-        for i in range(max(0, ar - 3), ar + 1):
-            put(_ARM_ROW, i, ("╣" if self.catch_window_open else "╡") if i == ar else
-                ("═" if i == ar - 1 else "╪" if i == ar - 2 else "├"), arm_colour, force=True)
-        for i in range(ar + 1, GRID_W - 2):
-            put(_ARM_ROW, i, "─", _GRAY, force=True)       # beam back to the tower
-        put(_ARM_ROW, GRID_W - 2, "█", _WHITE, force=True)  # carriage on the tower
+        ar = min(t - 2, int(self.arm_right))
+        steel = _GREEN_B if self.catch_window_open else _WHITE
+        pad = _YELLOW_B
+        put(_ARM_ROW, al, "▐", steel, force=True)
+        for i in range(al + 1, al + 3):
+            put(_ARM_ROW, i, "▀", steel, force=True)
+        put(_ARM_ROW, al + 3, "█", pad, force=True)
+        put(_ARM_ROW, ar - 3, "█", pad, force=True)
+        for i in range(ar - 2, t):
+            put(_ARM_ROW, i, "▀", steel, force=True)
+        for i in range(al + 4, ar - 3):
+            put(_ARM_ROW, i, "─", _GRAY, force=True)            # rear arm
+        for i in list(range(al, al + 3)) + list(range(ar - 2, t)):
+            put(_ARM_ROW - 1, i, "╱" if i % 2 == 0 else "╲", _GRAY)  # truss
+        # The carriage clamps round the tower at arm height.
+        for dx, ch in enumerate("▄▄▄"):
+            put(_ARM_ROW - 1, t + dx, ch, _WHITE_B, force=True)
+        for dx, ch in enumerate("█▓█"):
+            put(_ARM_ROW, t + dx, ch, _WHITE_B, force=True)
         if self.catch_window_open and not caught:
-            # Catch guides between the arm tips, target blinking at center.
+            # Catch guides between the pads, target blinking at center.
             for i in range(al + 4, ar - 3):
                 put(_ARM_ROW, i, "┄", _GREEN, force=True)
             gc = int(self.arm_center)
@@ -662,16 +702,16 @@ class BoosterCatchGame:
                 put(_ARM_ROW, gc, "┼", _YELLOW_B, force=True)
         if abs(self.arm_center - self._last_arm_center) > 0.1 and f8 < 2:
             # Sparks along the arms while the carriage is moving.
-            for i in range(al, ar + 1):
-                if chars[_ARM_ROW][i] in ("═", "─") and random.random() < 0.35:
+            for i in range(al, t):
+                if chars[_ARM_ROW][i] == "▀" and random.random() < 0.35:
                     put(_ARM_ROW, i, "*", _YELLOW_B, force=True)
         self._last_arm_center = self.arm_center
 
         # ── Ground, with the tower's base on the right ──
-        for col in range(GRID_W - 2):
+        for col in range(t):
             put(_GROUND_ROW, col, "▓", _GRAY, force=True)
-        put(_GROUND_ROW, GRID_W - 2, "█", _GRAY, force=True)
-        put(_GROUND_ROW, GRID_W - 1, "█", _GRAY, force=True)
+        for dx, ch in enumerate("▟█▙"):
+            put(_GROUND_ROW, t + dx, ch, _WHITE, force=True)
 
         # ── Re-entry heating: plasma streaks trailing a fast booster ──
         if self.vel_y >= 2.0 and not self.engine_on and flying:
@@ -727,10 +767,10 @@ class BoosterCatchGame:
                         put(top + dy, bcol - 2 + dx, ch,
                             _WHITE if ch in "╪╫" else colour, force=True)
             if caught:
-                # Arms closed: fill the gap so both tips meet the booster body.
-                for i in range(al + 1, ar):
-                    if not (bcol - 1 <= i <= bcol + 1) and chars[_ARM_ROW][i] == " ":
-                        put(_ARM_ROW, i, "═", arm_colour, force=True)
+                # Arms closed: the catch pads clamp onto the booster body.
+                for i in range(al + 3, ar - 2):
+                    if not (bcol - 1 <= i <= bcol + 1):
+                        put(_ARM_ROW, i, "█", pad, force=True)
 
         # ── Altitude labels, one per mark, on the row the booster top passes ──
         span = _GROUND_ROW - (_BOOSTER_H - 1)
@@ -1026,9 +1066,10 @@ def _register_commands(bot: commands.Bot):
         )
         emb.add_field(name="🎮 Controls", value=(
             "**← Arms / Arms →** — Move arms 4 cols per press\n"
-            "**🔥 THRUST** — Fire engines for 1.2 s (burns real fuel)\n"
+            "**🔥 THRUST** — Full-power burn for 1.2 s (burns real fuel); it can hover the booster but never lift it\n"
             f"**Auto landing burn** — engines light by themselves at {AUTO_BURN_ALT_KM:.0f} km "
-            f"for {AUTO_BURN_DURATION} s; it does not count toward the burn penalty\n"
+            f"for {AUTO_BURN_DURATION} s and throttle to a steady descent; "
+            f"it does not count toward the burn penalty\n"
             "**🥢 CATCH!** — Grab booster when window opens"
         ), inline=False)
         emb.add_field(name="⚙️ Physics", value=(

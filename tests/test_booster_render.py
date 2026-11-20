@@ -229,3 +229,65 @@ def test_a_full_descent_renders_every_frame():
         ticks += 1
     assert g.state == "over"
     assert "▀▄▀▄▀▄▀" in "\n".join(visible(g.make_field()))
+
+
+# ── Throttle: burns slow the booster but never make it climb ─────────────────
+
+def test_auto_burn_never_makes_the_booster_climb():
+    for seed in range(60):
+        random.seed(seed)
+        g = bc.BoosterCatchGame(1, "pilot")
+        while g.state != "over":
+            g.update_physics(bc.PHYS_DT)
+            assert g.vel_y > -0.01, f"seed {seed}: booster climbed during descent"
+
+
+def test_auto_burn_throttles_down_as_it_slows():
+    g = _descend(5, lambda g: g.engine_on)
+    first = g.throttle
+    while g.engine_on:
+        g.update_physics(bc.PHYS_DT)
+        if g.engine_on:
+            last = g.throttle
+    assert last < first
+    assert abs(g.vel_y - bc.AUTO_BURN_TARGET_VY) < 0.3
+
+
+def test_mashing_thrust_can_hover_but_never_climb():
+    for seed in range(30):
+        random.seed(seed)
+        g = bc.BoosterCatchGame(1, "pilot")
+        while g.state != "over" and (g.fuel_kg > 0 or g.engine_on):
+            if g.thrust_timer == 0:
+                g.action_thrust()
+            g.update_physics(bc.PHYS_DT)
+            assert g.vel_y > -0.01
+
+
+def test_plume_length_follows_the_throttle():
+    def flame_cells(throttle):
+        g = _game(**SCENES["full_thrust"], throttle=throttle)
+        return sum(row.count("▓") + row.count("▒") + row.count("◊")
+                   for row in visible(g.make_field()))
+
+    assert flame_cells(1.0) > flame_cells(0.2)
+
+
+# ── Tower and arms ────────────────────────────────────────────────────────────
+
+def test_tower_stands_clear_of_the_playfield():
+    rows = visible(_game(pos_y=8.0).make_field())
+    tower_cols = [row[3 + bc._TOWER_COL:3 + bc._TOWER_COL + 3] for row in rows]
+    assert "▗▄▖" in tower_cols                 # cap
+    assert "▟█▙" == tower_cols[bc._GROUND_ROW]  # base
+    assert any(c == "╠═╣" for c in tower_cols)  # floors
+    assert "█▓█" == tower_cols[bc._ARM_ROW]     # carriage at arm height
+
+
+def test_arms_have_catch_pads_either_side_of_the_gap():
+    g = _game(pos_y=5.0)
+    arm_row = visible(g.make_field())[bc._ARM_ROW]
+    left_pad = 3 + int(g.arm_left) + 3
+    right_pad = 3 + int(g.arm_right) - 3
+    assert arm_row[left_pad] == "█" and arm_row[right_pad] == "█"
+    assert set(arm_row[left_pad + 1:right_pad]) == {"─"}   # rear arm through the gap
