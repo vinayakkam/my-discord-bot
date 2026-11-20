@@ -153,3 +153,24 @@ def test_sentinel_alert_is_gone_once_it_is_defeated():
     ud["story_state"]["core_retrieved"] = True
     assert gk._pulse3_event(ud) is None
     assert not ALERT_TITLES & {f.name for f in gk._map_embed(UID).fields}
+
+
+# ── Boss registry ─────────────────────────────────────────────────────────────
+
+def test_every_boss_is_fully_defined():
+    for bid, boss in gk._BOSSES.items():
+        assert len(boss["sprites"]) == 3 and len(boss["colours"]) == 3, bid
+        for sprite in boss["sprites"]:
+            assert len(sprite) == 7 and {len(r) for r in sprite} == {17}, bid
+        data = boss["data"]
+        assert [p["threshold"] for p in data["phases"]] == sorted(
+            [p["threshold"] for p in data["phases"]], reverse=True)
+        for key in ("hp_max", "phase2_msg", "phase3_msg", "low_hp_msg"):
+            assert key in data, (bid, key)
+        assert bid in gk._VICTORIES
+
+
+def test_saves_without_a_boss_id_fight_the_sentinel():
+    ud = _player()
+    ud.pop("boss_id", None)
+    assert gk._boss_id(ud) == "sentinel"

@@ -353,6 +353,8 @@ def _default_user(uid: int) -> dict:
         "story_state": {"puzzles_solved":0,"hints_collected":[],"core_retrieved":False},
         "successful_explorations": 0, "danger_encounters": 0, "total_credits_earned": 150,
         "boss_hp": None, "boss_turns": 0,
+        # Which boss the fight in progress is against (see _BOSSES).
+        "boss_id": None,
         # Power bound from the Ancient Core after the Sentinel falls (see _CORE_POWERS).
         "core_power": None,
     }
@@ -789,7 +791,7 @@ _PLAYER_ATTACKS = [
     {"name":"Quantum Strike",  "dmg":(30,200), "crit":0.35, "emoji":"💥"},
 ]
 
-def _boss_phase(hp: int) -> dict:
+def _boss_phase(hp: int, boss_id: str = "sentinel") -> dict:
     """The Sentinel phase for this much HP.
 
     Phases are listed from full health (threshold 1.0) down to the final form
@@ -797,9 +799,10 @@ def _boss_phase(hp: int) -> dict:
     below. This used to walk the list in reverse, so the full-health phase
     always overwrote the rest and phases 2 and 3 were never reached.
     """
-    ratio = hp / _SENTINEL["hp_max"]
-    result = _SENTINEL["phases"][0]
-    for ph in _SENTINEL["phases"]:
+    data = _BOSSES[boss_id]["data"]
+    ratio = hp / data["hp_max"]
+    result = data["phases"][0]
+    for ph in data["phases"]:
         if ratio <= ph["threshold"]:
             result = ph
     return result
@@ -1190,6 +1193,21 @@ _SENTINEL_COLOURS = [
     {"body": ansi.RED, "eye": ansi.RED_B, "frame": ansi.PINK, "core": ansi.RED_B, "tendril": ansi.RED},
     {"body": ansi.RED_B, "eye": ansi.WHITE_B, "frame": ansi.YELLOW, "core": ansi.YELLOW_B, "tendril": ansi.RED_B},
 ]
+def _boss_id(ud: dict) -> str:
+    """The boss of the fight in progress; saves from before bosses had ids
+    can only have been fighting the Sentinel."""
+    return ud.get("boss_id") or "sentinel"
+
+
+# Everything that differs between bosses. Chapter 2 adds the Echo Warden.
+_BOSSES = {
+    "sentinel": {
+        "data": _SENTINEL, "sprites": _SENTINEL_SPRITES, "colours": _SENTINEL_COLOURS,
+        "label": "SENTINEL", "title": "Void Sentinel", "short": "Sentinel",
+        "subtitle": "Ancient Guardian of the Core",
+    },
+}
+
 _FIRE_COLOURS = {"█": ansi.WHITE_B, "▓": ansi.YELLOW_B, "▒": ansi.RED_B, "░": ansi.RED, "*": ansi.YELLOW_B}
 
 # Beam glyph and colour for each player attack, in _PLAYER_ATTACKS order.
@@ -1223,6 +1241,7 @@ def _boss_art(ud: dict, phase_index: int, attack: int = None, crit: bool = False
     shielded  -- the ship's shield arc (Defend)
     defeated / ship_lost -- the explosion sprite / the wrecked ship
     """
+    boss = _BOSSES[_boss_id(ud)]
     canvas = ansi.Canvas(_BOSS_W, 13)
     if defeated:
         for r, line in enumerate(_SENTINEL_DEFEATED):
@@ -1230,8 +1249,8 @@ def _boss_art(ud: dict, phase_index: int, attack: int = None, crit: bool = False
                 if ch != " ":
                     canvas.put(r, _SPRITE_COL + c, ch, _FIRE_COLOURS.get(ch, ansi.YELLOW))
     else:
-        palette = _SENTINEL_COLOURS[phase_index]
-        for r, line in enumerate(_SENTINEL_SPRITES[phase_index]):
+        palette = boss["colours"][phase_index]
+        for r, line in enumerate(boss["sprites"][phase_index]):
             for c, ch in enumerate(line):
                 if ch != " ":
                     canvas.put(r, _SPRITE_COL + c, ch, _sentinel_colour(ch, r, palette))
@@ -1260,8 +1279,8 @@ def _boss_art(ud: dict, phase_index: int, attack: int = None, crit: bool = False
         canvas.text(_SHIP_ROW, x - 1, "╱▲╲", ansi.CYAN_B)
 
     hp = max(0, ud.get("boss_hp") or 0)
-    canvas.text(11, 0, "SENTINEL", ansi.PINK_B)
-    ansi.put_cells(canvas, 11, 9, ansi.gauge(hp, _SENTINEL["hp_max"], 20))
+    canvas.text(11, 0, boss["label"][:8], ansi.PINK_B)
+    ansi.put_cells(canvas, 11, 9, ansi.gauge(hp, boss["data"]["hp_max"], 20))
     canvas.text(11, 30, f"{hp:>4}", ansi.WHITE)
     canvas.text(12, 0, "HULL", ansi.CYAN_B)
     ansi.put_cells(canvas, 12, 9, ansi.gauge(ud["fuel"], ud["max_fuel"], 20))
@@ -1269,8 +1288,8 @@ def _boss_art(ud: dict, phase_index: int, attack: int = None, crit: bool = False
     return canvas.render()
 
 
-def _phase_index(hp: int) -> int:
-    return _SENTINEL["phases"].index(_boss_phase(max(1, hp)))
+def _phase_index(hp: int, boss_id: str = "sentinel") -> int:
+    return _BOSSES[boss_id]["data"]["phases"].index(_boss_phase(max(1, hp), boss_id))
 
 
 # How long the weapon-fire frame stays up before the turn result.
@@ -1861,6 +1880,7 @@ class _ExploreView(ui.View):
                 emb.add_field(name=f"{'✅' if solved else '❌'} {ps['puzzle_type'].title()} Puzzle",
                               value=f"Coords: `{ps['coords']}`", inline=True)
             return await interaction.response.send_message(embed=emb, ephemeral=True)
+        ud["boss_id"]    = "sentinel"
         ud["boss_hp"]    = _SENTINEL["hp_max"]
         ud["boss_turns"] = 0
         _save_user(self.uid)
@@ -1872,16 +1892,65 @@ class _ExploreView(ui.View):
 def _boss_embed(uid: int):
     ud    = _get_user(uid)
     hp    = ud["boss_hp"]
-    phase = _boss_phase(hp)
+    bid   = _boss_id(ud)
+    boss  = _BOSSES[bid]
+    phase = _boss_phase(hp, bid)
     emb   = discord.Embed(
-        title="⚔️ BOSS BATTLE — Void Sentinel",
-        description=(f"_Ancient Guardian of the Core_\n\n**{phase['name']}**\n{phase['desc']}\n"
-                     f"{ansi.block(_boss_art(ud, _phase_index(hp)))}"),
+        title=f"⚔️ BOSS BATTLE — {boss['title']}",
+        description=(f"_{boss['subtitle']}_\n\n**{phase['name']}**\n{phase['desc']}\n"
+                     f"{ansi.block(_boss_art(ud, _phase_index(hp, bid)))}"),
         color=phase["color"],
     )
     emb.add_field(name="Turn",           value=str(ud["boss_turns"]+1),               inline=True)
     emb.set_footer(text="Choose your attack!")
     return emb, _BossView(uid)
+
+
+def _sentinel_victory(uid: int, ud: dict):
+    """Void Sentinel defeated: rewards, the Core, and the claim panel."""
+    ud["boss_hp"]   = None
+    ud["boss_turns"]= 0
+    ud["story_state"]["core_retrieved"] = True
+    ud["credits"] += 2000
+    ud["resources"]["crystals"]     = ud["resources"].get("crystals",0)    + 100
+    ud["resources"]["energy"]       = ud["resources"].get("energy",0)      + 200
+    ud["resources"]["dark_matter"]  = ud["resources"].get("dark_matter",0) + 20
+    ud["achievements"].add("Void Slayer")
+    ud["achievements"].add("Core Retriever")
+    ud["achievements"].add("Ancient Wisdom")
+    _save_user(uid)
+    if _add_score: _add_score(uid, 1000)
+    gs = _load_json(SCORES_FILE)
+    gs[str(uid)] = gs.get(str(uid), 0) + 1000
+    _save_json(SCORES_FILE, gs)
+    emb = discord.Embed(
+        title="🏆 VOID SENTINEL DEFEATED!",
+        description=(
+            "**THE CORE VAULT IS OPEN.**\n\n"
+            "The ancient guardian collapses. The Ancient Core pulses in your grasp.\n\n"
+            "_Your name will echo across the galaxy._\n"
+            f"{ansi.block(_boss_art(ud, 2, defeated=True))}"
+        ),
+        color=0xffd700,
+    )
+    emb.add_field(name="🎁 Rewards",
+                  value="🏆 +1,000 pts  💰 +2,000 credits  💎 +100 crystals  ⚡ +200 energy  🌑 +20 dark matter",
+                  inline=False)
+    emb.add_field(name="🏅 Achievements",
+                  value="⭐ Void Slayer  ⭐ Core Retriever  ⭐ Ancient Wisdom", inline=False)
+    if not ud.get("core_power"):
+        # The victory screen doubles as the Core claim panel.
+        emb.add_field(name="🔮 Claim the Core",
+                      value="Bind one permanent power to your ship:\n" + "\n".join(
+                          f"{p['emoji']} **{p['name']}** — {p['desc']}"
+                          for p in _CORE_POWERS.values()),
+                      inline=False)
+        return emb, _CoreClaimView(uid)
+    return emb, None
+
+
+# Victory handler per boss id.
+_VICTORIES = {"sentinel": _sentinel_victory}
 
 
 class _BossView(ui.View):
@@ -1907,7 +1976,7 @@ class _BossView(ui.View):
         ud      = _get_user(self.uid)
         recover = random.randint(5,15) + ud["upgrades"]["shield_matrix"]*3
         ud["fuel"] = min(ud["max_fuel"], ud["fuel"] + recover)
-        shield_frame = _boss_art(ud, _phase_index(ud["boss_hp"]), shielded=True)
+        shield_frame = _boss_art(ud, _phase_index(ud["boss_hp"], _boss_id(ud)), shielded=True)
         emb, view = await self._retaliate(ud, f"🛡️ Defended — recovered {recover} fuel.", None,
                                           shielded=True)
         await self._animate(interaction, shield_frame, emb, view)
@@ -1925,14 +1994,16 @@ class _BossView(ui.View):
         player_txt = f"{atk['emoji']} **{atk['name']}** dealt **{dmg}**!" + (" ⭐ **CRIT!**" if crit else "")
 
         # Phase transition
-        old_ratio = (ud["boss_hp"]+dmg) / _SENTINEL["hp_max"]
-        new_ratio = max(0, ud["boss_hp"]) / _SENTINEL["hp_max"]
+        data      = _BOSSES[_boss_id(ud)]["data"]
+        old_ratio = (ud["boss_hp"]+dmg) / data["hp_max"]
+        new_ratio = max(0, ud["boss_hp"]) / data["hp_max"]
+        mid, final = data["phases"][1]["threshold"], data["phases"][2]["threshold"]
         phase_msg = None
-        if old_ratio > 0.65 >= new_ratio:  phase_msg = _SENTINEL["phase2_msg"]
-        elif old_ratio > 0.30 >= new_ratio: phase_msg = _SENTINEL["phase3_msg"]
+        if old_ratio > mid >= new_ratio:     phase_msg = data["phase2_msg"]
+        elif old_ratio > final >= new_ratio: phase_msg = data["phase3_msg"]
 
         # The fire frame shows the phase the shot was fired into.
-        fire = _boss_art(ud, _phase_index(ud["boss_hp"] + dmg), attack=idx, crit=crit)
+        fire = _boss_art(ud, _phase_index(ud["boss_hp"] + dmg, _boss_id(ud)), attack=idx, crit=crit)
         emb, view = await self._retaliate(ud, player_txt, phase_msg)
         await self._animate(interaction, fire, emb, view)
 
@@ -1943,7 +2014,8 @@ class _BossView(ui.View):
         The buttons come off during the frame so a second click cannot land
         on a turn that is already resolved.
         """
-        frame = discord.Embed(title="⚔️ BOSS BATTLE — Void Sentinel",
+        title = _BOSSES[_boss_id(_get_user(self.uid))]["title"]
+        frame = discord.Embed(title=f"⚔️ BOSS BATTLE — {title}",
                               description=ansi.block(frame_art), color=emb.color)
         await interaction.response.edit_message(embed=frame, view=None)
         await asyncio.sleep(_BOSS_FRAME_S)
@@ -1954,48 +2026,11 @@ class _BossView(ui.View):
 
         # Victory
         if ud["boss_hp"] <= 0:
-            ud["boss_hp"]   = None
-            ud["boss_turns"]= 0
-            ud["story_state"]["core_retrieved"] = True
-            ud["credits"] += 2000
-            ud["resources"]["crystals"]     = ud["resources"].get("crystals",0)    + 100
-            ud["resources"]["energy"]       = ud["resources"].get("energy",0)      + 200
-            ud["resources"]["dark_matter"]  = ud["resources"].get("dark_matter",0) + 20
-            ud["achievements"].add("Void Slayer")
-            ud["achievements"].add("Core Retriever")
-            ud["achievements"].add("Ancient Wisdom")
-            _save_user(uid)
-            if _add_score: _add_score(uid, 1000)
-            gs = _load_json(SCORES_FILE)
-            gs[str(uid)] = gs.get(str(uid), 0) + 1000
-            _save_json(SCORES_FILE, gs)
-            emb = discord.Embed(
-                title="🏆 VOID SENTINEL DEFEATED!",
-                description=(
-                    "**THE CORE VAULT IS OPEN.**\n\n"
-                    "The ancient guardian collapses. The Ancient Core pulses in your grasp.\n\n"
-                    "_Your name will echo across the galaxy._\n"
-                    f"{ansi.block(_boss_art(ud, 2, defeated=True))}"
-                ),
-                color=0xffd700,
-            )
-            emb.add_field(name="🎁 Rewards",
-                          value="🏆 +1,000 pts  💰 +2,000 credits  💎 +100 crystals  ⚡ +200 energy  🌑 +20 dark matter",
-                          inline=False)
-            emb.add_field(name="🏅 Achievements",
-                          value="⭐ Void Slayer  ⭐ Core Retriever  ⭐ Ancient Wisdom", inline=False)
-            if not ud.get("core_power"):
-                # The victory screen doubles as the Core claim panel.
-                emb.add_field(name="🔮 Claim the Core",
-                              value="Bind one permanent power to your ship:\n" + "\n".join(
-                                  f"{p['emoji']} **{p['name']}** — {p['desc']}"
-                                  for p in _CORE_POWERS.values()),
-                              inline=False)
-                return emb, _CoreClaimView(uid)
-            return emb, None
+            return _VICTORIES[_boss_id(ud)](uid, ud)
 
         # Boss attacks
-        phase   = _boss_phase(ud["boss_hp"])
+        boss    = _BOSSES[_boss_id(ud)]
+        phase   = _boss_phase(ud["boss_hp"], _boss_id(ud))
         b_name, b_dmg_base, b_flavour = random.choice(phase["attacks"])
         shield  = ud["upgrades"]["shield_matrix"]
         actual  = max(5, b_dmg_base - shield*8 - random.randint(0,15))
@@ -2004,7 +2039,7 @@ class _BossView(ui.View):
 
         # Death
         if ud["fuel"] <= 0:
-            wreck = _boss_art(ud, _phase_index(ud["boss_hp"]), hit_ship=True, ship_lost=True)
+            wreck = _boss_art(ud, _phase_index(ud["boss_hp"], _boss_id(ud)), hit_ship=True, ship_lost=True)
             ud["boss_hp"]   = None
             ud["boss_turns"]= 0
             ud["fuel"]      = 10
@@ -2024,16 +2059,16 @@ class _BossView(ui.View):
         _save_user(uid)
         emb = discord.Embed(
             title=f"⚔️ Turn {ud['boss_turns']} — {phase['name']}",
-            description=ansi.block(_boss_art(ud, _phase_index(ud["boss_hp"]), hit_ship=not shielded,
+            description=ansi.block(_boss_art(ud, _phase_index(ud["boss_hp"], _boss_id(ud)), hit_ship=not shielded,
                                              shielded=shielded)),
             color=phase["color"])
         emb.add_field(name="Your Action",        value=player_txt,                            inline=False)
         if phase_msg:
             emb.add_field(name="⚡ Phase Shift!", value=phase_msg,                             inline=False)
-        emb.add_field(name="Sentinel Retaliates",
+        emb.add_field(name=f"{boss['short']} Retaliates",
                       value=f"💀 **{b_name}** — {b_flavour}\nDealt **{actual}** damage!",    inline=False)
-        if ud["boss_hp"] < _SENTINEL["hp_max"] * 0.15:
-            emb.add_field(name="😤 Taunt", value=_SENTINEL["low_hp_msg"], inline=False)
+        if ud["boss_hp"] < boss["data"]["hp_max"] * 0.15:
+            emb.add_field(name="😤 Taunt", value=boss["data"]["low_hp_msg"], inline=False)
         return emb, _BossView(uid)
     async def on_timeout(self):
         """Grey out the controls so an abandoned panel does not look live."""
