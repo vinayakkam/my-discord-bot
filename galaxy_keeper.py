@@ -396,14 +396,18 @@ class _RiddleModal(ui.Modal):
         self.system = system
         self.riddle = riddle
 
+        # The riddle itself, shown above the answer box. It used to appear only
+        # after a wrong answer, so the first time the form was just an empty
+        # box with nothing to solve.
+        self.add_item(ui.TextDisplay(riddle.prompt))
+
         self.answer_input = ui.TextInput(
-            label="Your answer",
             style=discord.TextStyle.short,
             placeholder="Type your solution",
             required=True,
             max_length=60,
         )
-        self.add_item(self.answer_input)
+        self.add_item(ui.Label(text="Your answer", component=self.answer_input))
 
     async def on_submit(self, interaction: discord.Interaction):
         key = (self.uid, tuple(self.system.get("coords") or ()))
