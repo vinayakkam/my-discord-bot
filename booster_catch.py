@@ -27,6 +27,13 @@ GRID_H = 18
 TOWER_ROW = 18
 GROUND_ROW = 19
 
+# Rendered canvas: GRID_H rows of sky, the chopstick arm row, two rows of open
+# tower below the arms, then the ground. Physics never reads these.
+_ARM_ROW = GRID_H
+_GROUND_ROW = GRID_H + 3
+_CANVAS_H = GRID_H + 4
+_TOWER_TOP = 7  # first lattice row of the Mechzilla tower
+
 WALL_L = 3  # left wall — booster bounces off this column
 WALL_R = 28  # right wall
 
@@ -72,15 +79,18 @@ DISP_SLOW = 1.30
 #  STAR FIELD
 # ══════════════════════════════════════════════════════════════════
 
+# Single-width glyphs only: the field is shown in a monospace code block.
+_STAR_CHARS = ("·", "·", "˙", ".", "∙", "'")
+
+
 def _make_star_field(seed: int) -> list:
     rng = random.Random(seed)
     field = [[""] * GRID_W for _ in range(GRID_H)]
-    chars = ["·", "✦", "∘", "°", "˙", "⋆", "★", "✧", "✩"]
     for row in range(GRID_H):
         density = 0.06 * (1.0 - row / GRID_H * 0.7)
         for col in range(1, GRID_W - 1):
             if rng.random() < density:
-                field[row][col] = rng.choice(chars)
+                field[row][col] = rng.choice(_STAR_CHARS)
     return field
 
 
@@ -159,23 +169,6 @@ class CatchGameView(discord.ui.View):
 class BoosterCatchGame:
     ARM_HALF = ARM_HALF
     ARM_SPEED = 4
-
-    _BOOSTER_FRAMES = [
-        ("▲", "║", "▼"), ("△", "║", "▽"), ("▲", "▐", "▼"), ("▲", "▌", "▼"),
-        ("▲", "║", "▼"), ("△", "║", "▽"), ("▲", "▐", "▼"), ("▲", "▌", "▼"),
-    ]
-    _BOOSTER_THRUST = [
-        ("▲", "║", "🔥"), ("▲", "║", "💥"), ("▲", "║", "⚡"), ("▲", "║", "🌟"),
-        ("▲", "║", "🔥"), ("△", "║", "💥"), ("▲", "║", "⚡"), ("▲", "║", "🌟"),
-    ]
-    _BOOSTER_FAST = [
-        ("🔥", "🚀", "💥"), ("⚡", "🚀", "🔥"), ("💥", "🚀", "⚡"), ("🌟", "🚀", "💥"),
-        ("🔥", "🛸", "💥"), ("⚡", "🛸", "🔥"), ("💥", "🛸", "⚡"), ("🌟", "🛸", "💥"),
-    ]
-    _BOOSTER_CATCH = [
-        ("▲", "🎯", "▼"), ("△", "📍", "▽"), ("▲", "🎯", "▼"), ("△", "📍", "▽"),
-        ("▲", "🎯", "▼"), ("▲", "🎯", "▼"), ("△", "📍", "▽"), ("▲", "🎯", "▼"),
-    ]
 
     def __init__(self, author_id: int, author_name: str):
         self.author_id = author_id
@@ -428,194 +421,187 @@ class BoosterCatchGame:
         self.state = "over"
 
     # ── RENDERING ──────────────────────────────────────────────────
+    # The field is drawn inside a ``` code block, so every glyph here is
+    # single-width: box drawing, block elements and plain ASCII. Emoji render
+    # two columns wide in Discord and would shove the rest of their row
+    # sideways, which is what made the old frames jitter.
 
-    def _get_booster_sprite(self) -> tuple:
-        f = self.anim_frame % 8
-        if self.engine_on:             return self._BOOSTER_THRUST[f]
-        if self.state == "catch_zone": return self._BOOSTER_CATCH[f]
-        if self.vel_y > 3.0:          return self._BOOSTER_FAST[f]
-        return self._BOOSTER_FRAMES[f]
+    def _booster_top_row(self) -> int:
+        """Canvas row of the grid fins.
 
-    def _exhaust_particles(self) -> list:
-        if not self.engine_on: return []
-        bx = max(WALL_L, min(WALL_R, int(self.pos_x)))
-        by = int(self.pos_y)
-        f = self.anim_frame % 8
-        pulse = 1.4 if f < 4 else 1.0
-        parts = []
-        plume_len = int(10 * pulse)
-        for i in range(1, plume_len + 1):
-            row = by + 2 + i
-            if 0 <= row < GRID_H:
-                d = i / plume_len
-                char = ("🔥" if d < 0.20 else "💥" if d < 0.38 else
-                "⚡" if d < 0.52 else "💨" if d < 0.70 else
-                "·" if d < 0.85 else "˙")
-                parts.append((row, bx, char))
-        for side in (-1, 1):
-            cx = bx + side
-            if WALL_L <= cx <= WALL_R:
-                for i in range(1, 5):
-                    row = by + 2 + i
-                    if 0 <= row < GRID_H:
-                        parts.append((row, cx, "💨" if i == 1 else "·" if i == 2 else "˙"))
-        if f < 4:
-            for ring in range(2, 10, 3):
-                row = by + 2 + ring
-                if 0 <= row < GRID_H:
-                    parts.append((row, bx, "◊"))
-        for spread in range(-2, 3):
-            cx = bx + spread
-            if WALL_L <= cx <= WALL_R:
-                row = by + 3
-                if 0 <= row < GRID_H:
-                    parts.append((row, cx, "🔥" if spread == 0 else "💨"))
-        return parts
+        Maps pos_y 0..CRASH_Y onto rows 0.._ARM_ROW, so the engines (three
+        rows below the fins) reach the ground row exactly at physics impact.
+        """
+        return max(0, min(_ARM_ROW, int(round(self.pos_y * _ARM_ROW / CRASH_Y))))
 
-    def _entry_heating(self) -> list:
-        if self.vel_y < 2.0: return []
-        bx = max(WALL_L, min(WALL_R, int(self.pos_x)))
-        by = int(self.pos_y)
-        trail = min(6, int(self.vel_y * 1.2))
-        chars = ["˙", "·", "∘", "°", "▪", "▪"]
-        effects = [(by - i, bx, chars[min(i - 1, 5)])
-                   for i in range(1, trail + 1) if 0 <= by - i < GRID_H]
-        if self.vel_y > 3.5:
-            effects += [(by, bx + s, random.choice(["·", "°", "∘", "~"]))
-                        for s in (-1, 1) if WALL_L <= bx + s <= WALL_R and 0 <= by < GRID_H]
-        return effects
-
-    def _sonic_boom(self) -> list:
-        age = self.anim_frame - self._sonic_boom_frame
-        if age < 0 or age > 5: return []
-        bx = max(WALL_L, min(WALL_R, int(self.pos_x)))
-        by = int(self.pos_y);
-        r = age + 1
-        return [(by, bx + dx, "○") for dx in range(-r, r + 1)
-                if WALL_L <= bx + dx <= WALL_R and 0 <= by < GRID_H]
-
-    def _twinkle_stars(self) -> list:
-        f = self.anim_frame % 6
-        on = self._twinkle_cells[:(len(self._twinkle_cells) // 2 + f % 2)]
-        return [(r, c, "✦") for r, c in on if 0 <= r < GRID_H and 0 <= c < GRID_W]
+    def _booster_sprite(self) -> list:
+        """The booster's four rows, top (grid fins) to bottom (engine skirt)."""
+        # Grid fins alternate slowly so they read as actively steering.
+        fins = "╪█╪" if (self.anim_frame // 2) % 2 == 0 else "╫█╫"
+        if self.engine_on:
+            engines = "▐▓▌"          # engines lit
+        elif self.vel_y > 3.0:
+            engines = "▝▒▘"          # skirt glowing from re-entry heating
+        else:
+            engines = "▝▀▘"
+        return [fins, "▐█▌", "▐█▌", engines]
 
     def make_field(self) -> str:
-        exhaust = self._exhaust_particles()
-        heating = self._entry_heating()
-        boom = self._sonic_boom()
-        twinkle = self._twinkle_stars()
-        frame = self.anim_frame % 16
         f8 = self.anim_frame % 8
+        frame = self.anim_frame % 16
+        canvas = [[" "] * GRID_W for _ in range(_CANVAS_H)]
+        soft = set(_STAR_CHARS) | {" ", "+"}  # cells effects may draw over
 
-        nose_s, body_s, eng_s = self._get_booster_sprite()
-        brow = max(0, min(GRID_H - 3, int(self.pos_y)))
+        def put(row: int, col: int, ch: str, force: bool = False) -> None:
+            # Draw one cell, clipped to the canvas; effects never cover structure.
+            if 0 <= row < _CANVAS_H and 0 <= col < GRID_W:
+                if force or canvas[row][col] in soft:
+                    canvas[row][col] = ch
+
         bcol = max(WALL_L, min(WALL_R, int(self.pos_x)))
+        top = self._booster_top_row()
+        crashed = self.state == "over" and not self.success
+        caught = self.state == "over" and self.success
+        if caught:
+            top = _ARM_ROW - 1   # held by the arms: body sits in the arm row
+        engine_row = top + 3
 
+        # ── Sky: static stars plus a few that twinkle ──
+        for row in range(GRID_H):
+            for col, ch in enumerate(self._star_field[row]):
+                if ch:
+                    canvas[row][col] = ch
+        for i, (r, c) in enumerate(self._twinkle_cells):
+            phase = (self.anim_frame + i) % 3
+            if phase != 2:
+                put(r, c, "+" if phase == 0 else "·")
+
+        # ── Wind: edge indicator plus streaks drifting downwind ──
+        ws = abs(self.wind_accel)
+        downwind = 1 if self.wind_accel > 0 else -1
+        if ws > WIND_BASE_ACCEL * 0.55:
+            put(2, GRID_W - 3, ("»" if downwind > 0 else "«") if f8 < 4 else
+                               ("›" if downwind > 0 else "‹"), force=True)
+        elif ws > WIND_BASE_ACCEL * 0.20:
+            put(2, GRID_W - 3, "~" if downwind > 0 else "≈", force=True)
+        if ws > WIND_BASE_ACCEL * 0.20:
+            streak = "-" if ws < WIND_BASE_ACCEL * 0.55 else "="
+            for n, row in enumerate((4, 9, 13)):
+                x = (n * 11 + self._wind_arrow_frame * 2 * downwind) % (WALL_R - WALL_L)
+                put(row, WALL_L + x, streak)
+                put(row, WALL_L + x + 1, streak)
+
+        # ── Mechzilla tower: lattice on the right, warning light on top ──
         t_light = ("●" if frame < 8 else "○") if self.catch_window_open else \
             ("●" if frame < 13 else "○") if self.pos_y > GRID_H * 0.6 else "●"
+        put(_TOWER_TOP - 1, GRID_W - 1, t_light, force=True)
+        for row in range(_TOWER_TOP, _GROUND_ROW):
+            canvas[row][GRID_W - 2] = "╲" if row % 2 == 0 else "╱"
+            canvas[row][GRID_W - 1] = "╱" if row % 2 == 0 else "╲"
 
-        total_rows = GRID_H
-
-        def alt_label(row: int) -> str:
-            frac = 1.0 - row / total_rows
-            km = frac * CRASH_Y
-            if abs(km - 15) < 1.0: return "15"
-            if abs(km - 10) < 1.0: return "10"
-            if abs(km - 6) < 1.0: return " 6"
-            if abs(km - 3) < 1.0: return " 3"
-            return "  "
-
-        lines = []
-        particle_map: dict = {}
-        for pr, pc, pch in exhaust + heating + boom:
-            particle_map.setdefault(pr, []).append((pc, pch))
-        twinkle_set = {(tr, tc): ch for tr, tc, ch in twinkle}
-
-        for row in range(GRID_H):
-            line = list(self._star_field[row])
-
-            for col in range(GRID_W):
-                if (row, col) in twinkle_set:
-                    line[col] = twinkle_set[(row, col)]
-
-            if row == 2:
-                ws = abs(self.wind_accel)
-                af = self._wind_arrow_frame % 8
-                if ws > WIND_BASE_ACCEL * 0.55:
-                    line[GRID_W - 2] = ("🌪️" if self.wind_accel > 0 else "💨") if af < 4 else \
-                        ("→" if self.wind_accel > 0 else "←")
-                elif ws > WIND_BASE_ACCEL * 0.20:
-                    line[GRID_W - 2] = "~" if self.wind_accel > 0 else "≈"
-
-            if row >= GRID_H - 3:
-                line[GRID_W - 1] = "░" if row == GRID_H - 3 else "▒" if row == GRID_H - 2 else "█"
-
-            if row == brow:
-                line[bcol] = nose_s
-            elif row == brow + 1:
-                line[bcol] = body_s
-            elif row == brow + 2:
-                line[bcol] = eng_s
-
-            if row in particle_map:
-                for pc, pch in particle_map[row]:
-                    if WALL_L <= pc <= WALL_R and line[pc] in ("", " "):
-                        line[pc] = pch
-
-            if self.catch_window_open and row == brow + 3:
-                pred_x = int(self.pos_x + self.vel_x * 0.5)
-                pred_x = max(WALL_L, min(WALL_R, pred_x))
-                if line[pred_x] in ("", " "):
-                    line[pred_x] = "↓"
-
-            row_str = "".join(c if c else " " for c in line)
-            lines.append(alt_label(row) + "│" + row_str)
-
-        # ── Tower row ──
-        tower = ["═"] * GRID_W
+        # ── Chopstick arms on their carriage ──
         al = max(0, int(self.arm_left))
-        ar = min(GRID_W - 1, int(self.arm_right))
-
+        ar = min(GRID_W - 3, int(self.arm_right))
+        arms = canvas[_ARM_ROW]
         for i in range(al, min(al + 4, GRID_W)):
-            tower[i] = ("╠" if self.catch_window_open else "╞") if i == al else \
+            arms[i] = ("╠" if self.catch_window_open else "╞") if i == al else \
                 ("═" if i == al + 1 else "╪" if i == al + 2 else "┤")
-
         for i in range(max(0, ar - 3), ar + 1):
-            tower[i] = ("╣" if self.catch_window_open else "╡") if i == ar else \
+            arms[i] = ("╣" if self.catch_window_open else "╡") if i == ar else \
                 ("═" if i == ar - 1 else "╪" if i == ar - 2 else "├")
-
-        il = al + 4;
-        ir2 = ar - 3
-        if il < ir2 and self.catch_window_open:
-            for i in range(il, ir2 + 1):
-                if tower[i] == "═":
-                    tower[i] = "╌" if (i + f8) % 3 != 0 else "·"
-
-        tower[0] = "║";
-        tower[1] = t_light
-        tower[GRID_W - 1] = "║";
-        tower[GRID_W - 2] = t_light
-
-        gc = int(self.arm_center)
-        if self.catch_window_open and 4 <= gc <= GRID_W - 5:
-            tower[gc] = "🎯" if f8 < 4 else "⭕"
-
+        for i in range(ar + 1, GRID_W - 2):
+            arms[i] = "─"                      # beam back to the tower
+        arms[GRID_W - 2] = "█"                 # carriage on the tower
+        if self.catch_window_open and not caught:
+            # Catch guides between the arm tips, target blinking at center.
+            for i in range(al + 4, ar - 3):
+                arms[i] = "┄"
+            gc = int(self.arm_center)
+            if al + 4 <= gc < ar - 3:
+                arms[gc] = "┼" if f8 < 4 else "┄"
         if abs(self.arm_center - self._last_arm_center) > 0.1:
-            for i in range(max(0, al - 1), min(GRID_W, ar + 2)):
-                if tower[i] == "═" and random.random() < 0.35:
-                    tower[i] = "⚡" if f8 < 2 else "═"
+            # Sparks along the arms while the carriage is moving.
+            for i in range(al, ar + 1):
+                if arms[i] in ("═", "─") and random.random() < 0.35:
+                    arms[i] = "*" if f8 < 2 else arms[i]
         self._last_arm_center = self.arm_center
-        lines.append("  │" + "".join(tower))
 
-        # ── Ground row ──
-        ground = ["▓"] * GRID_W
-        if self.state == "over" and not self.success:
-            ix = max(WALL_L, min(WALL_R, int(self.pos_x)))
-            for i in range(max(0, ix - 3), min(GRID_W, ix + 4)):
-                d = abs(i - ix)
-                ground[i] = "💥" if d == 0 else "▒" if d == 1 else "░" if d <= 3 else "▓"
-        lines.append("  │" + "".join(ground))
+        # ── Ground ──
+        for col in range(GRID_W):
+            canvas[_GROUND_ROW][col] = "▓"
+        canvas[_GROUND_ROW][GRID_W - 2] = "█"
+        canvas[_GROUND_ROW][GRID_W - 1] = "█"
 
+        # ── Re-entry heating: streaks trailing above a fast booster ──
+        if self.vel_y >= 2.0 and not self.engine_on and self.state != "over":
+            trail = min(6, int(self.vel_y * 1.2))
+            for i in range(1, trail + 1):
+                put(top - i, bcol, "│" if i == 1 else "╎" if i <= 3 else "┆" if i <= 4 else "·")
+            if self.vel_y > 3.5:
+                for side in (-2, 2):
+                    put(top + random.randint(0, 2), bcol + side, random.choice(["'", "·", "~"]))
+
+        # ── Sonic boom: a shock ring expanding sideways ──
+        age = self.anim_frame - self._sonic_boom_frame
+        if 0 <= age <= 5 and self.state != "over":
+            r = age + 2
+            for row in (top + 1, top + 2):
+                put(row, bcol - r, "(")
+                put(row, bcol + r, ")")
+
+        # ── Engine plume: widening cone with shock diamonds ──
+        if self.engine_on and self.state != "over":
+            length = 6 if f8 < 4 else 4    # pulses as the engines throttle
+            for i in range(1, length + 1):
+                row = engine_row + i
+                d = i / length
+                core = "█" if i == 1 else ("◊" if i % 2 == 0 else "▓") if d < 0.6 else \
+                    "▒" if d < 0.85 else "░"
+                put(row, bcol, core)
+                if i >= 2 and d < 0.9:
+                    put(row, bcol - 1, "▒" if d < 0.5 else "░")
+                    put(row, bcol + 1, "▒" if d < 0.5 else "░")
+                if i >= 3 and 0.5 < d < 0.9:
+                    put(row, bcol - 2, "░")
+                    put(row, bcol + 2, "░")
+            if engine_row + length >= _GROUND_ROW - 1:
+                # Exhaust hitting the pad kicks up a dust cloud.
+                for dx in range(-4, 5):
+                    put(_GROUND_ROW - 1, bcol + dx, "▒" if abs(dx) <= 1 else "░")
+
+        # ── Predicted touchdown column while the catch window is open ──
+        if self.catch_window_open and self.state != "over":
+            pred_x = max(WALL_L, min(WALL_R, int(self.pos_x + self.vel_x * 0.5)))
+            on_guides = 0 <= engine_row + 1 < _CANVAS_H and \
+                canvas[engine_row + 1][pred_x] in ("┄", "┼")
+            put(engine_row + 1, pred_x, "↓", force=on_guides)
+
+        # ── The booster itself, or what is left of it ──
+        if crashed:
+            fireball = ["  ░░░  ", " ░▒▓▒░ ", "░▒▓█▓▒░", "▀▄▀▄▀▄▀"]
+            for dy, line in enumerate(fireball):
+                for dx, ch in enumerate(line):
+                    if ch != " ":
+                        put(_ARM_ROW + dy, bcol - 3 + dx, ch, force=True)
+        else:
+            for dy, line in enumerate(self._booster_sprite()):
+                for dx, ch in enumerate(line):
+                    put(top + dy, bcol - 1 + dx, ch, force=True)
+            if caught:
+                # Arms closed: fill the gap so both tips meet the booster body.
+                for i in range(al + 1, ar):
+                    if not (bcol - 1 <= i <= bcol + 1) and arms[i] in ("┄", "┼", " "):
+                        arms[i] = "═"
+
+        # ── Altitude labels, one per mark, on the row the fins pass at that height ──
+        labels = {
+            int(round((CRASH_Y - km) * _ARM_ROW / CRASH_Y)): f"{km:>2}"
+            for km in (15, 10, 6, 3)
+        }
+        lines = []
+        for row in range(_CANVAS_H):
+            label = labels.get(row, "  ") if row < GRID_H else "  "
+            lines.append(label + "│" + "".join(canvas[row]))
         return "\n".join(lines)
 
     # ── EMBED ──────────────────────────────────────────────────────
@@ -788,7 +774,8 @@ def _register_commands(bot: commands.Bot):
 
             final = discord.Embed(
                 title="🏆 MISSION SUCCESS — BOOSTER RECOVERED",
-                description=f"**{ctx.author.display_name}** caught Booster 16 with Mechzilla!",
+                description=(f"**{ctx.author.display_name}** caught Booster 16 with Mechzilla!\n"
+                             f"```\n{game.make_field()}\n```"),
                 color=0x00FF00,
             )
             final.add_field(
@@ -839,7 +826,7 @@ def _register_commands(bot: commands.Bot):
 
             final = discord.Embed(
                 title="💥 MISSION FAILED — BOOSTER LOST",
-                description="Post-mission analysis:",
+                description=f"Post-mission analysis:\n```\n{game.make_field()}\n```",
                 color=0xFF0000,
             )
             final.add_field(
