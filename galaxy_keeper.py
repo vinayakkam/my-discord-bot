@@ -859,6 +859,51 @@ def _map_art(ud: dict) -> str:
     return canvas.render()
 
 
+# How long the warp frame stays up before the new map replaces it.
+_WARP_FRAME_S = 0.6
+
+# Ship glyph and streak glyph for each jump direction (dx, dy); +y is north.
+_WARP_SHAPES = {
+    (0, 1): ("▲", "│"), (0, -1): ("▼", "│"), (1, 0): ("►", "─"), (-1, 0): ("◄", "─"),
+    (1, 1): ("▲", "╱"), (-1, -1): ("▼", "╱"), (-1, 1): ("▲", "╲"), (1, -1): ("▼", "╲"),
+}
+
+
+def _warp_art(ud: dict, dx: int, dy: int) -> str:
+    """One hyperspace frame: star streaks trailing away from the jump."""
+    canvas = ansi.Canvas(_MAP_W, _MAP_SIZE + 5)
+    _map_frame(canvas, 0)
+    ship, streak = _WARP_SHAPES.get((dx, dy), ("▲", "│"))
+    # Streaks run backwards from their head, opposite to the jump. Canvas rows
+    # grow downwards, so moving north means the tail extends down (+row).
+    step_r, step_c = dy, -dx
+    tail = [ansi.WHITE_B, ansi.CYAN_B, ansi.CYAN, ansi.BLUE, ansi.GRAY]
+    pos = ud["position"]
+    for n in range(16):
+        h = _cell_hash(pos[0], pos[1], n)
+        r = 1 + h % _MAP_SIZE
+        c = 1 + (h // 11) % (_MAP_W - 2)
+        length = 2 + (h // 7) % 4
+        for i in range(length):
+            rr, cc = r + i * step_r, c + i * step_c
+            if 1 <= rr <= _MAP_SIZE and 1 <= cc <= _MAP_W - 2:
+                canvas.put(rr, cc, streak, tail[min(i, len(tail) - 1)])
+    centre = 1 + _MAP_SIZE // 2
+    _put_ship(canvas, centre, 1 + (_MAP_SIZE // 2) * _MAP_CELL, ship)
+    # Engine glow behind the ship, on the side the streaks trail to.
+    canvas.put(centre + step_r, 2 + (_MAP_SIZE // 2) * _MAP_CELL + step_c, "≈", ansi.YELLOW_B)
+    canvas.text(_MAP_SIZE + 2, 0, "WARP DRIVE ENGAGED", ansi.YELLOW_B)
+    canvas.text(_MAP_SIZE + 3, 0, f"→ ({pos[0]}, {pos[1]})", ansi.CYAN_B)
+    return canvas.render()
+
+
+def _warp_embed(uid: int, dx: int, dy: int) -> discord.Embed:
+    ud = _get_user(uid)
+    biome = get_sector_biome(ud["position"][0] // 50, ud["position"][1] // 50)
+    return discord.Embed(title="🌌 Warping…", description=ansi.block(_warp_art(ud, dx, dy)),
+                         color=biome["color"])
+
+
 # ─── EMBEDS ────────────────────────────────────────────────────────
 
 def _map_embed(uid: int) -> discord.Embed:
@@ -971,13 +1016,18 @@ class _NavView(ui.View):
         ud["position"][1] += dy
         ud["fuel"] -= cost
         _save_user(self.uid)
+        # Roll the travel event before drawing anything: rendering the map
+        # reseeds the global RNG through generate_system().
+        ev_emb = None
         if random.random() < 0.10:
             ev_emb = _travel_event(ud)
             _save_user(self.uid)
-            await interaction.response.edit_message(embed=_map_embed(self.uid), view=self)
+        # One warp frame, then the map at the new position.
+        await interaction.response.edit_message(embed=_warp_embed(self.uid, dx, dy), view=self)
+        await asyncio.sleep(_WARP_FRAME_S)
+        await interaction.edit_original_response(embed=_map_embed(self.uid), view=self)
+        if ev_emb:
             await interaction.followup.send(embed=ev_emb, ephemeral=True)
-        else:
-            await interaction.response.edit_message(embed=_map_embed(self.uid), view=self)
 
     @ui.button(label="↖", style=discord.ButtonStyle.secondary, row=0)
     async def nw(self, i, b): await self._move(i, -1,  1)

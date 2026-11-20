@@ -101,3 +101,95 @@ def test_map_embed_fits_discord_limits():
     emb = gk._map_embed(UID)
     assert ansi_blocks(emb)
     assert_fits_discord(emb)
+
+
+# ── Fake interaction for driving button callbacks ─────────────────────────────
+
+class FakeInteraction:
+    """Records every embed a callback shows, in order, without Discord."""
+
+    class _User:
+        id = UID
+        display_name = "Tester"
+
+    def __init__(self):
+        self.user = self._User()
+        self.shown = []        # (how, embed) in the order the player sees them
+        outer = self
+
+        class _Response:
+            async def edit_message(self, embed=None, **kw):
+                outer.shown.append(("edit", embed))
+
+            async def send_message(self, content=None, embed=None, **kw):
+                outer.shown.append(("send", embed))
+
+            async def send_modal(self, modal):
+                outer.shown.append(("modal", None))
+
+        class _Followup:
+            async def send(self, content=None, embed=None, **kw):
+                outer.shown.append(("followup", embed))
+
+        self.response = _Response()
+        self.followup = _Followup()
+
+    async def edit_original_response(self, embed=None, **kw):
+        self.shown.append(("edit_original", embed))
+
+
+@pytest.fixture
+def no_wait(monkeypatch):
+    """Animations sleep between frames; skip the waiting in tests."""
+    async def instant(_seconds):
+        return None
+    monkeypatch.setattr(gk.asyncio, "sleep", instant)
+
+
+def click(make_view, button: str, interaction) -> None:
+    """Build the view inside an event loop (discord.py requires one) and
+    press one of its buttons."""
+    import asyncio
+
+    async def go():
+        await getattr(make_view(), button).callback(interaction)
+
+    asyncio.run(go())
+
+
+# ── Warp ──────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("dx, dy", sorted(gk._WARP_SHAPES))
+def test_warp_frame_is_aligned_in_every_direction(dx, dy):
+    ud = _player(position=[dx * 5, dy * 5])
+    rows = assert_clean_grid(gk._warp_art(ud, dx, dy))
+    ship = gk._WARP_SHAPES[(dx, dy)][0]
+    assert ship in rows[1 + gk._MAP_SIZE // 2]
+
+
+def test_moving_shows_the_warp_then_the_map(no_wait, monkeypatch):
+    _player(position=[0, 0], fuel=50)
+    monkeypatch.setattr(gk.random, "random", lambda: 0.99)   # no travel event
+    it = FakeInteraction()
+    click(lambda: gk._NavView(UID), "nn", it)
+    assert [how for how, _ in it.shown] == ["edit", "edit_original"]
+    assert it.shown[0][1].title.startswith("🌌 Warping")
+    assert it.shown[1][1].title.startswith("🌌 Galaxy Map")
+    assert gk._get_user(UID)["position"] == [0, 1]
+
+
+def test_travel_event_still_arrives_after_the_map(no_wait, monkeypatch):
+    _player(position=[0, 0], fuel=50)
+    monkeypatch.setattr(gk.random, "random", lambda: 0.01)   # force an event
+    it = FakeInteraction()
+    click(lambda: gk._NavView(UID), "ee", it)
+    assert [how for how, _ in it.shown] == ["edit", "edit_original", "followup"]
+    assert it.shown[2][1].title.startswith("🌌 Travel Event")
+
+
+def test_move_without_fuel_does_not_warp(no_wait):
+    _player(position=[0, 0], fuel=0)
+    it = FakeInteraction()
+    click(lambda: gk._NavView(UID), "nn", it)
+    assert [how for how, _ in it.shown] == ["send"]
+    assert gk._get_user(UID)["position"] == [0, 0]
